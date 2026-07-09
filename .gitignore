@@ -1,0 +1,31 @@
+# ==============================================================================
+# 1. Build Directories
+# ==============================================================================
+# Exclude common build output directories
+**/[Bb]uild/
+
+# Specific exclusions for CMake artifacts
+CMakeCache.txt
+CMakeFiles/
+CMakeSettings.json
+CMakePresets.json
+CTestTestfile.cmake
+cmake_install.cmake
+Makefile
+targets/
+
+# ==============================================================================
+# 2. Compilation Database & LSP Configuration
+# ==============================================================================
+# Keep compile_commands.json at the root for local LSP analysis.
+# Exclude temporary cache and generated IDE configuration files.
+.clangd/
+.cache/
+.ccls-cache/
+
+# IDE
+**/.vscode/
+
+# Project Output
+**/output/
+.aider*
