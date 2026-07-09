@@ -1,0 +1,76 @@
+
+---
+# ==============================================================================
+# CLANG-TIDY SAFETY (Google Style + Pseudo-MISRA/AUTOSAR)
+# ==============================================================================
+Checks: >
+  -*,
+  clang-analyzer-*,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  bugprone-*,
+  google-*,
+  cppcoreguidelines-*,
+  performance-*,
+  readability-*,
+  hicpp-signed-bitwise,
+  modernize-use-nullptr,
+  -bugprone-easily-swappable-parameters,
+  -cppcoreguidelines-owning-memory,
+  -cppcoreguidelines-use-default-member-init,
+  -cppcoreguidelines-no-malloc
+
+# Treat all enabled diagnostic warnings as compilation errors to force compliance
+WarningsAsErrors: '*'
+
+# Filter out system, standard library, and third-party testing framework headers
+HeaderFilterRegex: '^(?!.*(include/c\+\+|bits|gtest|boost|mock)).*$'
+
+CheckOptions:
+  # Enforce explicit constructors for single-argument initializations to prevent implicit conversions
+  - key:             google-explicit-constructor.ModifyConstructorExpressions
+    value:           'true'
+
+  # Limit function complexity and statement count to maintain auditability
+  - key:             google-readability-function-size.StatementThreshold
+    value:           '50'
+  - key:             google-readability-function-size.LineThreshold
+    value:           '100'
+
+  # Enforce strict argument comment matching for literal arguments
+  - key:             bugprone-argument-comment.StrictMode
+    value:           'true'
+
+  # Prevent side effects (like mutating increments or state changes) inside assert macros
+  - key:             bugprone-assert-side-effect.AssertMacros
+    value:           'assert,assert_rt'
+
+  # Catch dangling handles/pointers when using modern container views
+  - key:             bugprone-dangling-handle.HandleClasses
+    value:           'std::basic_string_view;std::span;std::string_view'
+
+  # Catch oversized or suspicious allocations during string construction
+  - key:             bugprone-string-constructor.LargeLengthThreshold
+    value:           '1000'
+
+  # Require explicit override/virtual markings on destructors in a class hierarchy
+  - key:             cppcoreguidelines-explicit-virtual-functions.IgnoreDestructors
+    value:           'false'
+
+  # Enforce strict variable initialization before usage
+  - key:             cppcoreguidelines-init-variables.MathFunctions
+    value:           'isnan;isinf'
+
+  # Restrict macros to protect namespace safety (only allow standard header guards)
+  - key:             cppcoreguidelines-macro-usage.AllowedRegexp
+    value:           '^HEADER_GUARD_'
+
+  # Require strict bounds checking for constant array indexing
+  - key:             cppcoreguidelines-pro-bounds-constant-array-index.IncludeStyle
+    value:           'llvm'
+
+  # Force Rule of 5 / Rule of 0 validation; do not allow implicit compiler-generated move/copy functions
+  - key:             cppcoreguidelines-special-member-functions.AllowMissingMoveFunctions
+    value:           'false'
+  - key:             cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor
+    value:           'false'
+...
