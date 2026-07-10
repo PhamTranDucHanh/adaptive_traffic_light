@@ -21,7 +21,7 @@ endif()
 
 # 3. TARGET & SOURCE FILES DEFINITION
 # Create the submodule as a static library target
-add_library(traffic_perception STATIC)
+add_library(traffic_perception_lib STATIC)
 
 file(GLOB_RECURSE ALL_HEADERS 
     "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
@@ -55,10 +55,10 @@ set(ALL_SOURCES
     src/io/telemetry_manager.cpp
 )
 
-target_sources(traffic_perception PRIVATE ${ALL_SOURCES})
+target_sources(traffic_perception_lib PRIVATE ${ALL_SOURCES})
 
 # 4. INCLUDE DIRECTORIES CONFIGURATION
-target_include_directories(traffic_perception
+target_include_directories(traffic_perception_lib
     PUBLIC
         # Allows internal/external components to include headers via <traffic_perception/...>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
