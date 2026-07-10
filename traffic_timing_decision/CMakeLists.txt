@@ -21,7 +21,6 @@ set(CMAKE_COMPILE_COMMAND ON)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(
-
         -Wall
         -Wextra
         -Wpedantic
@@ -29,14 +28,8 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     )
 endif()
 
-############################################################
-# Executable
-############################################################
-
-add_executable(
-    decision_demo
-
-    src/decision_demo.cpp
+add_library(
+    traffic_timing_decision_lib
 
     src/periodic_service.cpp
     src/traffic_data_receiver.cpp
@@ -45,20 +38,19 @@ add_executable(
     src/health_reporter.cpp
 )
 
-############################################################
-# Include Directories
-############################################################
 target_include_directories(
-    decision_demo
-    PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    traffic_timing_decision_lib
+    PUBLIC
+    include
 )
 
-############################################################
-# Include
-############################################################
-target_include_directories(
+add_executable(
+    decision_demo
+    src/decision_demo.cpp
+)
+
+target_link_libraries(
     decision_demo
     PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    traffic_timing_decision_lib
 )
