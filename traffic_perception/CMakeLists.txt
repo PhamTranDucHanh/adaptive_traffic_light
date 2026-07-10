@@ -60,17 +60,17 @@ target_sources(traffic_perception_lib PRIVATE ${ALL_SOURCES})
 # 4. INCLUDE DIRECTORIES CONFIGURATION
 target_include_directories(traffic_perception_lib
     PUBLIC
-        # Allows internal/external components to include headers via <traffic_perception/...>
+        # Allows internal/external components to include headers via <traffic_perception_lib/...>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     PRIVATE
         # Internal include path for source files within src/
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_precompile_headers(traffic_perception PRIVATE <opencv2/opencv.hpp>)
+target_precompile_headers(traffic_perception_lib PRIVATE <opencv2/opencv.hpp>)
 
 # 5. TARGET LINK LIBRARIES
-target_link_libraries(traffic_perception
+target_link_libraries(traffic_perception_lib
     PUBLIC
         OpenCV::OpenCV
         Threads::Threads
@@ -81,11 +81,11 @@ target_link_libraries(traffic_perception
 
 # 6. COMPILER WARNINGS (Enforce strict code compliance)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    target_compile_options(traffic_perception PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(traffic_perception_lib PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 add_executable(module_demo src/module_demo.cpp)
-target_link_libraries(module_demo PRIVATE traffic_perception ${OpenCV_LIBS} rt)
+target_link_libraries(module_demo PRIVATE traffic_perception_lib ${OpenCV_LIBS} rt)
 
 add_custom_target(lint
     COMMAND run-clang-tidy-18 -p ${CMAKE_BINARY_DIR} -header-filter=${CMAKE_BINARY_DIR} ${ALL_SOURCES} ${ALL_HEADERS}
