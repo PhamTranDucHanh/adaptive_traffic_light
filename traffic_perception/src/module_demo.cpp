@@ -11,7 +11,7 @@ int main() {
     health.sendStartSignal();
 
     // 2. Initializing Orchestrator (PerceptionModule)
-    traffic_perception::PerceptionModule perception;
+    PerceptionModule perception;
     if (perception.initModule("config/app_config.json")) {
         std::cout << "Module initialized successfully!" << '\n';
     } else {

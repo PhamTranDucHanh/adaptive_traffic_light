@@ -3,8 +3,7 @@
 #include <iostream>
 
 void TelemetryManager::showTelemetryMetrics(FrameContext &ctx) const {
-  std::cout << "[TelemetryManager] showTelemetryMetrics() - Total Cycles: %d, "
+  std::cout << "[TelemetryManager] showTelemetryMetrics() - Total Cycles: "
                "Vehicle "
-            << "Count: %d\n"
-            << TotalCycles << ctx.VehicleCount;
+            << TotalCycles << ", Count: " << ctx.VehicleCount;
 }
