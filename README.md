@@ -1,5 +1,17 @@
 # adaptive_traffic_light
 
+How to build:
+
+```bash
+cmake -B build
+
+cmake --build build -j
+```
+Run empty target
+
+```bash
+./build/adaptive_traffic_light 
+```
 
 
 ## Getting started
