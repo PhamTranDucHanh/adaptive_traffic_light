@@ -1,0 +1,8 @@
+module(
+    name = "traffic_signal_controller",
+    version = "1.0",
+)
+
+bazel_dep(name = "score_baselibs", version = "0.2.9")  
+bazel_dep(name = "score_logging",  version = "0.2.2")  
+

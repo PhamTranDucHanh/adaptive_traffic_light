@@ -3,16 +3,9 @@
 
 #include <common/config.h>
 
-struct FSMResult {
-  SignalOutput output{};
-  SignalDisplay display{};
-};
-
 class SignalFSMEngine {
  public:
-  FSMResult processTick(const TimerTick& tick);
-
-  HealthStatus sendHeartbeat() const;
+  SignalDisplay processTick();
 
  private:
   void fsm();

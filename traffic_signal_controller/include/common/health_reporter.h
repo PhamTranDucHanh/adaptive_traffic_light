@@ -3,18 +3,4 @@
 
 #include <common/config.h>
 
-class HealthReporter {
- public:
-  void requestHeartbeat();
-
-  void receiveHealthMetrics(const HealthStatus& metrics);
-
-  bool checkHealth();
-
-  HealthStatus createHealthStatus();
-
- private:
-  HealthStatus currentStatus;
-};
-
 #endif
