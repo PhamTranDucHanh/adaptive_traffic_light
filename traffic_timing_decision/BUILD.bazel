@@ -1,0 +1,11 @@
+package(default_visibility = ["//visibility:public"])
+
+alias(
+    name = "timing_decision",
+    actual = "//traffic_timing_decision:traffic_timing_decision",
+)
+
+alias(
+    name = "traffic_light_system",
+    actual = "//deployment:traffic_light_system",
+)

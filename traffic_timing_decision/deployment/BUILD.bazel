@@ -1,0 +1,26 @@
+sh_binary(
+    name = "traffic_light_system",
+    srcs = ["run_traffic_light_system.sh"],
+    args = [
+        "$(rlocationpath @score_lifecycle//score/launch_manager:launch_manager)",
+        "$(rlocationpath //control_daemon:control_daemon)",
+        "$(rlocationpath //control_daemon:lmcontrol)",
+        "$(rlocationpath //traffic_timing_decision:traffic_timing_decision)",
+        "$(rlocationpath //config:traffic_light_lifecycle_config)",
+        "$(rlocationpath //config:ecu_logging_config.json)",
+        "$(rlocationpath //config:hm_logging.json)",
+        "$(rlocationpath //config:logging.json)",
+    ],
+    data = [
+        "//config:traffic_light_lifecycle_config",
+        "//config:ecu_logging_config.json",
+        "//config:hm_logging.json",
+        "//config:logging.json",
+        "//control_daemon:control_daemon",
+        "//control_daemon:lmcontrol",
+        "//traffic_timing_decision:traffic_timing_decision",
+        "@bazel_tools//tools/bash/runfiles",
+        "@score_lifecycle//score/launch_manager:launch_manager",
+    ],
+    visibility = ["//visibility:public"],
+)
