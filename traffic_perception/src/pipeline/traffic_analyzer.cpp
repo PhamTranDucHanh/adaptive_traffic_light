@@ -13,7 +13,7 @@ void TrafficAnalyzer::initViewer(MultiLaneViewer *viewerPtr) {
 
 void TrafficAnalyzer::trackAndAnalyze(FrameContext &ctx) {
   std::cout << "[TrafficAnalyzer] trackAndAnalyze() called for Lane "
-            << ctx.LaneId << ", FrameId " << ctx.FrameId << '\n';
+            << ctx.LaneId << ", FrameId " << (ctx.CapturedFrame ? ctx.CapturedFrame->FrameId : -1) << '\n';
   if (ViewerPtr != nullptr) {
     MultiLaneViewer::updateLaneView(ctx);
   }

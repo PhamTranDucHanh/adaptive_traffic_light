@@ -11,8 +11,8 @@ bool StreamWorker::initStream(AppConfig config, int32_t streamId) {
   return true;
 }
 
-void StreamWorker::producerLoop(SafeFrameQueue &queue) const {
-  (void)queue;
+void StreamWorker::producerLoop(AtomicFrameBuffer &frameBuffer) const {
+  (void)frameBuffer;
   std::cout << "[StreamWorker] producerLoop() called for Lane " << LaneId
             << '\n';
 }

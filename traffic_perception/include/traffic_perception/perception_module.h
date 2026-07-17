@@ -8,7 +8,7 @@
 
 #include "traffic_perception/core/config_manager.h"
 #include "traffic_perception/inference/inference_engine.h"
-#include "traffic_perception/ingestion/safe_frame_queue.h"
+#include "traffic_perception/ingestion/atomic_frame_buffer.h"
 #include "traffic_perception/ingestion/stream_watchdog.h"
 #include "traffic_perception/ingestion/stream_worker.h"
 #include "traffic_perception/io/multi_lane_viewer.h"
@@ -31,7 +31,7 @@ class PerceptionModule final {
   ConfigManager configManager_{};
   StreamWatchdog watchdog_{};
   std::array<StreamWorker, 4U> workers_{};
-  std::array<SafeFrameQueue, 4U> queues_{};
+  std::array<AtomicFrameBuffer, 4U> buffers_{};
   InferenceEngine engine_{};
   TrafficAnalyzer analyzer_{};
   MultiLaneViewer viewer_{};

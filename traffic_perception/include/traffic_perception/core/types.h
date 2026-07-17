@@ -14,9 +14,13 @@ struct Detection {
   float Confidence{};
 };
 
-struct FrameContext {
+struct Frame {
   std::int32_t FrameId{};
-  cv::Mat Frame{};
+  cv::Mat Image{};
+};
+
+struct FrameContext {
+  Frame* CapturedFrame{};
   std::vector<Detection> Detections{};
   std::int32_t LaneId{};
   std::int32_t VehicleCount{};

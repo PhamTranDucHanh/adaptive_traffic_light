@@ -61,12 +61,15 @@ bool PerceptionModule::processAndPublishOneSnapshot() {
   FrameContext context{};
   const std::size_t lane = nextLaneIndex_;
 
-  if (!queues_[lane].dequeue_non_blocking(context)) {
+  if (engine_.consumeFromBuffer(lane, context)) {
+    // Successfully got frame
+  } else {
     // PoC-only input để teammate chạy smoke ngay.
     // TODO(domain): bỏ synthetic frame khi StreamWorker enqueue frame thật.
-    context.FrameId = ++nextFrameId_;
+    context.CapturedFrame = new Frame(); // Using new temporarily until FramePool is fully integrated in StreamWorker
+    context.CapturedFrame->FrameId = ++nextFrameId_;
     context.LaneId = static_cast<std::int32_t>(lane);
-    context.Frame = cv::Mat::zeros(kRows, kColumns, CV_8UC3);
+    context.CapturedFrame->Image = cv::Mat::zeros(kRows, kColumns, CV_8UC3);
   }
 
   // TODO(domain): inference, tracking, aggregation và stale-input policy thật.
@@ -79,7 +82,7 @@ bool PerceptionModule::processAndPublishOneSnapshot() {
     ++telemetry_.TotalCycles;
   }
 
-  nextLaneIndex_ = (lane + 1U) % queues_.size();
+  nextLaneIndex_ = (lane + 1U) % buffers_.size();
   return published;
 }
 

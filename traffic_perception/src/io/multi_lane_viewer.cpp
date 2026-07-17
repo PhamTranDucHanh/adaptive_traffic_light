@@ -6,7 +6,7 @@ namespace traffic_perception {
 
 void MultiLaneViewer::updateLaneView(FrameContext &ctx) {
   std::cout << "[MultiLaneViewer] updateLaneView() called for Lane: "
-            << ctx.LaneId << ", FrameId: " << ctx.FrameId
+            << ctx.LaneId << ", FrameId: " << (ctx.CapturedFrame ? ctx.CapturedFrame->FrameId : -1)
             << ", Vehicles: " << ctx.VehicleCount << '\n';
 }
 

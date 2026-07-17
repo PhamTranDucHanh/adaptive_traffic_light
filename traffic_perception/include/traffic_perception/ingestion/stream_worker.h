@@ -6,7 +6,7 @@
 #include <utility>
 
 #include "traffic_perception/core/types.h"
-#include "traffic_perception/ingestion/safe_frame_queue.h"
+#include "traffic_perception/ingestion/atomic_frame_buffer.h"
 
 namespace traffic_perception {
 
@@ -18,7 +18,7 @@ class StreamWorker {
 
  public:
   bool initStream(AppConfig config, int32_t streamId);
-  void producerLoop(SafeFrameQueue &queue) const;
+  void producerLoop(AtomicFrameBuffer &frameBuffer) const;
   int32_t getHealthStatus() const;
 };
 
