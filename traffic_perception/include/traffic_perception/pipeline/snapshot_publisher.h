@@ -1,26 +1,23 @@
-#ifndef PIPELINE_SNAPSHOT_PUBLISHER_H
-#define PIPELINE_SNAPSHOT_PUBLISHER_H
+#ifndef TRAFFIC_PERCEPTION_PIPELINE_SNAPSHOT_PUBLISHER_H_
+#define TRAFFIC_PERCEPTION_PIPELINE_SNAPSHOT_PUBLISHER_H_
 
 #include <string>
 
 #include "traffic_perception/core/types.h"
-
-// Forward declarations
-class TelemetryManager;
-class ISnapshotSender;
+#include "traffic_perception/io/snapshot_sender.h"
+#include "traffic_perception/io/telemetry_manager.h"
 
 class SnapshotPublisher {
  public:
-  std::string BrokerUrl;
+  std::string BrokerUrl{};
+
+  void initTelemetry(traffic_perception::TelemetryManager* telemetry);
+  void initSender(traffic_perception::ISnapshotSender* sender);
+  bool broadcastSnapshot(FrameContext& context);
 
  private:
-  TelemetryManager *TelemetryPtr;
-  ISnapshotSender *SenderPtr;
-
- public:
-  void initTelemetry(TelemetryManager *t);
-  void initSender(ISnapshotSender *s);
-  void broadcastSnapshot(FrameContext &ctx);
+  traffic_perception::TelemetryManager* telemetry_{nullptr};
+  traffic_perception::ISnapshotSender* sender_{nullptr};
 };
 
-#endif  // PIPELINE_SNAPSHOT_PUBLISHER_H
+#endif  // TRAFFIC_PERCEPTION_PIPELINE_SNAPSHOT_PUBLISHER_H_

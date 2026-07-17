@@ -5,6 +5,8 @@
 
 #include "traffic_perception/core/types.h"
 
+namespace traffic_perception {
+
 class ConfigManager {
  private:
   std::string ConfigFile;
@@ -14,5 +16,7 @@ class ConfigManager {
   bool loadConfig();
   AppConfig getConfig();
 };
+
+}  // namespace traffic_perception
 
 #endif  // CONFIG_MANAGER_H

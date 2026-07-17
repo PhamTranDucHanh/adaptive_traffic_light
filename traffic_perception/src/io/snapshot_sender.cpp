@@ -2,6 +2,8 @@
 
 #include <iostream>
 
+namespace traffic_perception {
+
 bool MQSnapshotSender::open() {
   std::cout << "[MQSnapshotSender] open() called" << '\n';
   return true;
@@ -17,3 +19,5 @@ bool MQSnapshotSender::send(FrameContext &snapshot) {
 void MQSnapshotSender::close() {
   std::cout << "[MQSnapshotSender] close() called" << '\n';
 }
+
+}  // namespace traffic_perception

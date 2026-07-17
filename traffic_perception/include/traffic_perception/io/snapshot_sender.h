@@ -5,6 +5,8 @@
 
 #include "traffic_perception/core/types.h"
 
+namespace traffic_perception {
+
 class ISnapshotSender {
  public:
   virtual ~ISnapshotSender() = default;
@@ -24,5 +26,7 @@ class MQSnapshotSender : public ISnapshotSender {
   bool send(FrameContext &snapshot) override;
   void close() override;
 };
+
+}  // namespace traffic_perception
 
 #endif  // IO_SNAPSHOT_SENDER_H

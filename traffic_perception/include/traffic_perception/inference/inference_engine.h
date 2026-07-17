@@ -4,6 +4,8 @@
 #include "traffic_perception/core/types.h"
 #include "traffic_perception/inference/model_backend.h"
 
+namespace traffic_perception {
+
 // Forward declaration of PipelineNode to avoid circular dependency
 struct PipelineNode;
 class SafeFrameQueue;
@@ -20,5 +22,7 @@ class InferenceEngine {
   static void consumerRoundRobinLoop();
   void executeInference(FrameContext &ctx);
 };
+
+}  // namespace traffic_perception
 
 #endif  // INFERENCE_INFERENCE_ENGINE_H

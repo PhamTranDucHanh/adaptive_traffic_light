@@ -1,6 +1,9 @@
 #include "traffic_perception/ingestion/stream_watchdog.h"
 
 #include <cstdio>
+#include <iostream>
+
+namespace traffic_perception {
 
 void StreamWatchdog::monitorHealth(const StreamWorker &worker) {
   (void)worker;
@@ -11,3 +14,5 @@ void StreamWatchdog::recoverStream(StreamWorker &worker, AppConfig cfg) {
   std::cout << "[StreamWatchdog] recoverStream() called\n";
   worker.initStream(std::move(cfg), 0);  // Temporary stub call
 }
+
+}  // namespace traffic_perception

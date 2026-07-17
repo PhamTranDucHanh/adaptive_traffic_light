@@ -2,6 +2,8 @@
 
 #include <iostream>
 
+namespace traffic_perception {
+
 bool StreamWorker::initStream(AppConfig config, int32_t streamId) {
   Config = std::move(config);
   LaneId = streamId;
@@ -20,3 +22,5 @@ int32_t StreamWorker::getHealthStatus() const {
             << '\n';
   return 1;  // 1 = healthy
 }
+
+}  // namespace traffic_perception

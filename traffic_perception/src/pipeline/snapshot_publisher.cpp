@@ -2,26 +2,25 @@
 
 #include <iostream>
 
-#include "traffic_perception/io/snapshot_sender.h"
-#include "traffic_perception/io/telemetry_manager.h"
+using namespace traffic_perception;
 
-void SnapshotPublisher::initTelemetry(TelemetryManager *telemetryManager) {
-  std::cout << "[SnapshotPublisher] initTelemetry() called" << '\n';
-  TelemetryPtr = telemetryManager;
+void SnapshotPublisher::initTelemetry(TelemetryManager* telemetry) {
+  telemetry_ = telemetry;
 }
 
-void SnapshotPublisher::initSender(ISnapshotSender *snapshotSender) {
-  std::cout << "[SnapshotPublisher] initSender() called" << '\n';
-  SenderPtr = snapshotSender;
+void SnapshotPublisher::initSender(ISnapshotSender* sender) {
+  sender_ = sender;
 }
 
-void SnapshotPublisher::broadcastSnapshot(FrameContext &ctx) {
-  std::cout << "[SnapshotPublisher] broadcastSnapshot() called for Lane: "
-            << ctx.LaneId << ", FrameId: " << ctx.FrameId << '\n';
-  if (SenderPtr != nullptr) {
-    SenderPtr->send(ctx);
+bool SnapshotPublisher::broadcastSnapshot(FrameContext& context) {
+  if (sender_ == nullptr) {
+    std::cerr << "[PERCEPTION][PUBLISH][ERROR] sender is null\n";
+    return false;
   }
-  if (TelemetryPtr != nullptr) {
-    TelemetryPtr->showTelemetryMetrics(ctx);
+
+  const bool sent = sender_->send(context);
+  if (sent && telemetry_ != nullptr) {
+    telemetry_->showTelemetryMetrics(context);
   }
+  return sent;
 }

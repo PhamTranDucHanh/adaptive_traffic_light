@@ -4,6 +4,8 @@
 
 #include "traffic_perception/io/multi_lane_viewer.h"
 
+namespace traffic_perception {
+
 void TrafficAnalyzer::initViewer(MultiLaneViewer *viewerPtr) {
   std::cout << "[TrafficAnalyzer] initViewer() called" << '\n';
   ViewerPtr = viewerPtr;
@@ -16,3 +18,5 @@ void TrafficAnalyzer::trackAndAnalyze(FrameContext &ctx) {
     MultiLaneViewer::updateLaneView(ctx);
   }
 }
+
+}  // namespace traffic_perception

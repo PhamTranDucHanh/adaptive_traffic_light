@@ -3,6 +3,8 @@
 #include "traffic_perception/pipeline/pipeline_node.h"
 #include <iostream>
 
+using namespace traffic_perception;
+
 int main() {
     std::cout << "=== Traffic Perception Module Demo ===" << '\n';
 

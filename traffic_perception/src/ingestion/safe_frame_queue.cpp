@@ -2,6 +2,8 @@
 
 #include <iostream>
 
+namespace traffic_perception {
+
 void SafeFrameQueue::enqueue_with_overwrite(FrameContext &&ctx) {
   std::lock_guard<std::mutex> lock(Mutex);
   std::cout << "[SafeFrameQueue] enqueue_with_overwrite() called for FrameId: "
@@ -24,3 +26,5 @@ bool SafeFrameQueue::dequeue_non_blocking(FrameContext &ctx) {
       << ctx.FrameId << '\n';
   return true;
 }
+
+}  // namespace traffic_perception

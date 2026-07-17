@@ -3,6 +3,8 @@
 
 #include <vector>
 
+namespace traffic_perception {
+
 class HealthReporter {
  private:
   std::vector<bool> signalBuffer;
@@ -11,5 +13,7 @@ class HealthReporter {
   void sendStartSignal();
   void sendEndSignal();
 };
+
+}  // namespace traffic_perception
 
 #endif  // HEALTH_REPORTER_H

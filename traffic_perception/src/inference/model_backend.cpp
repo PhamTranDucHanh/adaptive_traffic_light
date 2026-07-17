@@ -2,6 +2,8 @@
 
 #include <iostream>
 
+namespace traffic_perception {
+
 bool ModelBackend::init(const std::string &modelPath) {
   std::cout << "[ModelBackend] init() called with path: " << modelPath << '\n';
   InternalModelPtr = nullptr;
@@ -25,3 +27,5 @@ std::vector<Detection> ModelBackend::detect(const cv::Mat &frame) {
 
   return results;
 }
+
+}  // namespace traffic_perception

@@ -3,9 +3,12 @@
 
 #include <cstdint>
 #include <opencv2/opencv.hpp>
+#include <utility>
 
 #include "traffic_perception/core/types.h"
 #include "traffic_perception/ingestion/safe_frame_queue.h"
+
+namespace traffic_perception {
 
 class StreamWorker {
  private:
@@ -18,5 +21,7 @@ class StreamWorker {
   void producerLoop(SafeFrameQueue &queue) const;
   int32_t getHealthStatus() const;
 };
+
+}  // namespace traffic_perception
 
 #endif  // INGESTION_STREAM_WORKER_H

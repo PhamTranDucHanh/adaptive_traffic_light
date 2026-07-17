@@ -1,6 +1,8 @@
 #include "traffic_perception/core/config_manager.h"
 #include <iostream>
 
+namespace traffic_perception {
+
 bool ConfigManager::loadConfig() {
   std::cout << "[ConfigManager] loadConfig() called with file: " << ConfigFile
             << '\n';
@@ -17,3 +19,5 @@ AppConfig ConfigManager::getConfig() {
   std::cout << "[ConfigManager] getConfig() called" << '\n';
   return CachedConfig;
 }
+
+}  // namespace traffic_perception

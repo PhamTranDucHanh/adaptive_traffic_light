@@ -1,28 +1,32 @@
-#ifndef TYPES_H
-#define TYPES_H
+#ifndef TRAFFIC_PERCEPTION_CORE_TYPES_H_
+#define TRAFFIC_PERCEPTION_CORE_TYPES_H_
 
+#include <array>
 #include <cstdint>
+#include <string>
+#include <vector>
+
 #include <opencv2/opencv.hpp>
 
 struct Detection {
-  cv::Rect Box;
-  int32_t ClassId;
-  float Confidence;
+  cv::Rect Box{};
+  std::int32_t ClassId{};
+  float Confidence{};
 };
 
 struct FrameContext {
-  int32_t FrameId;
-  cv::Mat Frame;
-  std::vector<Detection> Detections;
-  int32_t LaneId;
-  int32_t VehicleCount;
+  std::int32_t FrameId{};
+  cv::Mat Frame{};
+  std::vector<Detection> Detections{};
+  std::int32_t LaneId{};
+  std::int32_t VehicleCount{};
 };
 
 struct AppConfig {
-  std::array<std::string, 4> RtspUrls;
-  std::string ModelPath;
-  int32_t MaxQueueSize = 1;
-  int32_t TargetFps;
+  std::array<std::string, 4U> RtspUrls{};
+  std::string ModelPath{};
+  std::int32_t MaxQueueSize{1};
+  std::int32_t TargetFps{};
 };
 
-#endif  // TYPES_H
+#endif  // TRAFFIC_PERCEPTION_CORE_TYPES_H_

@@ -5,6 +5,8 @@
 
 #include "traffic_perception/core/types.h"
 
+namespace traffic_perception {
+
 // Forward declaration to avoid circular dependency
 class MultiLaneViewer;
 
@@ -19,5 +21,7 @@ class TrafficAnalyzer {
   void initViewer(MultiLaneViewer *v);
   void trackAndAnalyze(FrameContext &ctx);
 };
+
+}  // namespace traffic_perception
 
 #endif  // PIPELINE_TRAFFIC_ANALYZER_H

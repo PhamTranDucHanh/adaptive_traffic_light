@@ -7,6 +7,8 @@
 
 #include "traffic_perception/core/types.h"
 
+namespace traffic_perception {
+
 class ModelBackend {
  private:
   void *InternalModelPtr;
@@ -15,5 +17,7 @@ class ModelBackend {
   bool init(const std::string &modelPath);
   static std::vector<Detection> detect(const cv::Mat &frame);
 };
+
+}  // namespace traffic_perception
 
 #endif  // INFERENCE_MODEL_BACKEND_H
