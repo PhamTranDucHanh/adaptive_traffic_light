@@ -1,0 +1,16 @@
+workspace(name = "traffic_perception")
+
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+new_local_repository(
+    name = "opencv",
+    path = "/usr",
+    build_file_content = """
+cc_library(
+    name = "opencv",
+    copts = ["-I/usr/include/opencv4"],
+    linkopts = ["-lopencv_core", "-lopencv_video", "-lopencv_imgproc"],
+    visibility = ["//visibility:public"],
+)
+""",
+)
