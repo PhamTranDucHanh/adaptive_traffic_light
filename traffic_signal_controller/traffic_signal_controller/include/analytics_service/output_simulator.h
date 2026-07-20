@@ -1,15 +1,14 @@
-#ifndef OUTPUT_SIMULATOR_H
-#define OUTPUT_SIMULATOR_H
+#ifndef TRAFFIC_SIGNAL_CONTROLLER_OUTPUT_SIMULATOR_H_
+#define TRAFFIC_SIGNAL_CONTROLLER_OUTPUT_SIMULATOR_H_
 
-#include <common/config.h>
+#include "common/config.h"
 
-class OutputSimulator {
+class OutputSimulator final {
  public:
-  void receiveSignalDisplay(const SignalDisplay& display);
+  void publish(const SignalDisplay& display) const;
 
-  void formatConsole();
-
-  void sendToParticipants();
+ private:
+  static const char* phaseName(PhaseId phaseId) noexcept;
 };
 
-#endif
+#endif  // TRAFFIC_SIGNAL_CONTROLLER_OUTPUT_SIMULATOR_H_

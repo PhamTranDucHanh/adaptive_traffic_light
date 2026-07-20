@@ -1,24 +1,28 @@
-#ifndef PLAN_RECEIVER_H
-#define PLAN_RECEIVER_H
+#ifndef TRAFFIC_SIGNAL_CONTROLLER_PLAN_RECEIVER_H_
+#define TRAFFIC_SIGNAL_CONTROLLER_PLAN_RECEIVER_H_
 
-#include <common/config.h>
+#include <cstdint>
 
-class PlanReceiver {
+#include "common/config.h"
+#include "common/plan_sync_channel.h"
+#include "common/timing_plan.h"
+
+class PlanReceiver final {
  public:
-  void receivePlan(const PlanData& plan);
+  explicit PlanReceiver(PlanSyncChannel& syncChannel);
 
-  bool validatePlan();
-
-  void accept();
-
-  void reject();
-
-  PlanData forwardPlan();
+  // Communication layer gọi hàm này khi nhận được plan mới.
+  bool ReceivePlan(const TimingPlan& plan);
 
  private:
-  bool validPlanResult;
+  bool ValidatePlan(const TimingPlan& plan) const;
 
-  PlanData translatePlan();
+  PlanData TranslatePlan(const TimingPlan& plan,
+                         std::uint64_t receivedTimestampNs) const;
+
+  static std::uint64_t GetMonotonicTimestampNs();
+
+  PlanSyncChannel& syncChannel_;
 };
 
-#endif
+#endif  // TRAFFIC_SIGNAL_CONTROLLER_PLAN_RECEIVER_H_

@@ -81,7 +81,7 @@
                     "IDENTIFIER": "signal_controller"
                 },
                 "sandbox": {
-                    "scheduling_policy": "FIFO",
+                    "scheduling_policy": "SCHED_FIFO",
                     "scheduling_priority": 60
                 }
             }

@@ -1,31 +1,51 @@
-#ifndef SIGNAL_FSM_ENGINE_H
-#define SIGNAL_FSM_ENGINE_H
+#ifndef TRAFFIC_SIGNAL_CONTROLLER_SIGNAL_FSM_ENGINE_H_
+#define TRAFFIC_SIGNAL_CONTROLLER_SIGNAL_FSM_ENGINE_H_
 
-#include <common/config.h>
+#include <cstdint>
+#include <ctime>
 
-struct FSMResult {
-  SignalOutput output{};
-  SignalDisplay display{};
-};
+#include "common/config.h"
+#include "common/plan_sync_channel.h"
 
-class SignalFSMEngine {
+class SignalFSMEngine final {
  public:
-  FSMResult processTick(const TimerTick& tick);
+  explicit SignalFSMEngine(PlanSyncChannel& syncChannel);
 
-  HealthStatus sendHeartbeat() const;
+  SignalDisplay processTick();
+  void reset() noexcept;
 
  private:
-  void fsm();
+  bool loadPendingPlan();
+  void advancePhase();
 
-  uint32_t remainingTimeMs;
-  uint8_t currentPhaseIndex;
+  void processGreenPhase(const timespec& absoluteDeadline);
 
-  PlanData currentPlan;
+  void processNonInterruptiblePhase(const timespec& absoluteDeadline);
 
-  bool isEmergencyNS;
-  bool isEmergencyEW;
+  bool evaluateEmergencyPlan(const PlanData& emergencyPlan) const;
 
-  bool hasNewPlan;
+  void applyEmergencyPlan(const PlanData& emergencyPlan);
+
+  void decrementRemainingTime() noexcept;
+
+  void initializeDeadline();
+
+  static void addMilliseconds(timespec& timestamp,
+                              std::uint32_t milliseconds) noexcept;
+
+  PhaseId currentPhaseId() const noexcept;
+
+  static PlanData createDefaultPlan();
+
+  PlanSyncChannel& syncChannel_;
+
+  PlanData currentPlan_{};
+  std::uint32_t remainingTimeMs_{0U};
+  std::uint8_t currentPhaseIndex_{0U};
+  bool hasActivePlan_{false};
+
+  timespec nextDeadline_{};
+  bool deadlineInitialized_{false};
 };
 
-#endif
+#endif  // TRAFFIC_SIGNAL_CONTROLLER_SIGNAL_FSM_ENGINE_H_

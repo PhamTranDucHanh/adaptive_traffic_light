@@ -40,6 +40,8 @@ Run all commands from this folder so Bazel uses this module's independent
 cd traffic_signal_controller/
 bazel build --config=x86_64-linux //deployment:traffic_signal_controller_system
 bazel build --config=arm64-linux //deployment:traffic_signal_controller_system
+
+bazel build --config=arm64-linux //traffic_signal_controller:traffic_signal_controller
 ```
 
 `arm64-linux` is a cross-build on an x86_64 development machine. Do not run its
@@ -53,6 +55,7 @@ directly:
 
 ```bash
 cd traffic_signal_controller/
+sudo prlimit --pid $$ --rtprio=99:99 
 bazel run --config=x86_64-linux //deployment:traffic_signal_controller_system
 ```
 

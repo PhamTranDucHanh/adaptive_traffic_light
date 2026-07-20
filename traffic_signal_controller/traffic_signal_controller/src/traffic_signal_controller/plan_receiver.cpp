@@ -1,29 +1,137 @@
 #include "traffic_signal_controller/plan_receiver.h"
 
-#include "common/logging_contexts.h"
-#include "score/mw/log/logger.h"
+#include <ctime>
+#include <limits>
 
 namespace {
 
-score::mw::log::Logger& Logger() {
-  static score::mw::log::Logger& logger =
-      score::mw::log::CreateLogger(
-          ctrl::logging::kCtxPlan,
-          "Plan receiver");
-  return logger;
+constexpr std::uint32_t kMinGreenDurationMs{1000U};
+constexpr std::uint32_t kMaxGreenDurationMs{500000U};
+
+constexpr std::uint32_t kMinYellowDurationMs{1000U};
+constexpr std::uint32_t kMaxYellowDurationMs{10000U};
+
+constexpr std::uint32_t kMinAllRedDurationMs{500U};
+constexpr std::uint32_t kMaxAllRedDurationMs{10000U};
+
+}  // namespace
+
+PlanReceiver::PlanReceiver(PlanSyncChannel& syncChannel)
+    : syncChannel_{syncChannel} {}
+
+bool PlanReceiver::ReceivePlan(const TimingPlan& plan) {
+  if (!ValidatePlan(plan)) {
+    return false;
+  }
+
+  const std::uint64_t receivedTimestampNs = GetMonotonicTimestampNs();
+
+  const PlanData translatedPlan = TranslatePlan(plan, receivedTimestampNs);
+
+  syncChannel_.PublishPlan(translatedPlan);
+
+  return true;
 }
 
+bool PlanReceiver::ValidatePlan(const TimingPlan& plan) const {
+  if (plan.planId == 0U) {
+    return false;
+  }
+
+  // Emergency cả hai hướng
+  if (plan.emergencyNorthSouth && plan.emergencyEastWest) {
+    return false;
+  }
+
+  if (plan.greenNorthSouthMs < kMinGreenDurationMs ||
+      plan.greenNorthSouthMs > kMaxGreenDurationMs) {
+    return false;
+  }
+
+  if (plan.greenEastWestMs < kMinGreenDurationMs ||
+      plan.greenEastWestMs > kMaxGreenDurationMs) {
+    return false;
+  }
+
+  if (plan.yellowMs < kMinYellowDurationMs ||
+      plan.yellowMs > kMaxYellowDurationMs) {
+    return false;
+  }
+
+  if (plan.allRedMs < kMinAllRedDurationMs ||
+      plan.allRedMs > kMaxAllRedDurationMs) {
+    return false;
+  }
+
+  const std::uint64_t calculatedCycleLengthMs =
+      static_cast<std::uint64_t>(plan.greenNorthSouthMs) +
+      static_cast<std::uint64_t>(plan.greenEastWestMs) +
+      2ULL * static_cast<std::uint64_t>(plan.yellowMs) +
+      2ULL * static_cast<std::uint64_t>(plan.allRedMs);
+
+  if (calculatedCycleLengthMs > std::numeric_limits<std::uint32_t>::max()) {
+    return false;
+  }
+
+  /*
+   * cycleLengthMs == 0:
+   * Cho phép PlanReceiver tự tính.
+   *
+   * cycleLengthMs != 0:
+   * Giá trị bên gửi phải khớp với tổng duration.
+   */
+  if (plan.cycleLengthMs != 0U &&
+      plan.cycleLengthMs != calculatedCycleLengthMs) {
+    return false;
+  }
+
+  return true;
 }
 
 
-void PlanReceiver::receivePlan(const PlanData&) {}
+PlanData PlanReceiver::TranslatePlan(
+    const TimingPlan& plan, const std::uint64_t receivedTimestampNs) const {
+  PlanData output{};
 
-bool PlanReceiver::validatePlan() { return true; }
+  output.sourcePlanId = plan.planId;
+  output.isEmergencyNS = plan.emergencyNorthSouth;
+  output.isEmergencyEW = plan.emergencyEastWest;
+  output.receivedAt = receivedTimestampNs;
 
-PlanData PlanReceiver::translatePlan() { return {}; }
+  output.phases[0] = Phase{PhaseId::NS_GREEN, plan.greenNorthSouthMs};
 
-void PlanReceiver::accept() {}
+  output.phases[1] = Phase{PhaseId::YELLOW, plan.yellowMs};
 
-void PlanReceiver::reject() {}
+  output.phases[2] = Phase{PhaseId::ALL_RED, plan.allRedMs};
 
-PlanData PlanReceiver::forwardPlan() { return {}; }
+  output.phases[3] = Phase{PhaseId::EW_GREEN, plan.greenEastWestMs};
+
+  output.phases[4] = Phase{PhaseId::YELLOW, plan.yellowMs};
+
+  output.phases[5] = Phase{PhaseId::ALL_RED, plan.allRedMs};
+
+  output.phaseCount = 6U;
+
+  const std::uint64_t calculatedCycleLengthMs =
+      static_cast<std::uint64_t>(plan.greenNorthSouthMs) +
+      static_cast<std::uint64_t>(plan.greenEastWestMs) +
+      2ULL * static_cast<std::uint64_t>(plan.yellowMs) +
+      2ULL * static_cast<std::uint64_t>(plan.allRedMs);
+
+  output.totalCycleMs = static_cast<std::uint32_t>(calculatedCycleLengthMs);
+
+  return output;
+}
+
+std::uint64_t PlanReceiver::GetMonotonicTimestampNs() {
+  timespec timestamp{};
+
+  if (clock_gettime(CLOCK_MONOTONIC, &timestamp) != 0) {
+    return 0U;
+  }
+
+  constexpr std::uint64_t kNanosecondsPerSecond{1'000'000'000ULL};
+
+  return static_cast<std::uint64_t>(timestamp.tv_sec) * kNanosecondsPerSecond +
+         static_cast<std::uint64_t>(timestamp.tv_nsec);
+}

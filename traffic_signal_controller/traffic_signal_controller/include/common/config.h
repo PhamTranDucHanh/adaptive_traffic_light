@@ -1,150 +1,90 @@
-#ifndef CONFIG_H
-#define CONFIG_H
+#ifndef TRAFFIC_SIGNAL_CONTROLLER_COMMON_CONFIG_H_
+#define TRAFFIC_SIGNAL_CONTROLLER_COMMON_CONFIG_H_
 
 #include <array>
 #include <cstdint>
-#include <string>
 
-constexpr uint8_t MAX_PHASES = 8;
-constexpr uint16_t MAX_SAMPLES = 512;
+constexpr std::uint8_t MAX_PHASES{6U};
+constexpr std::uint32_t TIMER_INTERVAL_MS{100U};
 
-constexpr uint32_t TIMER_INTERVAL_MS = 100;
+struct TimingPlan {
+  std::uint64_t planId{0U};
+  std::uint64_t generationTimestampNs{0U};
 
-enum class PhaseId : uint8_t { NS_GREEN, YELLOW, ALL_RED, EW_GREEN };
+  std::uint32_t greenNorthSouthMs{0U};
+  std::uint32_t greenEastWestMs{0U};
+  std::uint32_t yellowMs{3000U};
+  std::uint32_t allRedMs{1000U};
+  std::uint32_t cycleLengthMs{0U};
 
-struct Phase {
-  PhaseId phaseId{};
-  uint32_t durationMs{};
+  bool emergencyNorthSouth{false};
+  bool emergencyEastWest{false};
 };
 
-struct TimerTick {
-  uint64_t theoreticalTimestamp{};
-  uint64_t sentTimestamp{};
+enum class PhaseId : std::uint8_t {
+  NS_GREEN,
+  YELLOW,
+  ALL_RED,
+  EW_GREEN,
+};
+
+struct Phase {
+  PhaseId phaseId{PhaseId::ALL_RED};
+  std::uint32_t durationMs{0U};
 };
 
 struct PlanData {
-  uint64_t sourcePlanId{};
-
+  std::uint64_t sourcePlanId{0U};
   std::array<Phase, MAX_PHASES> phases{};
-  uint8_t phaseCount{};
-
-  uint32_t totalCycleMs{};
-
-  bool isEmergencyNS{};
-  bool isEmergencyEW{};
-
-  uint64_t receivedAt{};
+  std::uint8_t phaseCount{0U};
+  std::uint32_t totalCycleMs{0U};
+  bool isEmergencyNS{false};
+  bool isEmergencyEW{false};
+  std::uint64_t receivedAt{0U};
 };
 
-struct SignalOutput {
-  PhaseId phaseId{};
+inline PlanData MakeDefaultPlan() {
+  PlanData plan{};
 
-  uint32_t remainingMs{};
+  plan.sourcePlanId = 0U;
 
-  bool isEmergency{};
+  plan.phases[0] = Phase{PhaseId::NS_GREEN, 30'000U};
 
-  uint64_t theoreticalTimestamp{};
+  plan.phases[1] = Phase{PhaseId::YELLOW, 3'000U};
 
-  uint64_t decrementStartAt{};
-  uint64_t planAppliedAt{};
-  uint64_t planReceivedAt{};
+  plan.phases[2] = Phase{PhaseId::ALL_RED, 1'000U};
 
-  bool hasNewPlan{};
-};
+  plan.phases[3] = Phase{PhaseId::EW_GREEN, 30'000U};
 
-struct DataCollect {
-  uint64_t cycleId{};
-  uint64_t sourcePlanId{};
+  plan.phases[4] = Phase{PhaseId::YELLOW, 3'000U};
 
-  uint32_t nsGreenDurationMs{};
-  uint32_t ewGreenDurationMs{};
-  uint32_t yellowDurationMs{};
-  uint32_t allRedDurationMs{};
+  plan.phases[5] = Phase{PhaseId::ALL_RED, 1'000U};
 
-  bool isEmergencyCycle{};
+  plan.phaseCount = 6U;
 
-  std::array<SignalOutput, MAX_SAMPLES> samples{};
+  plan.totalCycleMs = plan.phases[0].durationMs + plan.phases[1].durationMs +
+                      plan.phases[2].durationMs + plan.phases[3].durationMs +
+                      plan.phases[4].durationMs + plan.phases[5].durationMs;
 
-  uint8_t sampleCount{};
-};
+  plan.isEmergencyNS = false;
+  plan.isEmergencyEW = false;
+  plan.receivedAt = 0U;
 
-struct AlertMetrics {
-  uint64_t cycleId{};
-
-  int64_t latencyNs{};
-
-  bool hasEmergencyMeasurement{};
-  int64_t responseLatencyNs{};
-
-  bool isEmergencyCycle{};
-};
-
-struct AlertNotification {
-  uint64_t cycleId{};
-  int64_t violatedValue{};
-  int64_t thresholdValue{};
-  uint64_t detectedAt{};
-};
-
+  return plan;
+}
 struct SignalDisplay {
-  PhaseId phaseId{};
-  uint32_t remainingTimeMs{};
-};
-
-struct LogEntry {
-  DataCollect cycleData{};
-  uint64_t loggedTimestamp{};
-};
-
-struct DashboardData {
-  uint64_t cycleId{};
-  int64_t avgLatencyNs{};
-
-  uint32_t nsGreenDurationMs{};
-  uint32_t ewGreenDurationMs{};
-  uint32_t yellowDurationMs{};
-  uint32_t allRedDurationMs{};
-
-  bool isEmergencyCycle{};
-
-  uint64_t totalCyclesProcessed{};
-};
-
-struct DashboardView {
-  DashboardData data{};
-  uint64_t refreshedAt{};
-};
-
-struct ReportMetrics {
-  uint64_t cycleId{};
-
-  uint32_t nsGreenDuration{};
-  uint32_t ewGreenDuration{};
-  uint32_t yellowDuration{};
-  uint32_t allRedDuration{};
-
-  bool isEmergencyCycle{};
-
-  int64_t avgLatencyNs{};
-  int64_t maxLatencyNs{};
-  int64_t minLatencyNs{};
-};
-
-struct ReportData {
-  uint64_t generatedAt{};
-  ReportMetrics metrics{};
+  PhaseId phaseId{PhaseId::ALL_RED};
+  std::uint32_t remainingTimeMs{0U};
 };
 
 struct HealthStatus {
   uint64_t cycleId{};
 
-  bool timerAlive{};
   bool fsmAlive{};
-  bool publisherAlive{};
   bool loggerAlive{};
   bool analyticsAlive{};
 
   uint64_t lastHeartbeat{};
 };
 
-#endif
+#endif  // TRAFFIC_SIGNAL_CONTROLLER_COMMON_CONFIG_H_
