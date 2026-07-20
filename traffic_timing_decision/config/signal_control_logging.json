@@ -1,0 +1,14 @@
+{
+    "ecuId": "TLGT",
+    "appId": "SIGC",
+    "appDesc": "Traffic Signal Control Demo",
+    "logMode": "kConsole",
+    "logLevel": "kDebug",
+    "logLevelThresholdConsole": "kDebug",
+    "contextConfigs": [
+        {
+            "name": "SIGC",
+            "logLevel": "kDebug"
+        }
+    ]
+}

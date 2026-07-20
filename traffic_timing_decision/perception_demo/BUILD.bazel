@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "perception_application",
+    srcs = ["src/perception_application.cpp"],
+    hdrs = glob(["include/*.h"]),
+    copts = [
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+    ],
+    includes = ["include"],
+    deps = [
+        "//ipc:traffic_ipc",
+        "//common:absolute_periodic",
+        "//common:periodic_health_reporter",
+        "@score_baselibs//score/mw/log:frontend",
+        "@score_lifecycle//score/launch_manager:lifecycle_cc",
+    ],
+)
+
+cc_binary(
+    name = "perception_demo",
+    srcs = ["src/main.cpp"],
+    deps = [
+        ":perception_application",
+        "@score_baselibs//score/mw/log",
+        "@score_lifecycle//score/launch_manager:lifecycle_cc",
+    ],
+)

@@ -6,6 +6,9 @@ exports_files([
     "ecu_logging_config.json",
     "hm_logging.json",
     "logging.json",
+    "perception_logging.json",
+    "signal_control_logging.json",
+    "timing_decision_logging.json",
     "traffic_light_lifecycle.json",
 ])
 

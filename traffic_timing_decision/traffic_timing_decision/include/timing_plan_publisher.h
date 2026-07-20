@@ -4,11 +4,14 @@
 #include <cstdint>
 
 #include "decision_types.h"
+#include "traffic_ipc/latest_value_queue.h"
 
 class TimingPlanPublisher {
  public:
   TimingPlanPublisher();
   ~TimingPlanPublisher() = default;
+  bool initialize();
+  void shutdown();
   //----------------------------------------
   // publish
   //----------------------------------------
@@ -16,10 +19,9 @@ class TimingPlanPublisher {
   bool publishPreviousTimingPlan();
 
  private:
-  bool waitAck();
+  traffic_ipc::LatestValuePublisher<TimingPlan> queue_;
   TimingPlan lastPublishedPlan;
-  uint32_t ackTimeoutMs{100};
-  uint64_t lastPublishTimestampNs{0};
+  std::uint64_t lastPublishTimestampNs{0U};
 };
 
 #endif  // !TIMING_PLAN_PUBLISHER_H

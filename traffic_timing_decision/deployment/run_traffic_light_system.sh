@@ -56,7 +56,7 @@ if ! type rlocation >/dev/null 2>&1; then
 fi
 # --- end runfiles.bash initialization v3 ---
 
-if [[ $# -ne 8 ]]; then
+if [[ $# -ne 14 ]]; then
   echo "ERROR: deployment target received an invalid runfiles layout" >&2
   exit 1
 fi
@@ -64,11 +64,17 @@ fi
 launch_manager="$(rlocation "$1")"
 control_daemon="$(rlocation "$2")"
 lmcontrol="$(rlocation "$3")"
-timing_decision="$(rlocation "$4")"
-generated_config="$(rlocation "$5")"
-ecu_logging_config="$(rlocation "$6")"
-hm_logging_config="$(rlocation "$7")"
-lm_logging_config="$(rlocation "$8")"
+perception_demo="$(rlocation "$4")"
+timing_decision="$(rlocation "$5")"
+signal_control_demo="$(rlocation "$6")"
+ipc_reset="$(rlocation "$7")"
+generated_config="$(rlocation "$8")"
+ecu_logging_config="$(rlocation "$9")"
+hm_logging_config="$(rlocation "${10}")"
+lm_logging_config="$(rlocation "${11}")"
+perception_logging_config="$(rlocation "${12}")"
+timing_decision_logging_config="$(rlocation "${13}")"
+signal_control_logging_config="$(rlocation "${14}")"
 
 runtime_root="${LINUX_RT_RUNTIME_DIR:-/tmp/linux_rt_application}"
 runtime_bin="$runtime_root/bin"
@@ -76,9 +82,8 @@ runtime_etc="$runtime_root/etc"
 runtime_logs="$runtime_root/logs"
 test_log="$runtime_logs/test.log"
 
-# Must match timing_decision.deployment_config.sandbox.scheduling_priority in
-# config/traffic_light_lifecycle.json. Rejecting only priority 20 here would
-# let staging proceed and make Launch Manager fail later when it requests 80.
+# Must be at least the maximum SCHED_FIFO priority requested by any managed
+# component in config/traffic_light_lifecycle.json.
 required_rt_priority=80
 rtprio_limit="$(ulimit -r)"
 cap_eff_hex="$(sed -n 's/^CapEff:[[:space:]]*//p' /proc/self/status)"
@@ -106,10 +111,17 @@ exec > >(setsid --fork tee -a "$test_log") 2>&1
 
 echo "[DEPLOYMENT][LOG] console output is mirrored to $test_log"
 echo "[DEPLOYMENT][STAGE] preparing runtime=$runtime_root"
+if ! "$ipc_reset"; then
+  echo "[DEPLOYMENT][IPC][ERROR] could not reset POSIX MQ objects" >&2
+  exit 1
+fi
+echo "[DEPLOYMENT][IPC] stale POSIX MQ objects removed"
 install -m 0755 "$launch_manager" "$runtime_bin/launch_manager"
 install -m 0755 "$control_daemon" "$runtime_bin/control_daemon"
 install -m 0755 "$lmcontrol" "$runtime_bin/lmcontrol"
+install -m 0755 "$perception_demo" "$runtime_bin/perception_demo"
 install -m 0755 "$timing_decision" "$runtime_bin/traffic_timing_decision"
+install -m 0755 "$signal_control_demo" "$runtime_bin/signal_control_demo"
 # Bazel outputs are read-only. A plain recursive copy preserves that mode, so
 # the next run cannot truncate the existing generated configuration files.
 # Unlink each old destination before copying to keep staging repeatable.
@@ -117,6 +129,12 @@ cp -R --remove-destination "$generated_config"/. "$runtime_etc"/
 install -m 0644 "$ecu_logging_config" "$runtime_etc/ecu_logging_config.json"
 install -m 0644 "$hm_logging_config" "$runtime_etc/hm_logging.json"
 install -m 0644 "$lm_logging_config" "$runtime_etc/logging.json"
+install -m 0644 "$perception_logging_config" \
+  "$runtime_etc/perception_logging.json"
+install -m 0644 "$timing_decision_logging_config" \
+  "$runtime_etc/timing_decision_logging.json"
+install -m 0644 "$signal_control_logging_config" \
+  "$runtime_etc/signal_control_logging.json"
 
 echo "[DEPLOYMENT][STAGE] runtime ready"
 echo "[LAUNCH_MANAGER][START] binary=$runtime_bin/launch_manager"
@@ -124,7 +142,7 @@ launch_manager_pid=$$
 echo "[LAUNCH_MANAGER][START] pid=$launch_manager_pid"
 
 # Startup contains the control daemon. Once its IPC endpoint is ready, request
-# Running so Launch Manager starts the single product process.
+# Running so Launch Manager starts the ordered three-process pipeline.
 # Detach the one-shot helper before exec. Launch Manager uses waitpid() for its
 # own managed children, so the helper must not become one of those children.
 setsid --fork "$0" --activate-running "$runtime_bin/lmcontrol" \

@@ -2,9 +2,9 @@
 #define TRAFFIC_DATA_RECEIVER_H
 
 #include <cstdint>
-#include <string>
 
 #include "decision_types.h"
+#include "traffic_ipc/latest_value_queue.h"
 
 //
 // Internal helper
@@ -16,12 +16,12 @@ class SnapshotQueue {
   bool open();
   void close();
   bool receive(TrafficSnapshot& snapshot);
+  traffic_ipc::QueueStatus lastStatus() const noexcept;
+  int lastError() const noexcept;
 
  private:
-  int32_t mqDescriptor{-1};
-  std::string queueName;
-  uint32_t maximumMessageSize{0};
-  uint32_t maximumMessageCount{0};
+  traffic_ipc::LatestValueConsumer<TrafficSnapshot> queue_;
+  traffic_ipc::QueueStatus lastStatus_{traffic_ipc::QueueStatus::kNotFound};
 };
 
 //
@@ -39,16 +39,16 @@ class TrafficDataReceiver {
   //----------------------------------------
   // snapshot
   //----------------------------------------
-  TrafficSnapshot requestSnapshot();
+  bool requestSnapshot(TrafficSnapshot& snapshot);
   bool validateSnapshot(const TrafficSnapshot& snapshot);
   TrafficSnapshot getLatestSnapshot() const;
+  traffic_ipc::QueueStatus lastQueueStatus() const noexcept;
+  int lastQueueError() const noexcept;
 
  private:
   SnapshotQueue snapshotQueue;
   TrafficSnapshot latestSnapshot;
   TrafficSnapshot previousSnapshot;
-  uint32_t snapshotTimeoutMs{100};
-  uint64_t lastReceiveTimestampNs{0};
 };
 
 #endif  // !TRAFFIC_DATA_RECEIVER_H

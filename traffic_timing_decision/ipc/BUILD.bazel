@@ -1,0 +1,33 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "traffic_ipc",
+    hdrs = glob(["include/traffic_ipc/*.h"]),
+    copts = [
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+    ],
+    includes = ["include"],
+    linkopts = select({
+        "@platforms//os:linux": [
+            "-lpthread",
+            "-lrt",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+cc_binary(
+    name = "ipc_reset",
+    srcs = ["src/ipc_reset.cpp"],
+    deps = [":traffic_ipc"],
+)
+
+cc_binary(
+    name = "ipc_smoke",
+    srcs = ["src/ipc_smoke.cpp"],
+    deps = [":traffic_ipc"],
+)

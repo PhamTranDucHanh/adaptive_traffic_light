@@ -60,6 +60,7 @@ valid when the target binaries match the machine executing them:
 
 ```bash
 cd traffic_timing_decision/
+sudo prlimit --pid $$ --rtprio=99:99
 bazel run --config=x86_64-linux //deployment:traffic_light_system
 ```
 
@@ -73,6 +74,7 @@ configuration (another terminal):
 
 ```bash
 cd traffic_timing_decision/
+sudo prlimit --pid $$ --rtprio=99:99
 bazel run --config=x86_64-linux //control_daemon:lmcontrol -- Startup
 bazel run --config=x86_64-linux //control_daemon:lmcontrol -- Running
 bazel run --config=x86_64-linux //control_daemon:lmcontrol -- Stop

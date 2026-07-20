@@ -15,13 +15,14 @@ class ConstraintManager {
   TimingPlan applyTimingConstraints(const TimingPlan& draftPlan);
 
  private:
-  bool validateCycleLength(const TimingPlan& plan);
+  bool validateCycleLength(const TimingPlan& plan) const;
   TimingPlan scaleGreenTime(const TimingPlan& plan);
-  uint32_t minimumGreenMs{10000};
-  uint32_t maximumGreenMs{60000};
-  uint32_t maximumCycleLengthMs{120000};
-  uint32_t yellowTimeMs{3000};
-  uint32_t allRedTimeMs{1000};
+  std::uint32_t calculateCycleLength(const TimingPlan& plan) const;
+  std::uint32_t minimumGreenMs{10000U};
+  std::uint32_t maximumGreenMs{60000U};
+  std::uint32_t maximumCycleLengthMs{120000U};
+  std::uint32_t yellowTimeMs{3000U};
+  std::uint32_t allRedTimeMs{1000U};
 };
 
 //
@@ -40,14 +41,19 @@ class DecisionEngine {
   //----------------------------------------
   // emergency
   //----------------------------------------
-  bool detectEmergency(const TrafficSnapshot& snapshot);
-  TimingPlan setEmergencyFlags(const TimingPlan& previousPlan);
+  bool detectEmergency(const TrafficSnapshot& snapshot) const;
+  TimingPlan setEmergencyFlags(const TimingPlan& previousPlan,
+                               const TrafficSnapshot& snapshot);
   //----------------------------------------
   // traffic estimation
   //----------------------------------------
-  DemandScore calculateDemandScore(const TrafficSnapshot& snapshot);
+  DemandScore calculateDemandScore(const TrafficSnapshot& snapshot) const;
   TimingPlan assignGreenTime(const DemandScore& score);
   TimingPlan generateDraftTimingPlan(const DemandScore& score);
+  std::uint32_t targetGreenTimeMs(float demandScore) const;
+  std::uint32_t stepToward(std::uint32_t current,
+                           std::uint32_t target) const;
+  std::uint64_t nextPlanId_{1U};
   TimingPlan previousPlan;
   DemandScore currentScore;
   bool emergencyActive{false};

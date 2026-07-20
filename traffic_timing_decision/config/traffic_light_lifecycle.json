@@ -4,7 +4,7 @@
         "deployment_config": {
             "bin_dir": "/tmp/linux_rt_application/bin",
             "ready_timeout": 3.0,
-            "shutdown_timeout": 3.0,
+            "shutdown_timeout": 5.0,
             "ready_recovery_action": {
                 "restart": {
                     "number_of_attempts": 1,
@@ -17,8 +17,8 @@
                 }
             },
             "sandbox": {
-                "scheduling_policy": "SCHED_OTHER",
-                "scheduling_priority": 0
+                "scheduling_policy": "SCHED_FIFO",
+                "scheduling_priority": 70
             }
         },
         "component_properties": {
@@ -57,10 +57,68 @@
                 }
             }
         },
+        "perception_demo": {
+            "description": "Periodic TrafficSnapshot producer used by the integrated demo",
+            "component_properties": {
+                "binary_name": "perception_demo",
+                "application_profile": {
+                    "application_type": "Reporting_And_Supervised",
+                    "alive_supervision": {
+                        "reporting_cycle": 2.0,
+                        "min_indications": 2,
+                        "max_indications": 4,
+                        "failed_cycles_tolerance": 1
+                    }
+                }
+            },
+            "deployment_config": {
+                "sandbox": {
+                    "scheduling_policy": "SCHED_FIFO",
+                    "scheduling_priority": 70
+                },
+                "environmental_variables": {
+                    "PROCESSIDENTIFIER": "perception_demo",
+                    "IDENTIFIER": "perception_demo",
+                    "MW_LOG_CONFIG_FILE": "/tmp/linux_rt_application/etc/perception_logging.json"
+                }
+            }
+        },
         "timing_decision": {
             "description": "Adaptive traffic timing decision process",
             "component_properties": {
                 "binary_name": "traffic_timing_decision",
+                "depends_on": [
+                    "perception_demo"
+                ],
+                "application_profile": {
+                    "application_type": "Reporting_And_Supervised",
+                    "alive_supervision": {
+                        "reporting_cycle": 2.0,
+                        "min_indications": 2,
+                        "max_indications": 4,
+                        "failed_cycles_tolerance": 1
+                    }
+                }
+            },
+            "deployment_config": {
+                "sandbox": {
+                    "scheduling_policy": "SCHED_FIFO",
+                    "scheduling_priority": 60
+                },
+                "environmental_variables": {
+                    "PROCESSIDENTIFIER": "timing_decision",
+                    "IDENTIFIER": "timing_decision",
+                    "MW_LOG_CONFIG_FILE": "/tmp/linux_rt_application/etc/timing_decision_logging.json"
+                }
+            }
+        },
+        "signal_control_demo": {
+            "description": "Periodic TimingPlan consumer used as the signal-controller demo",
+            "component_properties": {
+                "binary_name": "signal_control_demo",
+                "depends_on": [
+                    "timing_decision"
+                ],
                 "application_profile": {
                     "application_type": "Reporting_And_Supervised",
                     "alive_supervision": {
@@ -77,8 +135,9 @@
                     "scheduling_priority": 80
                 },
                 "environmental_variables": {
-                    "PROCESSIDENTIFIER": "timing_decision",
-                    "IDENTIFIER": "timing_decision"
+                    "PROCESSIDENTIFIER": "signal_control_demo",
+                    "IDENTIFIER": "signal_control_demo",
+                    "MW_LOG_CONFIG_FILE": "/tmp/linux_rt_application/etc/signal_control_logging.json"
                 }
             }
         }
@@ -91,10 +150,12 @@
             ]
         },
         "Running": {
-            "description": "Run the timing decision process",
+            "description": "Run the ordered Perception -> Timing Decision -> Signal Control pipeline",
             "depends_on": [
                 "control_daemon",
-                "timing_decision"
+                "perception_demo",
+                "timing_decision",
+                "signal_control_demo"
             ]
         }
     },

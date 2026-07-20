@@ -1,0 +1,29 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "absolute_periodic",
+    hdrs = ["include/common/absolute_periodic.h"],
+    copts = [
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+    ],
+    includes = ["include"],
+)
+
+cc_library(
+    name = "periodic_health_reporter",
+    srcs = ["src/periodic_health_reporter.cpp"],
+    hdrs = ["include/common/periodic_health_reporter.h"],
+    copts = [
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+    ],
+    includes = ["include"],
+    deps = [
+        "@score_lifecycle//score/health_monitor:health_monitoring_cc",
+    ],
+)

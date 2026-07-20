@@ -20,6 +20,8 @@ class PeriodicService {
 
  private:
   uint32_t periodMs_{2500};
+  std::uint32_t consecutiveSnapshotMisses_{0U};
+  std::uint32_t maximumConsecutiveSnapshotMisses_{3U};
   bool running_{false};
   TrafficDataReceiver trafficReceiver;
   DecisionEngine decisionEngine;

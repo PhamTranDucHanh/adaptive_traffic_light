@@ -18,7 +18,12 @@ cc_library(
         "-Wpedantic",
     ],
     includes = ["include"],
-    deps = ["@score_lifecycle//score/health_monitor:health_monitoring_cc"],
+    deps = [
+        "//ipc:traffic_ipc",
+        "//common:absolute_periodic",
+        "@score_baselibs//score/mw/log:frontend",
+        "@score_lifecycle//score/health_monitor:health_monitoring_cc",
+    ],
 )
 
 cc_library(
@@ -27,7 +32,8 @@ cc_library(
     hdrs = ["include/timing_decision_application.h"],
     deps = [
         ":traffic_timing_decision_core",
-        "@score_baselibs//score/concurrency:interruptible_wait",
+        "//common:absolute_periodic",
+        "@score_baselibs//score/mw/log:frontend",
         "@score_lifecycle//score/launch_manager:lifecycle_cc",
     ],
 )
