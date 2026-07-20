@@ -53,8 +53,8 @@
             },
             "deployment_config": {
                 "sandbox": {
-                    "scheduling_policy": "FIFO",
-                    "scheduling_priority": 80
+                    "scheduling_policy": "SCHED_OTHER",
+                    "scheduling_priority": 0
                 },
                 "environmental_variables": {
                     "PROCESSIDENTIFIER": "perception_control"
@@ -79,6 +79,10 @@
                 "environmental_variables": {
                     "PROCESSIDENTIFIER": "traffic_perception",
                     "IDENTIFIER": "traffic_perception"
+                },
+                "sandbox": {
+                    "scheduling_policy": "SCHED_FIFO",
+                    "scheduling_priority": 80
                 }
             }
         }

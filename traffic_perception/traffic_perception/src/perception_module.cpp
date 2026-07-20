@@ -2,7 +2,7 @@
 
 #include <iostream>
 #include <opencv2/core.hpp>
-#include "traffic_perception/inference/dummy_model_backend.h"
+#include "traffic_perception/inference/yolov8_backend.h"
 
 namespace traffic_perception {
 
@@ -16,7 +16,7 @@ bool PerceptionModule::initModule(const std::string& configPath) {
   if (!pool_.init(20)) return false;
 
   // Create backend
-  auto backend = std::make_unique<DummyModelBackend>();
+  auto backend = std::make_unique<YOLOv8Backend>("test/data/yolov8m-oiv7.onnx");
 
   // PipelineManager will own the pipeline stages internally.
   pipelineManager_ = std::make_unique<PipelineManager>(std::move(backend), buffers_[0], pool_);

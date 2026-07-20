@@ -24,3 +24,21 @@ cc_library(
 )
 """,
 )
+
+new_local_repository(
+    name = "onnxruntime",
+    path = "/opt/onnxruntime",
+    build_file_content = """
+cc_library(
+    name = "onnxruntime",
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    linkopts = [
+        "-L/opt/onnxruntime/lib",
+        "-lonnxruntime",
+        "-Wl,-rpath,/opt/onnxruntime/lib",
+    ],
+    visibility = ["//visibility:public"],
+)
+""",
+)

@@ -59,7 +59,7 @@ cc_binary(
     name = "stream_worker_test",
     srcs = ["test/stream_worker_test.cpp"],
     copts = COMMON_COPTS,
-    data = ["//test/data:traffic_mp4"],
+    data = ["//test/data:test_data"],
     linkopts = select({
         "@platforms//os:linux": OPENCV_LINKOPTS,
         "//conditions:default": [],
@@ -74,7 +74,7 @@ cc_binary(
     name = "pipeline_manager_test",
     srcs = ["test/pipeline_manager_test.cpp"],
     copts = COMMON_COPTS,
-    data = ["//test/data:traffic_mp4"],
+    data = ["//test/data:test_data"],
     linkopts = select({
         "@platforms//os:linux": OPENCV_LINKOPTS,
         "//conditions:default": [],

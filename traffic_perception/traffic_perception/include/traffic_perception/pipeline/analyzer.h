@@ -19,20 +19,14 @@ class Analyzer : public IInferenceSink {
   // Analyzer accepts ownership of the frame
   void accept(Frame* frame, InferenceResult&& result) override {
     if (!frame) return;
-
-    // Perform analysis and draw overlays directly on frame
-    for (const auto& det : result.Detections) {
-      cv::rectangle(frame->Image, det.Box, cv::Scalar(0, 255, 0), 2);
+    
+    // Store latest result
+    uint32_t lane = static_cast<uint32_t>(result.LaneId);
+    if (lane < NUM_LANES) {
+        latestResults_[lane] = result;
     }
-    
+
     // Store as latest frame for the specific lane
-    // Note: This assumes result.LaneId is available. 
-    // If not, we might need to derive it from frame or context.
-    // Use the lane ID provided by inference result.
-    uint32_t lane = static_cast<uint32_t>(result.LaneId); 
-    
-    if (lane >= NUM_LANES) return; // Basic validation
-    
     Frame* old = renderFrames_[lane].exchange(frame);
     if (old != nullptr) {
         pool_.release(old);
@@ -48,6 +42,10 @@ class Analyzer : public IInferenceSink {
     return frames;
   }
 
+  const InferenceResult& latestResult(uint32_t lane) const {
+      return latestResults_[lane];
+  }
+
   void releaseFrame(Frame* frame) {
       pool_.release(frame);
   }
@@ -55,6 +53,7 @@ class Analyzer : public IInferenceSink {
  private:
   FramePool& pool_;
   std::array<std::atomic<Frame*>, NUM_LANES> renderFrames_{};
+  std::array<InferenceResult, NUM_LANES> latestResults_{};
 };
 
 }  // namespace traffic_perception

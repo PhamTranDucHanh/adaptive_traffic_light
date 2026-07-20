@@ -7,7 +7,7 @@
 #include "traffic_perception/core/frame_pool.h"
 #include "traffic_perception/ingestion/atomic_frame_buffer.h"
 #include "traffic_perception/ingestion/stream_worker.h"
-#include "traffic_perception/inference/dummy_model_backend.h"
+#include "traffic_perception/inference/yolov8_backend.h"
 #include "traffic_perception/pipeline/pipeline_manager.h"
 #include "tools/cpp/runfiles/runfiles.h"
 
@@ -42,35 +42,42 @@ int main(int argc, char* argv[]) {
     }
     
     // PipelineManager
-    auto backend = std::make_unique<DummyModelBackend>();
+    auto backend = std::make_unique<YOLOv8Backend>(runfiles->Rlocation("traffic_perception/test/data/yolov8n.onnx"));
+    YOLOv8Backend* backendPtr = backend.get(); 
     PipelineManager pipeline(std::move(backend), buffer, pool);
-    
+
     cv::namedWindow("Pipeline Integration", cv::WINDOW_AUTOSIZE);
-    
+
     std::array<cv::Mat, NUM_LANES> lastRenderedFrames;
     for (auto& frame : lastRenderedFrames) frame = cv::Mat();
 
+    // Store latest inference result for each lane
+    std::array<InferenceResult, NUM_LANES> lastInferences; 
+
     bool running = true;
     auto nextPipelineRun = std::chrono::steady_clock::now();
-    
+
     while (running) {
         nextPipelineRun += kPipelinePeriod;
 
         // Pipeline executes one cycle
         pipeline.runOneCycle();
 
-        
-        // Render on main thread
+        // Get latest frames
         auto frames = pipeline.analyzer().takeRenderFrames();
-        
+
         std::vector<cv::Mat> canvasLanes(NUM_LANES);
         for (uint32_t i = 0; i < NUM_LANES; ++i) {
             if (frames[i] && !frames[i]->Image.empty()) {
+                // Draw detections onto frame using the backend
+                backendPtr->draw(frames[i]->Image, pipeline.analyzer().latestResult(i));
+                
                 // Resize/copy into cache
                 cv::resize(frames[i]->Image, lastRenderedFrames[i], cv::Size(320, 240));
                 pipeline.analyzer().releaseFrame(frames[i]);
             }
-            
+            // ... (rest of rendering)
+
             // Compose output
             if (!lastRenderedFrames[i].empty()) {
                 canvasLanes[i] = lastRenderedFrames[i];

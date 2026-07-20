@@ -13,6 +13,8 @@ class IModelBackend {
   virtual ~IModelBackend() = default;
   virtual InferenceResult infer(const Frame& frame) = 0;
   virtual std::string getModelName() const = 0;
+  virtual void draw(cv::Mat& image,
+                    const InferenceResult& inference) = 0;
 };
 
 }  // namespace traffic_perception
