@@ -1,40 +1,29 @@
 #include "traffic_signal_controller/plan_receiver.h"
+
+#include "common/logging_contexts.h"
 #include "score/mw/log/logger.h"
-#include "common/logging_context.h"
 
 namespace {
-score::mw::log::Logger& logger =
-    score::mw::log::CreateLogger(ctrl::logging::kCtxPlan, "Plan receiver");
+
+score::mw::log::Logger& Logger() {
+  static score::mw::log::Logger& logger =
+      score::mw::log::CreateLogger(
+          ctrl::logging::kCtxPlan,
+          "Plan receiver");
+  return logger;
 }
 
-PlanReceiver::PlanReceiver(PlanSyncChannel& syncChannel)
-    : syncChannel_(syncChannel), validPlanResult(false) {}
-
-void PlanReceiver::receivePlan(const PlanData& plan) {
-    logger.LogInfo() << "Received timing plan";
-    pendingPlan_ = plan;
 }
 
-bool PlanReceiver::validatePlan() {
-    if (!validPlanResult) {
-        logger.LogWarn() << "Plan validation failed";
-    } else {
-        logger.LogDebug() << "Plan validated successfully";
-    }
-    return validPlanResult;
-}
 
-void PlanReceiver::accept() {
-    logger.LogInfo() << "Plan accepted";
-}
+void PlanReceiver::receivePlan(const PlanData&) {}
 
-void PlanReceiver::reject() {
-    logger.LogWarn() << "Plan rejected";
-}
+bool PlanReceiver::validatePlan() { return true; }
 
-PlanData PlanReceiver::forwardPlan() {
-    PlanData translated = translatePlan();
-    logger.LogDebug() << "Forwarding plan to FSM engine via sync channel";
-    syncChannel_.PublishPlan(translated);
-    return translated;
-}
+PlanData PlanReceiver::translatePlan() { return {}; }
+
+void PlanReceiver::accept() {}
+
+void PlanReceiver::reject() {}
+
+PlanData PlanReceiver::forwardPlan() { return {}; }

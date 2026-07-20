@@ -1,0 +1,11 @@
+{
+    "appId": "CTRL",
+    "appDesc": "Traffic Signal Controller",
+    "logLevel": "kInfo",
+    "logMode": "kConsole",
+    "contextConfigs": [
+      { "name": "PLAN", "logLevel": "kInfo" },
+      { "name": "FSM",  "logLevel": "kInfo" },
+      { "name": "OUT",  "logLevel": "kInfo" }
+    ]
+  }

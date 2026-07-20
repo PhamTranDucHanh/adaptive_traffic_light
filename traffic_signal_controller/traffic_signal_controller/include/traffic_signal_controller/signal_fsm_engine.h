@@ -2,26 +2,30 @@
 #define SIGNAL_FSM_ENGINE_H
 
 #include <common/config.h>
-#include <common/plan_sync_channel.h>
-#include <time.h>
+
+struct FSMResult {
+  SignalOutput output{};
+  SignalDisplay display{};
+};
 
 class SignalFSMEngine {
  public:
-  explicit SignalFSMEngine(PlanSyncChannel& syncChannel);
-  SignalDisplay processTick();
+  FSMResult processTick(const TimerTick& tick);
+
+  HealthStatus sendHeartbeat() const;
 
  private:
   void fsm();
 
-  PlanSyncChannel& syncChannel_;
+  uint32_t remainingTimeMs;
+  uint8_t currentPhaseIndex;
 
-  uint32_t remainingTimeMs{};
-  uint8_t currentPhaseIndex{};
-  PlanData currentPlan{};
-  bool isEmergencyNS{};
-  bool isEmergencyEW{};
-  bool hasNewPlan{};
-  struct timespec deadline_;
+  PlanData currentPlan;
+
+  bool isEmergencyNS;
+  bool isEmergencyEW;
+
+  bool hasNewPlan;
 };
 
 #endif
