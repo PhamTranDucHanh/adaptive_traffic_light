@@ -5,6 +5,7 @@ module(
 
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "rules_cc", version = "0.2.17")
+bazel_dep(name = "rules_python", version = "1.8.5")
 bazel_dep(name = "score_baselibs", version = "0.2.9")
 bazel_dep(
     name = "hedron_compile_commands",
@@ -17,28 +18,25 @@ git_override(
     commit = "4f28899228fb3ad0126897876f147ca15026151e",
 )
 
-# Các dependency/toolchain này cần khi folder là Bazel root độc lập.
-# dev_dependency làm chúng bị bỏ qua khi module được system root consume.
+# These dependencies/toolchains are required when this folder is used as an
+# independent Bazel root. Lifecycle declares them as development dependencies,
+# which are not propagated to consuming application modules.
 bazel_dep(
     name = "score_bazel_platforms",
     version = "0.1.2",
-    dev_dependency = True,
 )
 bazel_dep(
     name = "score_bazel_cpp_toolchains",
     version = "0.5.4",
-    dev_dependency = True,
 )
 bazel_dep(
     name = "score_toolchains_rust",
     version = "0.9.1",
-    dev_dependency = True,
 )
 
 gcc = use_extension(
     "@score_bazel_cpp_toolchains//extensions:gcc.bzl",
     "gcc",
-    dev_dependency = True,
 )
 gcc.toolchain(
     name = "score_gcc_x86_64_toolchain",
@@ -58,6 +56,13 @@ use_repo(
     gcc,
     "score_gcc_aarch64_toolchain",
     "score_gcc_x86_64_toolchain",
+)
+
+# launch_manager_config executes Lifecycle's Python configuration mapper.
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    is_default = True,
+    python_version = "3.12",
 )
 
 bazel_dep(

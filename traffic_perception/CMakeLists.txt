@@ -48,6 +48,7 @@ set(ALL_SOURCES
     # Pipeline Layer
     src/pipeline/traffic_analyzer.cpp
     src/pipeline/snapshot_publisher.cpp
+    src/pipeline/pipeline_manager.cpp
 
     # IO / Sinks Layer
     src/io/multi_lane_viewer.cpp
