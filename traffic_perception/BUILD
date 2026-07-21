@@ -84,3 +84,16 @@ cc_binary(
         "@bazel_tools//tools/cpp/runfiles",
     ],
 )
+
+cc_binary(
+    name = "mq_snapshot_receiver_test",
+    srcs = ["test/mq_snapshot_receiver_test.cpp"],
+    copts = COMMON_COPTS,
+    linkopts = select({
+        "@platforms//os:linux": OPENCV_LINKOPTS,
+        "//conditions:default": [],
+    }),
+    deps = [
+        ":traffic_perception_core",
+    ],
+)

@@ -36,12 +36,12 @@ int main() {
     // Setup components
     pipeline.getViewer().WindowName = "MultiLane Viewer";
 
-    TelemetryManager telemetry;
-    telemetry.TotalCycles = 50;
+    // Telemetry is no longer needed for SnapshotPublisher; it is handled within TrafficSnapshot.
     MQSnapshotSender mqSender;
 
-    pipeline.getPublisher().initTelemetry(&telemetry);
+    // Initialize publisher with sender only.
     pipeline.getPublisher().initSender(&mqSender);
+
 
     pipeline.process(ctx);
 

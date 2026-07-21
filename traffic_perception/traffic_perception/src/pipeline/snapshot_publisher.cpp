@@ -4,23 +4,15 @@
 
 using namespace traffic_perception;
 
-void SnapshotPublisher::initTelemetry(TelemetryManager* telemetry) {
-  telemetry_ = telemetry;
-}
-
 void SnapshotPublisher::initSender(ISnapshotSender* sender) {
   sender_ = sender;
 }
 
-bool SnapshotPublisher::broadcastSnapshot(FrameContext& context) {
+bool SnapshotPublisher::broadcastSnapshot(const TrafficSnapshot& snapshot) {
   if (sender_ == nullptr) {
     std::cerr << "[PERCEPTION][PUBLISH][ERROR] sender is null\n";
     return false;
   }
-
-  const bool sent = sender_->send(context);
-  if (sent && telemetry_ != nullptr) {
-    telemetry_->showTelemetryMetrics(context);
-  }
-  return sent;
+  // Forward the snapshot to the sender.
+  return sender_->send(snapshot);
 }

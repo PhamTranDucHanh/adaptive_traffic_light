@@ -8,6 +8,13 @@
 
 #include <opencv2/opencv.hpp>
 
+enum class Direction : uint8_t {
+  North = 0,
+  South,
+  East,
+  West
+};
+
 struct Roi {
   std::vector<cv::Point> Points;
   std::string LaneId;

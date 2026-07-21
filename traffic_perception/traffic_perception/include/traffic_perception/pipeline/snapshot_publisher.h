@@ -5,19 +5,24 @@
 
 #include "traffic_perception/core/types.h"
 #include "traffic_perception/io/snapshot_sender.h"
-#include "traffic_perception/io/telemetry_manager.h"
+
+namespace traffic_perception {
 
 class SnapshotPublisher {
  public:
   std::string BrokerUrl{};
 
-  void initTelemetry(traffic_perception::TelemetryManager* telemetry);
-  void initSender(traffic_perception::ISnapshotSender* sender);
-  bool broadcastSnapshot(FrameContext& context);
+  // Initialize the sender that will actually transmit snapshots.
+  void initSender(ISnapshotSender* sender);
+
+  // Publish a traffic snapshot to the downstream consumer.
+  // Returns true on success, false otherwise.
+  bool broadcastSnapshot(const TrafficSnapshot& snapshot);
 
  private:
-  traffic_perception::TelemetryManager* telemetry_{nullptr};
-  traffic_perception::ISnapshotSender* sender_{nullptr};
+  ISnapshotSender* sender_{nullptr};
 };
+
+}  // namespace traffic_perception
 
 #endif  // TRAFFIC_PERCEPTION_PIPELINE_SNAPSHOT_PUBLISHER_H_

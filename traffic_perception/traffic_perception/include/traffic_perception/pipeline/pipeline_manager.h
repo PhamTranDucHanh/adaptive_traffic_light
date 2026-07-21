@@ -5,7 +5,7 @@
 #include <memory>
 #include "traffic_perception/inference/inference_engine.h"
 #include "traffic_perception/pipeline/analyzer.h"
-#include "traffic_perception/pipeline/publisher.h"
+#include "traffic_perception/pipeline/snapshot_publisher.h"
 #include "traffic_perception/inference/imodel_backend.h"
 #include "traffic_perception/core/frame_pool.h"
 #include "traffic_perception/core/config_manager.h"
@@ -21,11 +21,12 @@ class PipelineManager {
 
   void runOneCycle();
   Analyzer& analyzer() { return analyzer_; }
+  SnapshotPublisher& getPublisher() { return publisher_; }
 
  private:
   std::array<Roi, NUM_LANES> laneRois_{};
   Analyzer analyzer_;
-  Publisher publisher_;
+  SnapshotPublisher publisher_;
   InferenceEngine engine_;
 };
 

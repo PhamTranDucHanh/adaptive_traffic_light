@@ -14,6 +14,10 @@ PipelineManager::PipelineManager(std::unique_ptr<IModelBackend> backend,
 
 void PipelineManager::runOneCycle() {
   engine_.runOneCycle();
+
+  // Construct and publish snapshot
+  TrafficSnapshot snapshot = analyzer_.buildTrafficSnapshot();
+  publisher_.broadcastSnapshot(snapshot);
 }
 
 }  // namespace traffic_perception

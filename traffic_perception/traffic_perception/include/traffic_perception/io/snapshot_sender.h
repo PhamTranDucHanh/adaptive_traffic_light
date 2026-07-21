@@ -11,20 +11,25 @@ class ISnapshotSender {
  public:
   virtual ~ISnapshotSender() = default;
   virtual bool open() = 0;
-  virtual bool send(FrameContext &snapshot) = 0;
+  virtual bool send(const TrafficSnapshot& snapshot) = 0;
   virtual void close() = 0;
 };
 
 class MQSnapshotSender : public ISnapshotSender {
- private:
-  mqd_t mqDescriptor;
-  char *queueName;
-  struct mq_attr attributes;
-
  public:
+  MQSnapshotSender();
+  ~MQSnapshotSender() override;
+
   bool open() override;
-  bool send(FrameContext &snapshot) override;
+  bool send(const TrafficSnapshot& snapshot) override;
   void close() override;
+
+ private:
+  // POSIX message-queue descriptor; (mqd_t)-1 means not open.
+  mqd_t mqDescriptor{static_cast<mqd_t>(-1)};
+  // Fixed queue name; defined in the .cpp.
+  const char* queueName{nullptr};
+  struct mq_attr attributes{};
 };
 
 }  // namespace traffic_perception

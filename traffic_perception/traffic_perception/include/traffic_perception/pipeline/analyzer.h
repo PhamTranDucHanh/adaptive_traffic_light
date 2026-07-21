@@ -67,11 +67,11 @@ class Analyzer : public IInferenceSink {
   }
 
   // Builder for TrafficSnapshot DTO
-  TrafficSnapshot buildTrafficSnapshot() const {
+  TrafficSnapshot buildTrafficSnapshot() {
       TrafficSnapshot snapshot;
       
-      // 1. Snapshot-level ID (placeholder, sequence managed by SnapshotPublisher)
-      snapshot.frameId = 0;
+      // 1. Snapshot-level ID (monotonically increasing per snapshot construction)
+      snapshot.frameId = ++frameCounter_;
 
       // 2. Snapshot-level timestamp (now)
       auto now = std::chrono::system_clock::now();
@@ -81,26 +81,31 @@ class Analyzer : public IInferenceSink {
       for (uint32_t i = 0; i < NUM_LANES; ++i) {
           const auto& ctx = laneStates_[i].Context;
 
-          if (i == 0) { // North
-              snapshot.vehicleCountNorth = static_cast<int32_t>(ctx.VehicleCount);
-              snapshot.occupancyNorth = ctx.Occupancy;
-              snapshot.queueLengthNorth = ctx.QueueLength;
-              snapshot.emergencyNorth = ctx.EmergencyDetected;
-          } else if (i == 1) { // South
-              snapshot.vehicleCountSouth = static_cast<int32_t>(ctx.VehicleCount);
-              snapshot.occupancySouth = ctx.Occupancy;
-              snapshot.queueLengthSouth = ctx.QueueLength;
-              snapshot.emergencySouth = ctx.EmergencyDetected;
-          } else if (i == 2) { // East
-              snapshot.vehicleCountEast = static_cast<int32_t>(ctx.VehicleCount);
-              snapshot.occupancyEast = ctx.Occupancy;
-              snapshot.queueLengthEast = ctx.QueueLength;
-              snapshot.emergencyEast = ctx.EmergencyDetected;
-          } else if (i == 3) { // West
-              snapshot.vehicleCountWest = static_cast<int32_t>(ctx.VehicleCount);
-              snapshot.occupancyWest = ctx.Occupancy;
-              snapshot.queueLengthWest = ctx.QueueLength;
-              snapshot.emergencyWest = ctx.EmergencyDetected;
+          switch (static_cast<Direction>(i)) {
+              case Direction::North:
+                  snapshot.vehicleCountNorth = static_cast<int32_t>(ctx.VehicleCount);
+                  snapshot.occupancyNorth = ctx.Occupancy;
+                  snapshot.queueLengthNorth = ctx.QueueLength;
+                  snapshot.emergencyNorth = ctx.EmergencyDetected;
+                  break;
+              case Direction::South:
+                  snapshot.vehicleCountSouth = static_cast<int32_t>(ctx.VehicleCount);
+                  snapshot.occupancySouth = ctx.Occupancy;
+                  snapshot.queueLengthSouth = ctx.QueueLength;
+                  snapshot.emergencySouth = ctx.EmergencyDetected;
+                  break;
+              case Direction::East:
+                  snapshot.vehicleCountEast = static_cast<int32_t>(ctx.VehicleCount);
+                  snapshot.occupancyEast = ctx.Occupancy;
+                  snapshot.queueLengthEast = ctx.QueueLength;
+                  snapshot.emergencyEast = ctx.EmergencyDetected;
+                  break;
+              case Direction::West:
+                  snapshot.vehicleCountWest = static_cast<int32_t>(ctx.VehicleCount);
+                  snapshot.occupancyWest = ctx.Occupancy;
+                  snapshot.queueLengthWest = ctx.QueueLength;
+                  snapshot.emergencyWest = ctx.EmergencyDetected;
+                  break;
           }
       }
       return snapshot;
@@ -240,14 +245,14 @@ class Analyzer : public IInferenceSink {
   }
 
   static const char* laneName(std::int32_t lane) {
-      switch (lane) {
-          case 0:
+      switch (static_cast<Direction>(lane)) {
+          case Direction::North:
               return "North";
-          case 1:
+          case Direction::South:
               return "South";
-          case 2:
+          case Direction::East:
               return "East";
-          case 3:
+          case Direction::West:
               return "West";
           default:
               return "Unknown";
@@ -267,6 +272,7 @@ class Analyzer : public IInferenceSink {
   FramePool& pool_;
   const std::array<Roi, NUM_LANES>& laneRois_;
   std::array<LaneState, NUM_LANES> laneStates_{};
+  std::int32_t frameCounter_{0};
 };
 
 }  // namespace traffic_perception

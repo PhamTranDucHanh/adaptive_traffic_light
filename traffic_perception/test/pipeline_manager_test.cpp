@@ -10,6 +10,8 @@
 #include "traffic_perception/ingestion/stream_worker.h"
 #include "traffic_perception/inference/yolov8_backend.h"
 #include "traffic_perception/pipeline/pipeline_manager.h"
+#include "traffic_perception/pipeline/snapshot_publisher.h"
+#include "traffic_perception/io/snapshot_sender.h"
 #include "tools/cpp/runfiles/runfiles.h"
 
 using namespace traffic_perception;
@@ -51,6 +53,14 @@ int main(int argc, char* argv[]) {
     auto backend = std::make_unique<YOLOv8Backend>(runfiles->Rlocation("traffic_perception/test/data/yolov8n.onnx"));
     YOLOv8Backend* backendPtr = backend.get(); 
     PipelineManager pipeline(std::move(backend), buffer, pool, configManager);
+
+    // Snapshot Publisher Integration
+    auto sender = std::make_unique<MQSnapshotSender>();
+    if (sender->open()) {
+        pipeline.getPublisher().initSender(sender.get());
+    } else {
+        std::cerr << "Failed to open snapshot sender" << std::endl;
+    }
 
     cv::namedWindow("Pipeline Integration", cv::WINDOW_AUTOSIZE);
 
