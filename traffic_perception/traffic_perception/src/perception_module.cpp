@@ -19,7 +19,7 @@ bool PerceptionModule::initModule(const std::string& configPath) {
   auto backend = std::make_unique<YOLOv8Backend>("test/data/yolov8m-oiv7.onnx");
 
   // PipelineManager will own the pipeline stages internally.
-  pipelineManager_ = std::make_unique<PipelineManager>(std::move(backend), buffers_[0], pool_);
+  pipelineManager_ = std::make_unique<PipelineManager>(std::move(backend), buffers_[0], pool_, configManager_);
 
   for (std::size_t i = 0; i < workers_.size(); ++i) {
     workers_.at(i).initStream(config.trafficVidSources.at(i), static_cast<std::int32_t>(i), &pool_);

@@ -1,0 +1,21 @@
+cc_import(
+    name = "onnxruntime_so",
+    shared_library = "lib/libonnxruntime.so.1",
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "headers",
+    hdrs = glob(["include/**/*.h"]),
+    includes = ["include"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "onnxruntime",
+    deps = [
+        ":headers",
+        ":onnxruntime_so",
+    ],
+    visibility = ["//visibility:public"],
+)

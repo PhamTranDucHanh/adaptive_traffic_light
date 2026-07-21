@@ -1,35 +1,54 @@
 #ifndef TRAFFIC_PERCEPTION_PIPELINE_ANALYZER_H_
 #define TRAFFIC_PERCEPTION_PIPELINE_ANALYZER_H_
 
+#include <algorithm>
 #include <atomic>
 #include <array>
+#include <iostream>
+#include <limits>
+#include <utility>
 #include <opencv2/opencv.hpp>
 #include "traffic_perception/inference/inference_sink.h"
 #include "traffic_perception/core/frame_pool.h"
 #include "traffic_perception/core/types.h"
+#include "traffic_perception/inference/inference_result.h"
 
 namespace traffic_perception {
 
 class Analyzer : public IInferenceSink {
  public:
-  explicit Analyzer(FramePool& pool) : pool_(pool) {
-      for(auto& f : renderFrames_) f.store(nullptr);
+  struct LaneState {
+      // Stable internal perception state
+      FrameContext Context{};
+      // Atomic frame for thread-safe rendering ownership transfer
+      std::atomic<Frame*> LatestRenderFrame{nullptr};
+  };
+
+  Analyzer(FramePool& pool, const std::array<Roi, NUM_LANES>& laneRois)
+      : pool_(pool), laneRois_(laneRois) {
   }
   
-  // Analyzer accepts ownership of the frame
+  // Analyzer accepts ownership of the frame and updates internal state
   void accept(Frame* frame, InferenceResult&& result) override {
     if (!frame) return;
     
-    // Store latest result
     uint32_t lane = static_cast<uint32_t>(result.LaneId);
     if (lane < NUM_LANES) {
-        latestResults_[lane] = result;
-    }
+        // 1. Convert InferenceResult to FrameContext
+        FrameContext ctx = buildFrameContext(frame, result);
 
-    // Store as latest frame for the specific lane
-    Frame* old = renderFrames_[lane].exchange(frame);
-    if (old != nullptr) {
-        pool_.release(old);
+        // 2. Update LaneState (internal perception state)
+        laneStates_[lane].Context = std::move(ctx);
+        logLaneMetrics(laneStates_[lane].Context);
+
+        // 3. Atomically update the render frame ownership
+        Frame* old = laneStates_[lane].LatestRenderFrame.exchange(frame);
+        if (old != nullptr) {
+            pool_.release(old);
+        }
+    } else {
+        // Fallback for invalid lane, release frame
+        pool_.release(frame);
     }
   }
 
@@ -37,13 +56,54 @@ class Analyzer : public IInferenceSink {
   std::array<Frame*, NUM_LANES> takeRenderFrames() {
     std::array<Frame*, NUM_LANES> frames;
     for (uint32_t i = 0; i < NUM_LANES; ++i) {
-        frames[i] = renderFrames_[i].exchange(nullptr);
+        frames[i] = laneStates_[i].LatestRenderFrame.exchange(nullptr);
     }
     return frames;
   }
 
-  const InferenceResult& latestResult(uint32_t lane) const {
-      return latestResults_[lane];
+  // Read-only access to latest context
+  const FrameContext& latestContext(uint32_t lane) const {
+      return laneStates_[lane].Context;
+  }
+
+  // Builder for TrafficSnapshot DTO
+  TrafficSnapshot buildTrafficSnapshot() const {
+      TrafficSnapshot snapshot;
+      
+      // 1. Snapshot-level ID (placeholder, sequence managed by SnapshotPublisher)
+      snapshot.frameId = 0;
+
+      // 2. Snapshot-level timestamp (now)
+      auto now = std::chrono::system_clock::now();
+      snapshot.timestampUs = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
+
+      // 3. Aggregate per-lane metrics
+      for (uint32_t i = 0; i < NUM_LANES; ++i) {
+          const auto& ctx = laneStates_[i].Context;
+
+          if (i == 0) { // North
+              snapshot.vehicleCountNorth = static_cast<int32_t>(ctx.VehicleCount);
+              snapshot.occupancyNorth = ctx.Occupancy;
+              snapshot.queueLengthNorth = ctx.QueueLength;
+              snapshot.emergencyNorth = ctx.EmergencyDetected;
+          } else if (i == 1) { // South
+              snapshot.vehicleCountSouth = static_cast<int32_t>(ctx.VehicleCount);
+              snapshot.occupancySouth = ctx.Occupancy;
+              snapshot.queueLengthSouth = ctx.QueueLength;
+              snapshot.emergencySouth = ctx.EmergencyDetected;
+          } else if (i == 2) { // East
+              snapshot.vehicleCountEast = static_cast<int32_t>(ctx.VehicleCount);
+              snapshot.occupancyEast = ctx.Occupancy;
+              snapshot.queueLengthEast = ctx.QueueLength;
+              snapshot.emergencyEast = ctx.EmergencyDetected;
+          } else if (i == 3) { // West
+              snapshot.vehicleCountWest = static_cast<int32_t>(ctx.VehicleCount);
+              snapshot.occupancyWest = ctx.Occupancy;
+              snapshot.queueLengthWest = ctx.QueueLength;
+              snapshot.emergencyWest = ctx.EmergencyDetected;
+          }
+      }
+      return snapshot;
   }
 
   void releaseFrame(Frame* frame) {
@@ -51,9 +111,162 @@ class Analyzer : public IInferenceSink {
   }
 
  private:
+  // Dedicated conversion step from raw InferenceResult to internal FrameContext
+  FrameContext buildFrameContext(Frame* frame, const InferenceResult& result) const {
+      FrameContext ctx;
+      ctx.CapturedFrame = frame;
+      ctx.LaneId = result.LaneId;
+      ctx.Timestamp = std::chrono::steady_clock::now();
+      
+      // Map detections: InferenceResult now uses the core Detection type directly.
+      ctx.Detections = result.Detections;
+      ctx.VehicleCount = static_cast<uint32_t>(ctx.Detections.size());
+
+      const uint32_t lane = static_cast<uint32_t>(result.LaneId);
+      const Roi& roi = laneRois_[lane];
+      cv::Rect roiBounds;
+      if (!roi.Points.empty()) {
+          roiBounds = cv::boundingRect(roi.Points);
+      }
+
+      for (const auto& det : ctx.Detections) {
+          if (det.ClassId == kEmergencyVehicleClassId) {
+              ctx.EmergencyDetected = true;
+          }
+      }
+
+      if (roiBounds.width > 0 && roiBounds.height > 0) {
+          cv::Mat roiMask(roiBounds.height, roiBounds.width, CV_8UC1, cv::Scalar(0));
+          std::vector<cv::Point> shiftedRoi;
+          shiftedRoi.reserve(roi.Points.size());
+          const cv::Point roiOffset = roiBounds.tl();
+          for (const auto& point : roi.Points) {
+              shiftedRoi.push_back(point - roiOffset);
+          }
+          std::vector<std::vector<cv::Point>> roiContours{shiftedRoi};
+          cv::fillPoly(roiMask, roiContours, cv::Scalar(255));
+
+          cv::Mat vehicleMask(roiBounds.height, roiBounds.width, CV_8UC1, cv::Scalar(0));
+          for (const auto& det : ctx.Detections) {
+              const cv::Rect clippedBox = det.Box & roiBounds;
+              if (clippedBox.width <= 0 || clippedBox.height <= 0) {
+                  continue;
+              }
+              const cv::Rect localBox(clippedBox.x - roiBounds.x,
+                                      clippedBox.y - roiBounds.y,
+                                      clippedBox.width,
+                                      clippedBox.height);
+              cv::rectangle(vehicleMask, localBox, cv::Scalar(255), cv::FILLED);
+          }
+
+          cv::bitwise_and(vehicleMask, roiMask, vehicleMask);
+          const int roiPixels = cv::countNonZero(roiMask);
+          if (roiPixels > 0) {
+              const int occupiedPixels = cv::countNonZero(vehicleMask);
+              ctx.Occupancy = clampMetric(static_cast<float>(occupiedPixels) /
+                                          static_cast<float>(roiPixels));
+          }
+
+          ctx.QueueLength = calculateQueueLength(ctx.Detections,
+                                                 static_cast<float>(roiBounds.height));
+      }
+
+      return ctx;
+  }
+
+  static float clampMetric(float value) {
+      return std::clamp(value, 0.0f, 1.0f);
+  }
+
+  static float calculateQueueLength(const std::vector<Detection>& detections,
+                                    float roiHeight) {
+      if (detections.empty() || roiHeight <= 0.0f) {
+          return 0.0f;
+      }
+
+      std::vector<std::pair<float, float>> vehicles;
+      vehicles.reserve(detections.size());
+      float totalVehicleHeight = 0.0f;
+      for (const auto& det : detections) {
+          const float height = static_cast<float>(std::max(0, det.Box.height));
+          const float bottomCenterY = static_cast<float>(det.Box.y + det.Box.height);
+          vehicles.emplace_back(bottomCenterY, height);
+          totalVehicleHeight += height;
+      }
+
+      std::sort(vehicles.begin(), vehicles.end(),
+                [](const auto& lhs, const auto& rhs) {
+                    return lhs.first < rhs.first;
+                });
+
+      if (vehicles.size() == 1U) {
+          return clampMetric(vehicles.front().second / roiHeight);
+      }
+
+      const float averageVehicleHeight =
+          totalVehicleHeight / static_cast<float>(vehicles.size());
+      const float maxContinuousGap = 1.5f * averageVehicleHeight;
+
+      std::size_t bestStart = 0U;
+      std::size_t bestEnd = 0U;
+      std::size_t currentStart = 0U;
+      auto updateBestCluster = [&](std::size_t start, std::size_t end) {
+          const std::size_t currentCount = end - start + 1U;
+          const std::size_t bestCount = bestEnd - bestStart + 1U;
+          const float currentSpan = vehicles[end].first - vehicles[start].first;
+          const float bestSpan = vehicles[bestEnd].first - vehicles[bestStart].first;
+          if (currentCount > bestCount ||
+              (currentCount == bestCount && currentSpan > bestSpan)) {
+              bestStart = start;
+              bestEnd = end;
+          }
+      };
+
+      for (std::size_t i = 1U; i < vehicles.size(); ++i) {
+          const float verticalGap = vehicles[i].first - vehicles[i - 1U].first;
+          if (averageVehicleHeight > 0.0f && verticalGap > maxContinuousGap) {
+              updateBestCluster(currentStart, i - 1U);
+              currentStart = i;
+          }
+      }
+      updateBestCluster(currentStart, vehicles.size() - 1U);
+
+      if (bestStart == bestEnd) {
+          return clampMetric(vehicles[bestStart].second / roiHeight);
+      }
+
+      return clampMetric((vehicles[bestEnd].first - vehicles[bestStart].first) /
+                         roiHeight);
+  }
+
+  static const char* laneName(std::int32_t lane) {
+      switch (lane) {
+          case 0:
+              return "North";
+          case 1:
+              return "South";
+          case 2:
+              return "East";
+          case 3:
+              return "West";
+          default:
+              return "Unknown";
+      }
+  }
+
+  static void logLaneMetrics(const FrameContext& ctx) {
+      std::cout << "----------------------------------------\n"
+                << "[Analyzer]\n\n"
+                << "Lane: " << laneName(ctx.LaneId) << "\n\n"
+                << "Vehicles: " << ctx.VehicleCount << "\n\n"
+                << "Occupancy: " << ctx.Occupancy << "\n\n"
+                << "Queue Length: " << ctx.QueueLength << "\n\n"
+                << "Emergency: " << (ctx.EmergencyDetected ? "YES" : "NO") << "\n\n";
+  }
+
   FramePool& pool_;
-  std::array<std::atomic<Frame*>, NUM_LANES> renderFrames_{};
-  std::array<InferenceResult, NUM_LANES> latestResults_{};
+  const std::array<Roi, NUM_LANES>& laneRois_;
+  std::array<LaneState, NUM_LANES> laneStates_{};
 };
 
 }  // namespace traffic_perception

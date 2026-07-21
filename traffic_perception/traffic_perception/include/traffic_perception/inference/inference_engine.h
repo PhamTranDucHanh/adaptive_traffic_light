@@ -7,6 +7,7 @@
 #include "traffic_perception/inference/inference_sink.h"
 #include "traffic_perception/ingestion/atomic_frame_buffer.h"
 #include "traffic_perception/core/frame_pool.h"
+#include "traffic_perception/core/config_manager.h"
 
 namespace traffic_perception {
 
@@ -18,10 +19,12 @@ class InferenceEngine {
   // - pool: // Used only to release frames when ownership
             // cannot be transferred successfully.
   // - sink: consumer of inference results (reference)
+  // - configManager: configuration access
   InferenceEngine(std::unique_ptr<IModelBackend> backend,
                   AtomicFrameBuffer& buffer,
                   FramePool& pool,
-                  IInferenceSink& sink);
+                  IInferenceSink& sink,
+                  ConfigManager& configManager);
 
   // Processes all lanes in one cycle:
   // For each lane, take frame, run inference, transfer to sink.
@@ -32,6 +35,7 @@ class InferenceEngine {
   AtomicFrameBuffer& buffer_;
   FramePool& pool_;
   IInferenceSink& sink_;
+  ConfigManager& configManager_;
 };
 
 }  // namespace traffic_perception

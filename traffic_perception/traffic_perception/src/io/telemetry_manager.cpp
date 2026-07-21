@@ -6,8 +6,7 @@ namespace traffic_perception {
 
 void TelemetryManager::showTelemetryMetrics(FrameContext &ctx) const {
   std::cout << "[TelemetryManager] showTelemetryMetrics() - Total Cycles: "
-               "Vehicle "
-            << TotalCycles << ", Count: " << ctx.VehicleCount;
+            << TotalCycles << ", Count: " << ctx.Detections.size() << '\n';
 }
 
 }  // namespace traffic_perception

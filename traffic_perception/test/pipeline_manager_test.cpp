@@ -4,6 +4,7 @@
 #include <thread>
 #include <chrono>
 #include <opencv2/opencv.hpp>
+#include "traffic_perception/core/config_manager.h"
 #include "traffic_perception/core/frame_pool.h"
 #include "traffic_perception/ingestion/atomic_frame_buffer.h"
 #include "traffic_perception/ingestion/stream_worker.h"
@@ -23,6 +24,11 @@ int main(int argc, char* argv[]) {
     std::string sourceUri = runfiles->Rlocation("traffic_perception/test/data/traffic.mp4");
     if (sourceUri.empty()) return 1;
 
+    // Load configuration
+    ConfigManager configManager;
+    configManager.loadConfig();
+    AppConfig config = configManager.getConfig();
+
     constexpr uint32_t kFramePoolSize = 20;
     constexpr auto kCapturePeriod = std::chrono::milliseconds(200);
     constexpr auto kPipelinePeriod = std::chrono::milliseconds(100);
@@ -34,7 +40,7 @@ int main(int argc, char* argv[]) {
     
     // Setup 4 workers
     std::vector<std::unique_ptr<StreamWorker>> workers;
-    for (uint32_t i = 0; i < NUM_LANES; ++i) {
+    for (uint32_t i = 0; i < 4; ++i) {
         auto worker = std::make_unique<StreamWorker>();
         worker->initStream(sourceUri, i, &pool, kCapturePeriod);
         worker->start(buffer);
@@ -44,15 +50,12 @@ int main(int argc, char* argv[]) {
     // PipelineManager
     auto backend = std::make_unique<YOLOv8Backend>(runfiles->Rlocation("traffic_perception/test/data/yolov8n.onnx"));
     YOLOv8Backend* backendPtr = backend.get(); 
-    PipelineManager pipeline(std::move(backend), buffer, pool);
+    PipelineManager pipeline(std::move(backend), buffer, pool, configManager);
 
     cv::namedWindow("Pipeline Integration", cv::WINDOW_AUTOSIZE);
 
-    std::array<cv::Mat, NUM_LANES> lastRenderedFrames;
+    std::array<cv::Mat, 4> lastRenderedFrames;
     for (auto& frame : lastRenderedFrames) frame = cv::Mat();
-
-    // Store latest inference result for each lane
-    std::array<InferenceResult, NUM_LANES> lastInferences; 
 
     bool running = true;
     auto nextPipelineRun = std::chrono::steady_clock::now();
@@ -66,17 +69,26 @@ int main(int argc, char* argv[]) {
         // Get latest frames
         auto frames = pipeline.analyzer().takeRenderFrames();
 
-        std::vector<cv::Mat> canvasLanes(NUM_LANES);
-        for (uint32_t i = 0; i < NUM_LANES; ++i) {
+        std::vector<cv::Mat> canvasLanes(4);
+        for (uint32_t i = 0; i < 4; ++i) {
             if (frames[i] && !frames[i]->Image.empty()) {
-                // Draw detections onto frame using the backend
-                backendPtr->draw(frames[i]->Image, pipeline.analyzer().latestResult(i));
+                // Get latest context for detections
+                const auto& ctx = pipeline.analyzer().latestContext(i);
                 
+                // Draw detections onto frame using the backend
+                backendPtr->draw(frames[i]->Image, ctx.Detections);
+                
+                // Draw ROI
+                const auto& roi = config.laneRois[i];
+                std::vector<std::vector<cv::Point>> contours = {roi.Points};
+                cv::polylines(frames[i]->Image, contours, true, cv::Scalar(0, 255, 0), 2);
+                cv::putText(frames[i]->Image, roi.LaneId, roi.Points[0], 
+                            cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0), 1);
+
                 // Resize/copy into cache
                 cv::resize(frames[i]->Image, lastRenderedFrames[i], cv::Size(320, 240));
                 pipeline.analyzer().releaseFrame(frames[i]);
             }
-            // ... (rest of rendering)
 
             // Compose output
             if (!lastRenderedFrames[i].empty()) {

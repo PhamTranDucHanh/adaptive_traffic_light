@@ -6,14 +6,17 @@ namespace traffic_perception {
 InferenceEngine::InferenceEngine(std::unique_ptr<IModelBackend> backend,
                                  AtomicFrameBuffer& buffer,
                                  FramePool& pool,
-                                 IInferenceSink& sink)
+                                 IInferenceSink& sink,
+                                 ConfigManager& configManager)
     : backend_(std::move(backend)),
       buffer_(buffer),
       pool_(pool),
-      sink_(sink) {}
+      sink_(sink),
+      configManager_(configManager) {}
 
 void InferenceEngine::runOneCycle() {
-  for (uint32_t laneId = 0; laneId < NUM_LANES; ++laneId) {
+  AppConfig config = configManager_.getConfig();
+  for (uint32_t laneId = 0; laneId < 4; ++laneId) {
     // 1. Ownership Transfer: Engine takes Frame from Buffer
     // Ownership transferred from AtomicFrameBuffer
     Frame* frame = buffer_.take(laneId);
@@ -27,10 +30,29 @@ void InferenceEngine::runOneCycle() {
 
     // 3. Perform Inference
     InferenceResult result = backend_->infer(*frame);
-    result.LaneId = static_cast<int32_t>(laneId);
-    std::cout << "[InferenceEngine] Inferenced FrameId: " << frame->FrameId << std::endl;
     
-    // 4. Ownership Transfer: Handoff Frame + Result to Sink
+    // 4. ROI Filtering
+    const auto& roi = config.laneRois[laneId];
+    if (!roi.Points.empty()) {
+      std::vector<Detection> filteredDetections;
+      for (const auto& det : result.Detections) {
+        cv::Point2f bottomCenter(
+            det.Box.x + det.Box.width * 0.5f,
+            det.Box.y + det.Box.height
+        );
+        
+        // Use OpenCV pointPolygonTest to check if inside ROI
+        if (cv::pointPolygonTest(roi.Points, bottomCenter, false) >= 0) {
+          filteredDetections.push_back(det);
+        }
+      }
+      result.Detections = std::move(filteredDetections);
+    }
+
+    result.LaneId = static_cast<int32_t>(laneId);
+    std::cout << "[InferenceEngine] Inferenced FrameId: " << frame->FrameId << " Lane: " << laneId << " Detections: " << result.Detections.size() << std::endl;
+    
+    // 5. Ownership Transfer: Handoff Frame + Result to Sink
     sink_.accept(frame, std::move(result));
     
     // Note: InferenceEngine no longer owns 'frame'. 

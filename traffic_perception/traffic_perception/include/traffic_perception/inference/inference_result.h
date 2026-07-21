@@ -4,15 +4,9 @@
 #include <vector>
 #include <string>
 #include <opencv2/core.hpp>
+#include "traffic_perception/core/types.h"
 
 namespace traffic_perception {
-
-struct Detection {
-  cv::Rect Box;
-  float Confidence;
-  int32_t ClassId;
-  std::string ClassName;
-};
 
 struct InferenceResult {
   int32_t FrameId;

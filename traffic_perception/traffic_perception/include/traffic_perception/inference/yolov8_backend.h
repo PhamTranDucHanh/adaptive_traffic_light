@@ -19,6 +19,8 @@ class YOLOv8Backend : public IModelBackend {
   std::string getModelName() const override;
   void draw(cv::Mat& image,
             const InferenceResult& inference) override;
+  void draw(cv::Mat& image,
+            const std::vector<Detection>& detections);
 
  private:
   Ort::Env env_;

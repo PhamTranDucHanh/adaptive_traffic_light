@@ -52,7 +52,11 @@ std::string YOLOv8Backend::getModelName() const {
 }
 
 void YOLOv8Backend::draw(cv::Mat& image, const InferenceResult& inference) {
-    for (const auto& det : inference.Detections) {
+    draw(image, inference.Detections);
+}
+
+void YOLOv8Backend::draw(cv::Mat& image, const std::vector<Detection>& detections) {
+    for (const auto& det : detections) {
         cv::rectangle(image, det.Box, cv::Scalar(0, 255, 0), 2);
         std::string label = std::to_string(det.ClassId) + " (" + std::to_string(det.Confidence) + ")";
         cv::putText(image, label, det.Box.tl() - cv::Point(0, 5),

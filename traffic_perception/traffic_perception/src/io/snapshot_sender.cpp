@@ -10,9 +10,8 @@ bool MQSnapshotSender::open() {
 }
 
 bool MQSnapshotSender::send(FrameContext &snapshot) {
-  std::cout << "[MQSnapshotSender] send() called for FrameId: "
-            << (snapshot.CapturedFrame ? snapshot.CapturedFrame->FrameId : -1)
-            << ", Vehicles detected: " << snapshot.VehicleCount << '\n';
+  std::cout << "[MQSnapshotSender] send() called, Vehicles detected: "
+            << snapshot.Detections.size() << '\n';
   return true;
 }
 

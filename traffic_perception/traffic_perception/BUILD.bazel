@@ -39,7 +39,6 @@ cc_library(
         "src/perception_module.cpp",
         "src/pipeline/pipeline_manager.cpp",
         "src/pipeline/snapshot_publisher.cpp",
-        "src/pipeline/traffic_analyzer.cpp",
     ],
     hdrs = glob([
         "include/traffic_perception/core/*.h",
@@ -75,9 +74,10 @@ cc_library(
     name = "traffic_perception_application",
     srcs = ["src/traffic_perception_application.cpp"],
     hdrs = ["include/traffic_perception/traffic_perception_application.h"],
-    copts = COMMON_COPTS,
+    copts = OPENCV_COPTS,
     includes = ["include"],
     deps = [
+        ":traffic_perception_core", 
         ":traffic_perception_health",
         "@score_baselibs//score/concurrency:interruptible_wait",
         "@score_baselibs//src/log/stdout_logger_cpp_init",
@@ -88,7 +88,7 @@ cc_library(
 cc_binary(
     name = "traffic_perception",
     srcs = ["src/main.cpp"],
-    copts = COMMON_COPTS,
+    copts = OPENCV_COPTS,
     linkopts = select({
         "@platforms//os:linux": [
             "-lpthread",
@@ -117,3 +117,4 @@ cc_binary(
     copts = OPENCV_COPTS,
     deps = [":traffic_perception_core"],
 )
+

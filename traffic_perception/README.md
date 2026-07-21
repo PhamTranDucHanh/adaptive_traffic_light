@@ -38,6 +38,7 @@ Run the native deployment rather than starting the perception binary directly:
 
 ```bash
 cd traffic_perception/
+sudo prlimit --pid $$ --rtprio=99:99
 bazel run --config=x86_64-linux //deployment:traffic_perception_system
 ```
 
@@ -81,6 +82,12 @@ These targets use the host OpenCV installation. They are intentionally not a
 dependency of the temporary cross-architecture Lifecycle process. Their domain
 completeness is outside this integration change; the managed deployment targets
 above are the targets verified here.
+
+```bash
+export LD_LIBRARY_PATH=$PWD/lib/onnxruntime/lib:$LD_LIBRARY_PATH
+
+bazel run --config=host //:pipeline_manager_test
+```
 
 Lifecycle references:
 <https://github.com/eclipse-score/lifecycle/tree/v0.3.0> and

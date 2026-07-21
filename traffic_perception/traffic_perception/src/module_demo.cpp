@@ -35,8 +35,6 @@ int main() {
     
     // Setup components
     pipeline.getViewer().WindowName = "MultiLane Viewer";
-    pipeline.getAnalyzer().initViewer(&pipeline.getViewer());
-    pipeline.getAnalyzer().ZoneId = 42;
 
     TelemetryManager telemetry;
     telemetry.TotalCycles = 50;

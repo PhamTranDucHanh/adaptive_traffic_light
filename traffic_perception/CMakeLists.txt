@@ -46,7 +46,6 @@ set(ALL_SOURCES
     src/inference/model_backend.cpp
 
     # Pipeline Layer
-    src/pipeline/traffic_analyzer.cpp
     src/pipeline/snapshot_publisher.cpp
     src/pipeline/pipeline_manager.cpp
 
