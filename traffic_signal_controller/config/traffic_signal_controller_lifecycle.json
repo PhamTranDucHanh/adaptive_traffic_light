@@ -78,6 +78,7 @@
             "deployment_config": {
                 "environmental_variables": {
                     "PROCESSIDENTIFIER": "signal_controller",
+                    "MW_LOG_CONFIG_FILE": "/tmp/traffic_signal_controller/etc/signal_control_logging.json",
                     "IDENTIFIER": "signal_controller"
                 },
                 "sandbox": {

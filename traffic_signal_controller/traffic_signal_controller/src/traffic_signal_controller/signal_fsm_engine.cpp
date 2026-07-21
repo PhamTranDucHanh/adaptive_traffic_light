@@ -10,10 +10,6 @@ constexpr std::uint64_t kNanosecondsPerMillisecond{1'000'000ULL};
 
 constexpr std::uint64_t kNanosecondsPerSecond{1'000'000'000ULL};
 
-bool IsGreenPhase(const PhaseId phaseId) {
-  return phaseId == PhaseId::NS_GREEN || phaseId == PhaseId::EW_GREEN;
-}
-
 }  // namespace
 
 SignalFSMEngine::SignalFSMEngine(PlanSyncChannel& syncChannel)
@@ -143,21 +139,13 @@ void SignalFSMEngine::processGreenPhase(const timespec& absoluteDeadline) {
 
   switch (result) {
     case PlanSyncChannel::WaitResult::EMERGENCY_AVAILABLE: {
-      if (evaluateEmergencyPlan(emergencyPlan)) {
-        applyEmergencyPlan(emergencyPlan);
-      }
+      const bool accepted = evaluateEmergencyPlan(emergencyPlan);
 
-      /*
-       * Không decrement ở đây vì condition variable có thể
-       * thức trước khi tick kết thúc.
-       *
-       * Nếu emergency không được áp dụng, chờ tiếp đến cùng
-       * absolute deadline ban đầu.
-       */
-      if (remainingTimeMs_ > 0U && !evaluateEmergencyPlan(emergencyPlan)) {
+      if (accepted) {
+        applyEmergencyPlan(emergencyPlan);
+      } else if (remainingTimeMs_ > 0U) {
         processGreenPhase(absoluteDeadline);
       }
-
       break;
     }
 
@@ -190,100 +178,57 @@ bool SignalFSMEngine::evaluateEmergencyPlan(
     return false;
   }
 
-  if (!emergencyPlan.isEmergencyNS && !emergencyPlan.isEmergencyEW) {
+  // Phải có đúng một hướng emergency.
+  if (emergencyPlan.isEmergencyNS == emergencyPlan.isEmergencyEW) {
     return false;
   }
 
+  constexpr std::uint32_t kThresholdMs{5'000U};
+  constexpr std::uint32_t kMinEmergencyMs{10'000U};
+
   /*
-   * Hai hướng cùng emergency là yêu cầu không hợp lệ.
+   * Chấp nhận khi:
+   *
+   * 5 giây < thời gian còn lại < 10 giây.
    */
-  if (emergencyPlan.isEmergencyNS && emergencyPlan.isEmergencyEW) {
+  const bool timingWindowValid =
+      remainingTimeMs_ > kThresholdMs &&
+      remainingTimeMs_ < kMinEmergencyMs;
+
+  if (!timingWindowValid) {
     return false;
   }
 
   const PhaseId phaseId = currentPhaseId();
 
-  /*
-   * Trong NS_GREEN:
-   *
-   * - Emergency NS: giữ/điều chỉnh GREEN hiện tại.
-   * - Emergency EW: kết thúc NS_GREEN để chuyển qua
-   *   YELLOW -> ALL_RED -> EW_GREEN.
-   */
+  // Emergency phải cùng hướng với GREEN hiện tại.
   if (phaseId == PhaseId::NS_GREEN) {
-    return emergencyPlan.isEmergencyNS || emergencyPlan.isEmergencyEW;
+    return emergencyPlan.isEmergencyNS;
   }
 
-  /*
-   * Trong EW_GREEN:
-   *
-   * - Emergency EW: giữ/điều chỉnh GREEN hiện tại.
-   * - Emergency NS: kết thúc EW_GREEN để chuyển qua
-   *   YELLOW -> ALL_RED -> NS_GREEN.
-   */
   if (phaseId == PhaseId::EW_GREEN) {
-    return emergencyPlan.isEmergencyNS || emergencyPlan.isEmergencyEW;
+    return emergencyPlan.isEmergencyEW;
   }
 
   return false;
 }
 
-void SignalFSMEngine::applyEmergencyPlan(const PlanData& emergencyPlan) {
+
+void SignalFSMEngine::applyEmergencyPlan(
+    const PlanData& emergencyPlan) {
+  constexpr std::uint32_t kEmergencyGreenDurationMs{20'000U};
+
   const PhaseId phaseId = currentPhaseId();
 
-  /*
-   * Thay timing data bằng emergency plan đã được
-   * PlanReceiver validate và preprocess.
-   */
-  currentPlan_ = emergencyPlan;
-  hasActivePlan_ = true;
-
-  if (phaseId == PhaseId::NS_GREEN) {
-    if (emergencyPlan.isEmergencyNS) {
-      /*
-       * Emergency cùng hướng:
-       * cập nhật thời gian GREEN NS.
-       */
-      for (std::uint8_t index = 0U; index < currentPlan_.phaseCount; ++index) {
-        if (currentPlan_.phases[index].phaseId == PhaseId::NS_GREEN) {
-          currentPhaseIndex_ = index;
-          remainingTimeMs_ = currentPlan_.phases[index].durationMs;
-          return;
-        }
-      }
-    }
-
-    if (emergencyPlan.isEmergencyEW) {
-      /*
-       * Emergency hướng đối diện:
-       * kết thúc GREEN hiện tại.
-       *
-       * processTick() sẽ gọi advancePhase() và chuyển
-       * sang YELLOW.
-       */
-      remainingTimeMs_ = 0U;
-      return;
-    }
+  if (phaseId == PhaseId::NS_GREEN &&
+      emergencyPlan.isEmergencyNS) {
+    remainingTimeMs_ = kEmergencyGreenDurationMs;
+    return;
   }
 
-  if (phaseId == PhaseId::EW_GREEN) {
-    if (emergencyPlan.isEmergencyEW) {
-      /*
-       * Emergency cùng hướng:
-       * cập nhật thời gian GREEN EW.
-       */
-      for (std::uint8_t index = 0U; index < currentPlan_.phaseCount; ++index) {
-        if (currentPlan_.phases[index].phaseId == PhaseId::EW_GREEN) {
-          currentPhaseIndex_ = index;
-          remainingTimeMs_ = currentPlan_.phases[index].durationMs;
-          return;
-        }
-      }
-    }
-
-    if (emergencyPlan.isEmergencyNS) {
-      remainingTimeMs_ = 0U;
-    }
+  if (phaseId == PhaseId::EW_GREEN &&
+      emergencyPlan.isEmergencyEW) {
+    remainingTimeMs_ = kEmergencyGreenDurationMs;
   }
 }
 

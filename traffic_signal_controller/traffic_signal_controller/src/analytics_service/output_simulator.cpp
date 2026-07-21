@@ -1,7 +1,7 @@
-#include "traffic_signal_controller/output_simulator.h"
+#include "analytics_service/output_simulator.h"
 
 #include "score/mw/log/logger.h"
-#include "traffic_signal_controller/common/logging_contexts.h"
+#include "common/logging_contexts.h"
 
 namespace {
 
@@ -15,8 +15,9 @@ score::mw::log::Logger& Logger() {
 
 void OutputSimulator::publish(const SignalDisplay& display) const {
   Logger().LogInfo() << "phase=" << phaseName(display.phaseId)
-                     << ", remaining=" << display.remainingTimeMs << " ms";
+                     << ", remaining=" << (display.remainingTimeMs / 1000U) << " s";
 }
+
 const char* OutputSimulator::phaseName(const PhaseId phaseId) noexcept {
   switch (phaseId) {
     case PhaseId::NS_GREEN:

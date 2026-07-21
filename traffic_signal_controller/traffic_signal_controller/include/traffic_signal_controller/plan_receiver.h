@@ -5,7 +5,6 @@
 
 #include "common/config.h"
 #include "common/plan_sync_channel.h"
-#include "common/timing_plan.h"
 
 class PlanReceiver final {
  public:

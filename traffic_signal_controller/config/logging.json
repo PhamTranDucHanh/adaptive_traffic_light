@@ -6,6 +6,7 @@
     "contextConfigs": [
       { "name": "PLAN", "logLevel": "kInfo" },
       { "name": "FSM",  "logLevel": "kInfo" },
-      { "name": "OUT",  "logLevel": "kInfo" }
+      { "name": "OUT",  "logLevel": "kInfo" },
+      { "name": "DEMO", "logLevel": "kInfo"}
     ]
   }

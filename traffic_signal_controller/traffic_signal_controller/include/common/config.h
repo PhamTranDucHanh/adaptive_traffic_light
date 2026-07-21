@@ -5,7 +5,7 @@
 #include <cstdint>
 
 constexpr std::uint8_t MAX_PHASES{6U};
-constexpr std::uint32_t TIMER_INTERVAL_MS{100U};
+constexpr std::uint32_t TIMER_INTERVAL_MS{1'000U};
 
 struct TimingPlan {
   std::uint64_t planId{0U};
@@ -72,6 +72,7 @@ inline PlanData MakeDefaultPlan() {
 
   return plan;
 }
+
 struct SignalDisplay {
   PhaseId phaseId{PhaseId::ALL_RED};
   std::uint32_t remainingTimeMs{0U};

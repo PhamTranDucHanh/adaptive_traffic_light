@@ -56,7 +56,7 @@ if ! type rlocation >/dev/null 2>&1; then
 fi
 # --- end runfiles.bash initialization v3 ---
 
-if [[ $# -ne 8 ]]; then
+if [[ $# -ne 9 ]]; then
   echo "ERROR: deployment target received an invalid runfiles layout" >&2
   exit 1
 fi
@@ -69,6 +69,7 @@ generated_config="$(rlocation "$5")"
 ecu_logging_config="$(rlocation "$6")"
 hm_logging_config="$(rlocation "$7")"
 lm_logging_config="$(rlocation "$8")"
+signal_control_logging_config="$(rlocation "${9}")"
 
 runtime_root="${TRAFFIC_SIGNAL_CONTROLLER_RUNTIME_DIR:-/tmp/traffic_signal_controller}"
 runtime_bin="$runtime_root/bin"
@@ -96,6 +97,7 @@ cp -R --remove-destination "$generated_config"/. "$runtime_etc"/
 install -m 0644 "$ecu_logging_config" "$runtime_etc/ecu_logging_config.json"
 install -m 0644 "$hm_logging_config" "$runtime_etc/hm_logging.json"
 install -m 0644 "$lm_logging_config" "$runtime_etc/logging.json"
+install -m 0644 "$signal_control_logging_config" "$runtime_etc/signal_control_logging.json"
 
 echo "[DEPLOYMENT][STAGE] runtime ready"
 echo "[LAUNCH_MANAGER][START] binary=$runtime_bin/launch_manager"

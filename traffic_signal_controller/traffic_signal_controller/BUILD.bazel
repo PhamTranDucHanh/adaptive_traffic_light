@@ -25,6 +25,9 @@ cc_library(
     deps = [
         "@score_lifecycle//score/health_monitor:health_monitoring_cc",
         "@score_baselibs//score/mw/log:frontend",
+        "@score_baselibs//src/log/stdout_logger_cpp_init",
+        "@score_logging//score/mw/log/backend:file",
+        "@score_baselibs//score/mw/log:console",
     ],
 )
 

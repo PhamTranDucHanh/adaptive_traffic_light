@@ -25,12 +25,10 @@ bool PlanReceiver::ReceivePlan(const TimingPlan& plan) {
   }
 
   const std::uint64_t receivedTimestampNs = GetMonotonicTimestampNs();
+  const PlanData translatedPlan =
+      TranslatePlan(plan, receivedTimestampNs);
 
-  const PlanData translatedPlan = TranslatePlan(plan, receivedTimestampNs);
-
-  syncChannel_.PublishPlan(translatedPlan);
-
-  return true;
+  return syncChannel_.PublishPlan(translatedPlan);
 }
 
 bool PlanReceiver::ValidatePlan(const TimingPlan& plan) const {

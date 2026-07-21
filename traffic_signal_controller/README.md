@@ -94,3 +94,7 @@ also mirrored to:
 Lifecycle references:
 <https://github.com/eclipse-score/lifecycle/tree/v0.3.0> and
 <https://eclipse-score.github.io/lifecycle/v0.3.0/index.html>.
+
+```bash 
+MW_LOG_CONFIG_FILE="$PWD/config/logging.json" bazel run --config=x86_64-linux   //traffic_signal_controller:traffic_signal_controller_demo 
+```
