@@ -15,9 +15,15 @@ The executable follows the upstream `examples/cpp_lifecycle_app` boundary:
   Manager after successful initialization.
 
 `PeriodicService` contains domain initialization and one decision cycle only;
-it no longer contains a second timer abstraction. The loop uses an absolute
-`steady_clock` schedule and the S-CORE interruptible wait utility. During the
-demo it prints a monotonically increasing counter every 2500 ms.
+it does not own the periodic timer. Each process keeps its small timing helper
+in its own `src/common.cpp`. The helper uses a `CLOCK_MONOTONIC` condition
+variable with an absolute release deadline. A callback registered with the
+S-CORE stop token signals the condition variable, allowing SIGTERM to wake a
+sleeping process immediately without changing the periodic schedule phase.
+
+Only `traffic_timing_decision` is health-supervised. `perception_demo` and
+`signal_control_demo` are reporting-only Lifecycle processes used to exercise
+the two POSIX message-queue channels.
 
 Targets:
 

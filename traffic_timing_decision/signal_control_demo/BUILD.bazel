@@ -4,7 +4,10 @@ package(default_visibility = ["//visibility:public"])
 
 cc_library(
     name = "signal_control_application",
-    srcs = ["src/signal_control_application.cpp"],
+    srcs = [
+        "src/common.cpp",
+        "src/signal_control_application.cpp",
+    ],
     hdrs = glob(["include/*.h"]),
     copts = [
         "-Wall",
@@ -14,8 +17,7 @@ cc_library(
     includes = ["include"],
     deps = [
         "//ipc:traffic_ipc",
-        "//common:absolute_periodic",
-        "//common:periodic_health_reporter",
+        "@score_baselibs//score/language/futurecpp",
         "@score_baselibs//score/mw/log:frontend",
         "@score_lifecycle//score/launch_manager:lifecycle_cc",
     ],
@@ -24,6 +26,10 @@ cc_library(
 cc_binary(
     name = "signal_control_demo",
     srcs = ["src/main.cpp"],
+    linkopts = select({
+        "@platforms//os:linux": ["-lpthread"],
+        "//conditions:default": [],
+    }),
     deps = [
         ":signal_control_application",
         "@score_baselibs//score/mw/log",

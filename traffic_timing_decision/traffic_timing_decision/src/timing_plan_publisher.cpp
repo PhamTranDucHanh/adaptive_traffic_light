@@ -3,7 +3,7 @@
 #include <string_view>
 
 #include "application_logger.h"
-#include "common/absolute_periodic.h"
+#include "common.h"
 
 //
 // Constructor

@@ -62,13 +62,7 @@
             "component_properties": {
                 "binary_name": "perception_demo",
                 "application_profile": {
-                    "application_type": "Reporting_And_Supervised",
-                    "alive_supervision": {
-                        "reporting_cycle": 2.0,
-                        "min_indications": 2,
-                        "max_indications": 4,
-                        "failed_cycles_tolerance": 1
-                    }
+                    "application_type": "Reporting"
                 }
             },
             "deployment_config": {
@@ -78,7 +72,6 @@
                 },
                 "environmental_variables": {
                     "PROCESSIDENTIFIER": "perception_demo",
-                    "IDENTIFIER": "perception_demo",
                     "MW_LOG_CONFIG_FILE": "/tmp/linux_rt_application/etc/perception_logging.json"
                 }
             }
@@ -120,13 +113,7 @@
                     "timing_decision"
                 ],
                 "application_profile": {
-                    "application_type": "Reporting_And_Supervised",
-                    "alive_supervision": {
-                        "reporting_cycle": 2.0,
-                        "min_indications": 2,
-                        "max_indications": 4,
-                        "failed_cycles_tolerance": 1
-                    }
+                    "application_type": "Reporting"
                 }
             },
             "deployment_config": {
@@ -136,7 +123,6 @@
                 },
                 "environmental_variables": {
                     "PROCESSIDENTIFIER": "signal_control_demo",
-                    "IDENTIFIER": "signal_control_demo",
                     "MW_LOG_CONFIG_FILE": "/tmp/linux_rt_application/etc/signal_control_logging.json"
                 }
             }

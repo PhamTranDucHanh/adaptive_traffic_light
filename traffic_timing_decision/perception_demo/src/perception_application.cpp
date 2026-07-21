@@ -3,10 +3,11 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <score/stop_token.hpp>
 #include <string_view>
 
+#include "common.h"
 #include "perception_logger.h"
-#include "common/absolute_periodic.h"
 
 namespace {
 
@@ -18,8 +19,7 @@ namespace perception_demo {
 
 PerceptionApplication::PerceptionApplication()
     : publisher_{traffic_ipc::kTrafficSnapshotQueueName,
-                 traffic_ipc::kTrafficSnapshotLockName},
-      healthReporter_{common::HealthProfile::kPerception} {}
+                 traffic_ipc::kTrafficSnapshotLockName} {}
 
 std::int32_t PerceptionApplication::Initialize(
     const score::mw::lifecycle::ApplicationContext& context) {
@@ -37,9 +37,9 @@ std::int32_t PerceptionApplication::Initialize(
         << "; errno=" << publisher_.lastError();
     return EXIT_FAILURE;
   }
-  if (!healthReporter_.initialize()) {
+  if (!periodicWait_.valid()) {
     applicationLogger().LogError()
-        << "[INIT][HEALTH] S-CORE HealthMonitor initialization failed";
+        << "[INIT][PERIODIC] condition variable initialization failed";
     publisher_.close();
     return EXIT_FAILURE;
   }
@@ -49,7 +49,7 @@ std::int32_t PerceptionApplication::Initialize(
   applicationLogger().LogInfo()
       << "[INIT] ready; period_ms=" << kPeriodMs
       << "; queue=" << traffic_ipc::kTrafficSnapshotQueueName
-      << "; health=enabled";
+      << "; lifecycle_profile=Reporting";
   return EXIT_SUCCESS;
 }
 
@@ -67,25 +67,20 @@ std::int32_t PerceptionApplication::Run(
   common::addMilliseconds(nextRelease, kPeriodMs);
 
   std::int32_t exitCode{EXIT_SUCCESS};
+  score::cpp::stop_callback stopWake{
+      stopToken, [this]() noexcept { periodicWait_.requestStop(); }};
   applicationLogger().LogInfo()
       << "[RUN] periodic producer started; clock=CLOCK_MONOTONIC; "
-         "sleep=TIMER_ABSTIME";
+         "wait=pthread_cond_timedwait; deadline=absolute";
   while (!stopToken.stop_requested()) {
-    const int sleepResult = common::sleepUntil(
-        nextRelease, [&stopToken]() { return stopToken.stop_requested(); });
-    if (stopToken.stop_requested()) {
+    const int sleepResult = periodicWait_.waitUntil(nextRelease);
+    if (sleepResult == ECANCELED || stopToken.stop_requested()) {
       break;
     }
     if (sleepResult != 0) {
       applicationLogger().LogError()
-          << "[RUN] clock_nanosleep failed: "
+          << "[RUN] periodic wait failed: "
           << std::string_view{std::strerror(sleepResult)};
-      exitCode = EXIT_FAILURE;
-      break;
-    }
-
-    if (!healthReporter_.startCycle()) {
-      applicationLogger().LogError() << "[HEALTH] could not start cycle";
       exitCode = EXIT_FAILURE;
       break;
     }
@@ -93,15 +88,58 @@ std::int32_t PerceptionApplication::Run(
     const auto snapshot = makeSnapshot();
     const auto publishStatus = publisher_.publish(snapshot);
     if (publishStatus == traffic_ipc::QueueStatus::kSuccess) {
+      const std::uint32_t northSouthVehicleTotal =
+          snapshot.vehicleCountNorth + snapshot.vehicleCountSouth;
+      const std::uint32_t eastWestVehicleTotal =
+          snapshot.vehicleCountEast + snapshot.vehicleCountWest;
+      const float northSouthVehicleAverage =
+          static_cast<float>(northSouthVehicleTotal) * 0.5F;
+      const float eastWestVehicleAverage =
+          static_cast<float>(eastWestVehicleTotal) * 0.5F;
+      const float northSouthQueueAverage =
+          (snapshot.queueLengthNorth + snapshot.queueLengthSouth) * 0.5F;
+      const float eastWestQueueAverage =
+          (snapshot.queueLengthEast + snapshot.queueLengthWest) * 0.5F;
+      const float northSouthOccupancyAveragePercent =
+          (snapshot.occupancyNorth + snapshot.occupancySouth) * 50.0F;
+      const float eastWestOccupancyAveragePercent =
+          (snapshot.occupancyEast + snapshot.occupancyWest) * 50.0F;
+      const bool northSouthEmergency =
+          snapshot.emergencyNorth || snapshot.emergencySouth;
+      const bool eastWestEmergency =
+          snapshot.emergencyEast || snapshot.emergencyWest;
+
       applicationLogger().LogInfo()
           << "[IPC][SNAPSHOT][PUBLISHED] frame_id=" << snapshot.frameId
-          << "; ns_vehicles="
-          << snapshot.vehicleCountNorth + snapshot.vehicleCountSouth
-          << "; ew_vehicles="
-          << snapshot.vehicleCountEast + snapshot.vehicleCountWest
-          << "; emergency="
-          << (snapshot.emergencyNorth || snapshot.emergencySouth ||
-              snapshot.emergencyEast || snapshot.emergencyWest);
+          << "; timestamp_us=" << snapshot.timestampUs;
+      applicationLogger().LogInfo()
+          << "[IPC][SNAPSHOT][NS] north_vehicles=" << snapshot.vehicleCountNorth
+          << "; south_vehicles=" << snapshot.vehicleCountSouth
+          << "; vehicle_total=" << northSouthVehicleTotal
+          << "; vehicle_avg=" << northSouthVehicleAverage
+          << "; north_queue=" << snapshot.queueLengthNorth
+          << "; south_queue=" << snapshot.queueLengthSouth
+          << "; queue_avg=" << northSouthQueueAverage
+          << "; north_occupancy_pct=" << snapshot.occupancyNorth * 100.0F
+          << "; south_occupancy_pct=" << snapshot.occupancySouth * 100.0F
+          << "; occupancy_avg_pct=" << northSouthOccupancyAveragePercent
+          << "; emergency_north=" << snapshot.emergencyNorth
+          << "; emergency_south=" << snapshot.emergencySouth
+          << "; emergency_ns=" << northSouthEmergency;
+      applicationLogger().LogInfo()
+          << "[IPC][SNAPSHOT][EW] east_vehicles=" << snapshot.vehicleCountEast
+          << "; west_vehicles=" << snapshot.vehicleCountWest
+          << "; vehicle_total=" << eastWestVehicleTotal
+          << "; vehicle_avg=" << eastWestVehicleAverage
+          << "; east_queue=" << snapshot.queueLengthEast
+          << "; west_queue=" << snapshot.queueLengthWest
+          << "; queue_avg=" << eastWestQueueAverage
+          << "; east_occupancy_pct=" << snapshot.occupancyEast * 100.0F
+          << "; west_occupancy_pct=" << snapshot.occupancyWest * 100.0F
+          << "; occupancy_avg_pct=" << eastWestOccupancyAveragePercent
+          << "; emergency_east=" << snapshot.emergencyEast
+          << "; emergency_west=" << snapshot.emergencyWest
+          << "; emergency_ew=" << eastWestEmergency;
     } else if (publishStatus == traffic_ipc::QueueStatus::kDeferred) {
       applicationLogger().LogWarn()
           << "[IPC][SNAPSHOT][DEFERRED] frame_id=" << snapshot.frameId
@@ -114,14 +152,6 @@ std::int32_t PerceptionApplication::Run(
       exitCode = EXIT_FAILURE;
     }
 
-    if (!healthReporter_.finishCycle()) {
-      applicationLogger().LogError() << "[HEALTH] could not finish cycle";
-      exitCode = EXIT_FAILURE;
-    } else {
-      applicationLogger().LogDebug()
-          << "[HEALTH][CYCLE] count=" << healthReporter_.cycleCount()
-          << "; elapsed_us=" << healthReporter_.lastCycleElapsedUs();
-    }
     if (exitCode != EXIT_SUCCESS) {
       break;
     }
@@ -129,8 +159,7 @@ std::int32_t PerceptionApplication::Run(
     common::addMilliseconds(nextRelease, kPeriodMs);
     timespec now{};
     if (common::monotonicNow(now)) {
-      const auto skipped =
-          common::advancePastNow(nextRelease, kPeriodMs, now);
+      const auto skipped = common::advancePastNow(nextRelease, kPeriodMs, now);
       if (skipped > 0U) {
         applicationLogger().LogWarn()
             << "[RUN][OVERRUN] skipped_releases=" << skipped;
@@ -145,11 +174,9 @@ std::int32_t PerceptionApplication::Run(
 traffic_ipc::TrafficSnapshot PerceptionApplication::makeSnapshot() {
   traffic_ipc::TrafficSnapshot snapshot{};
   snapshot.frameId = nextFrameId_++;
-  snapshot.timestampUs =
-      common::monotonicNanoseconds() / 1000ULL;
+  snapshot.timestampUs = common::monotonicNanoseconds() / 1000ULL;
 
-  const std::uint32_t phase =
-      static_cast<std::uint32_t>(snapshot.frameId % 8U);
+  const std::uint32_t phase = static_cast<std::uint32_t>(snapshot.frameId % 8U);
   snapshot.vehicleCountNorth = 10U + phase * 3U;
   snapshot.vehicleCountSouth = 8U + phase * 2U;
   snapshot.vehicleCountEast = 22U - phase;
@@ -173,7 +200,6 @@ void PerceptionApplication::shutdown() {
   if (!initialized_) {
     return;
   }
-  healthReporter_.shutdown();
   publisher_.close();
   initialized_ = false;
   applicationLogger().LogInfo()

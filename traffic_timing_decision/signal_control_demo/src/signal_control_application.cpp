@@ -2,9 +2,10 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <score/stop_token.hpp>
 #include <string_view>
 
-#include "common/absolute_periodic.h"
+#include "common.h"
 #include "signal_control_logger.h"
 
 namespace {
@@ -22,8 +23,7 @@ namespace signal_control_demo {
 
 SignalControlApplication::SignalControlApplication()
     : consumer_{traffic_ipc::kTimingPlanQueueName,
-                traffic_ipc::kTimingPlanLockName},
-      healthReporter_{common::HealthProfile::kSignalController} {
+                traffic_ipc::kTimingPlanLockName} {
   lastValidPlan_.greenNorthSouthMs = 30000U;
   lastValidPlan_.greenEastWestMs = 30000U;
   lastValidPlan_.yellowMs = 3000U;
@@ -44,9 +44,9 @@ std::int32_t SignalControlApplication::Initialize(
         << "; errno=" << consumer_.lastError();
     return EXIT_FAILURE;
   }
-  if (!healthReporter_.initialize()) {
+  if (!periodicWait_.valid()) {
     applicationLogger().LogError()
-        << "[INIT][HEALTH] S-CORE HealthMonitor initialization failed";
+        << "[INIT][PERIODIC] condition variable initialization failed";
     consumer_.close();
     return EXIT_FAILURE;
   }
@@ -56,7 +56,7 @@ std::int32_t SignalControlApplication::Initialize(
   applicationLogger().LogInfo()
       << "[INIT] ready; output_state=all_red_safe; period_ms=" << kPeriodMs
       << "; queue=" << traffic_ipc::kTimingPlanQueueName
-      << "; health=enabled";
+      << "; lifecycle_profile=Reporting";
   return EXIT_SUCCESS;
 }
 
@@ -74,25 +74,20 @@ std::int32_t SignalControlApplication::Run(
   common::addMilliseconds(nextRelease, kPeriodMs);
 
   std::int32_t exitCode{EXIT_SUCCESS};
+  score::cpp::stop_callback stopWake{
+      stopToken, [this]() noexcept { periodicWait_.requestStop(); }};
   applicationLogger().LogInfo()
       << "[RUN] periodic consumer started; clock=CLOCK_MONOTONIC; "
-         "sleep=TIMER_ABSTIME";
+         "wait=pthread_cond_timedwait; deadline=absolute";
   while (!stopToken.stop_requested()) {
-    const int sleepResult = common::sleepUntil(
-        nextRelease, [&stopToken]() { return stopToken.stop_requested(); });
-    if (stopToken.stop_requested()) {
+    const int sleepResult = periodicWait_.waitUntil(nextRelease);
+    if (sleepResult == ECANCELED || stopToken.stop_requested()) {
       break;
     }
     if (sleepResult != 0) {
       applicationLogger().LogError()
-          << "[RUN] clock_nanosleep failed: "
+          << "[RUN] periodic wait failed: "
           << std::string_view{std::strerror(sleepResult)};
-      exitCode = EXIT_FAILURE;
-      break;
-    }
-
-    if (!healthReporter_.startCycle()) {
-      applicationLogger().LogError() << "[HEALTH] could not start cycle";
       exitCode = EXIT_FAILURE;
       break;
     }
@@ -125,15 +120,6 @@ std::int32_t SignalControlApplication::Run(
       }
     }
 
-    if (!healthReporter_.finishCycle()) {
-      applicationLogger().LogError() << "[HEALTH] could not finish cycle";
-      exitCode = EXIT_FAILURE;
-    } else {
-      applicationLogger().LogDebug()
-          << "[HEALTH][CYCLE] count=" << healthReporter_.cycleCount()
-          << "; elapsed_us=" << healthReporter_.lastCycleElapsedUs();
-    }
-
     if (consecutiveMisses_ >= kMaximumConsecutiveMisses) {
       applicationLogger().LogError()
           << "[FSM][PLAN_TIMEOUT] consecutive_misses=" << consecutiveMisses_
@@ -148,8 +134,7 @@ std::int32_t SignalControlApplication::Run(
     common::addMilliseconds(nextRelease, kPeriodMs);
     timespec now{};
     if (common::monotonicNow(now)) {
-      const auto skipped =
-          common::advancePastNow(nextRelease, kPeriodMs, now);
+      const auto skipped = common::advancePastNow(nextRelease, kPeriodMs, now);
       if (skipped > 0U) {
         applicationLogger().LogWarn()
             << "[RUN][OVERRUN] skipped_releases=" << skipped;
@@ -174,11 +159,10 @@ bool SignalControlApplication::validatePlan(
     return false;
   }
 
-  const bool greenValid =
-      plan.greenNorthSouthMs >= kMinimumGreenMs &&
-      plan.greenNorthSouthMs <= kMaximumGreenMs &&
-      plan.greenEastWestMs >= kMinimumGreenMs &&
-      plan.greenEastWestMs <= kMaximumGreenMs;
+  const bool greenValid = plan.greenNorthSouthMs >= kMinimumGreenMs &&
+                          plan.greenNorthSouthMs <= kMaximumGreenMs &&
+                          plan.greenEastWestMs >= kMinimumGreenMs &&
+                          plan.greenEastWestMs <= kMaximumGreenMs;
   const std::uint64_t expectedCycle =
       static_cast<std::uint64_t>(plan.greenNorthSouthMs) +
       plan.greenEastWestMs +
@@ -194,7 +178,6 @@ void SignalControlApplication::shutdown() {
   applicationLogger().LogInfo()
       << "[STOP] output_state=all_red_safe; last_plan_id="
       << lastValidPlan_.planId;
-  healthReporter_.shutdown();
   consumer_.close();
   initialized_ = false;
 }

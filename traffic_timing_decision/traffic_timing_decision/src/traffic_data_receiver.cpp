@@ -5,7 +5,7 @@
 #include <string_view>
 
 #include "application_logger.h"
-#include "common/absolute_periodic.h"
+#include "common.h"
 
 namespace {
 
@@ -15,10 +15,8 @@ constexpr std::uint32_t kMaximumVehicleCount = 10000U;
 constexpr float kMaximumQueueLength = 1000.0F;
 
 bool validQueueLength(const float value) noexcept {
-  return std::isfinite(value) && value >= 0.0F &&
-         value <= kMaximumQueueLength;
+  return std::isfinite(value) && value >= 0.0F && value <= kMaximumQueueLength;
 }
-
 bool validOccupancy(const float value) noexcept {
   return std::isfinite(value) && value >= 0.0F && value <= 1.0F;
 }
@@ -59,14 +57,15 @@ bool TrafficDataReceiver::initialize() {
   if (!snapshotQueue.open()) {
     traffic_timing_decision::applicationLogger().LogError()
         << "[IPC][SNAPSHOT][OPEN] status="
-        << std::string_view{
-               traffic_ipc::queueStatusName(snapshotQueue.lastStatus())}
+        << std::string_view{traffic_ipc::queueStatusName(
+               snapshotQueue.lastStatus())}
         << "; errno=" << snapshotQueue.lastError();
     return false;
   }
   traffic_timing_decision::applicationLogger().LogInfo()
       << "[IPC][SNAPSHOT][OPEN] queue="
-      << traffic_ipc::kTrafficSnapshotQueueName << "; mode=nonblocking_consumer";
+      << traffic_ipc::kTrafficSnapshotQueueName
+      << "; mode=nonblocking_consumer";
   return true;
 }
 void TrafficDataReceiver::shutdown() { snapshotQueue.close(); }
@@ -79,19 +78,17 @@ bool TrafficDataReceiver::requestSnapshot(TrafficSnapshot& snapshot) {
 }
 
 bool TrafficDataReceiver::validateSnapshot(const TrafficSnapshot& snapshot) {
-  const std::uint64_t nowUs =
-      common::monotonicNanoseconds() / 1000ULL;
+  const std::uint64_t nowUs = common::monotonicNanoseconds() / 1000ULL;
   const bool identityValid =
       snapshot.frameId != 0U && snapshot.frameId > previousSnapshot.frameId;
   const bool timestampValid =
       snapshot.timestampUs != 0U &&
       snapshot.timestampUs <= nowUs + kMaximumFutureToleranceUs &&
       nowUs <= snapshot.timestampUs + kMaximumSnapshotAgeUs;
-  const bool countsValid =
-      snapshot.vehicleCountNorth <= kMaximumVehicleCount &&
-      snapshot.vehicleCountSouth <= kMaximumVehicleCount &&
-      snapshot.vehicleCountEast <= kMaximumVehicleCount &&
-      snapshot.vehicleCountWest <= kMaximumVehicleCount;
+  const bool countsValid = snapshot.vehicleCountNorth <= kMaximumVehicleCount &&
+                           snapshot.vehicleCountSouth <= kMaximumVehicleCount &&
+                           snapshot.vehicleCountEast <= kMaximumVehicleCount &&
+                           snapshot.vehicleCountWest <= kMaximumVehicleCount;
   const bool queuesValid = validQueueLength(snapshot.queueLengthNorth) &&
                            validQueueLength(snapshot.queueLengthSouth) &&
                            validQueueLength(snapshot.queueLengthEast) &&

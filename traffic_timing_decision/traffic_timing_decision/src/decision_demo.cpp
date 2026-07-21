@@ -40,8 +40,7 @@ int main() {
   oversized.greenNorthSouthMs = 60000U;
   oversized.greenEastWestMs = 60000U;
   const TimingPlan bounded = constraints.applyTimingConstraints(oversized);
-  if (bounded.cycleLengthMs != 120000U ||
-      bounded.greenNorthSouthMs != 56000U ||
+  if (bounded.cycleLengthMs != 120000U || bounded.greenNorthSouthMs != 56000U ||
       bounded.greenEastWestMs != 56000U) {
     return 3;
   }

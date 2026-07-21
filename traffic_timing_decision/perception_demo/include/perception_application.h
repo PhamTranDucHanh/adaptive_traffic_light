@@ -1,11 +1,11 @@
 #ifndef PERCEPTION_DEMO_APPLICATION_H
 #define PERCEPTION_DEMO_APPLICATION_H
 
-#include <cstdint>
-
 #include <score/mw/lifecycle/application.h>
 
-#include "common/periodic_health_reporter.h"
+#include <cstdint>
+
+#include "common.h"
 #include "traffic_ipc/latest_value_queue.h"
 #include "traffic_ipc/messages.h"
 
@@ -24,7 +24,7 @@ class PerceptionApplication final : public score::mw::lifecycle::Application {
   void shutdown();
 
   traffic_ipc::LatestValuePublisher<traffic_ipc::TrafficSnapshot> publisher_;
-  common::PeriodicHealthReporter healthReporter_;
+  common::PeriodicWait periodicWait_;
   std::uint64_t nextFrameId_{1U};
   bool initialized_{false};
 };

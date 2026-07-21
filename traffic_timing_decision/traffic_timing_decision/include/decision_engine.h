@@ -5,6 +5,8 @@
 
 #include "decision_types.h"
 
+#define DECISION_ENGINE_STAT
+
 //
 // Internal helper
 //
@@ -51,8 +53,7 @@ class DecisionEngine {
   TimingPlan assignGreenTime(const DemandScore& score);
   TimingPlan generateDraftTimingPlan(const DemandScore& score);
   std::uint32_t targetGreenTimeMs(float demandScore) const;
-  std::uint32_t stepToward(std::uint32_t current,
-                           std::uint32_t target) const;
+  std::uint32_t stepToward(std::uint32_t current, std::uint32_t target) const;
   std::uint64_t nextPlanId_{1U};
   TimingPlan previousPlan;
   DemandScore currentScore;

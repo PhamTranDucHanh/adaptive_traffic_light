@@ -4,7 +4,10 @@
 #include <cmath>
 #include <cstdint>
 
-#include "common/absolute_periodic.h"
+#ifdef DECISION_ENGINE_STAT
+#include "application_logger.h"
+#endif
+#include "common.h"
 
 namespace {
 
@@ -14,7 +17,6 @@ constexpr std::uint32_t kGreenAdjustmentStepMs = 5000U;
 float mean(const float first, const float second) noexcept {
   return (first + second) * 0.5F;
 }
-
 float mean(const std::uint32_t first, const std::uint32_t second) noexcept {
   return static_cast<float>(first + second) * 0.5F;
 }
@@ -33,11 +35,9 @@ TimingPlan ConstraintManager::applyTimingConstraints(
   constrained.yellowMs = yellowTimeMs;
   constrained.allRedMs = allRedTimeMs;
   constrained.greenNorthSouthMs =
-      std::clamp(constrained.greenNorthSouthMs, minimumGreenMs,
-                 maximumGreenMs);
+      std::clamp(constrained.greenNorthSouthMs, minimumGreenMs, maximumGreenMs);
   constrained.greenEastWestMs =
-      std::clamp(constrained.greenEastWestMs, minimumGreenMs,
-                 maximumGreenMs);
+      std::clamp(constrained.greenEastWestMs, minimumGreenMs, maximumGreenMs);
   constrained.cycleLengthMs = calculateCycleLength(constrained);
 
   if (!validateCycleLength(constrained)) {
@@ -53,19 +53,16 @@ bool ConstraintManager::validateCycleLength(const TimingPlan& plan) const {
 
 TimingPlan ConstraintManager::scaleGreenTime(const TimingPlan& plan) {
   TimingPlan scaled = plan;
-  const std::uint32_t intergreenTime =
-      2U * (yellowTimeMs + allRedTimeMs);
+  const std::uint32_t intergreenTime = 2U * (yellowTimeMs + allRedTimeMs);
   if (maximumCycleLengthMs <= intergreenTime) {
     scaled.greenNorthSouthMs = minimumGreenMs;
     scaled.greenEastWestMs = minimumGreenMs;
     return scaled;
   }
 
-  const std::uint32_t availableGreen =
-      maximumCycleLengthMs - intergreenTime;
+  const std::uint32_t availableGreen = maximumCycleLengthMs - intergreenTime;
   const std::uint64_t totalGreen =
-      static_cast<std::uint64_t>(plan.greenNorthSouthMs) +
-      plan.greenEastWestMs;
+      static_cast<std::uint64_t>(plan.greenNorthSouthMs) + plan.greenEastWestMs;
   if (totalGreen <= availableGreen || totalGreen == 0U) {
     return scaled;
   }
@@ -73,8 +70,8 @@ TimingPlan ConstraintManager::scaleGreenTime(const TimingPlan& plan) {
   std::uint32_t northSouth = static_cast<std::uint32_t>(
       (static_cast<std::uint64_t>(plan.greenNorthSouthMs) * availableGreen) /
       totalGreen);
-  northSouth = std::clamp(northSouth, minimumGreenMs,
-                          availableGreen - minimumGreenMs);
+  northSouth =
+      std::clamp(northSouth, minimumGreenMs, availableGreen - minimumGreenMs);
   const std::uint32_t eastWest = availableGreen - northSouth;
   scaled.greenNorthSouthMs = northSouth;
   scaled.greenEastWestMs = eastWest;
@@ -87,8 +84,7 @@ std::uint32_t ConstraintManager::calculateCycleLength(
       static_cast<std::uint64_t>(plan.greenNorthSouthMs) +
       plan.greenEastWestMs +
       2ULL * (static_cast<std::uint64_t>(plan.yellowMs) + plan.allRedMs);
-  return static_cast<std::uint32_t>(
-      std::min<std::uint64_t>(value, UINT32_MAX));
+  return static_cast<std::uint32_t>(std::min<std::uint64_t>(value, UINT32_MAX));
 }
 
 //
@@ -126,12 +122,11 @@ bool DecisionEngine::detectEmergency(const TrafficSnapshot& snapshot) const {
          snapshot.emergencyEast || snapshot.emergencyWest;
 }
 
-TimingPlan DecisionEngine::setEmergencyFlags(
-    const TimingPlan& previous, const TrafficSnapshot& snapshot) {
+TimingPlan DecisionEngine::setEmergencyFlags(const TimingPlan& previous,
+                                             const TrafficSnapshot& snapshot) {
   TimingPlan emergencyPlan = previous;
   emergencyPlan.planId = nextPlanId_++;
-  emergencyPlan.generationTimestampNs =
-      common::monotonicNanoseconds();
+  emergencyPlan.generationTimestampNs = common::monotonicNanoseconds();
   emergencyPlan.emergencyNorthSouth =
       snapshot.emergencyNorth || snapshot.emergencySouth;
   emergencyPlan.emergencyEastWest =
@@ -155,25 +150,30 @@ DemandScore DecisionEngine::calculateDemandScore(
   const float eastWestOccupancy =
       mean(snapshot.occupancyEast, snapshot.occupancyWest) * 100.0F;
 
-  score.northSouthScore = 0.5F * northSouthQueue +
-                           0.3F * northSouthVehicles +
-                           0.2F * northSouthOccupancy;
-  score.eastWestScore = 0.5F * eastWestQueue +
-                        0.3F * eastWestVehicles +
-                        0.2F * eastWestOccupancy;
-  score.overallScore =
-      (score.northSouthScore + score.eastWestScore) * 0.5F;
+  score.northSouthScore = 0.5F * northSouthQueue + 0.3F * northSouthVehicles +
+                          0.2F * northSouthOccupancy;
+  score.eastWestScore =
+      0.5F * eastWestQueue + 0.3F * eastWestVehicles + 0.2F * eastWestOccupancy;
+  score.overallScore = (score.northSouthScore + score.eastWestScore) * 0.5F;
+
+#ifdef DECISION_ENGINE_STAT
+  traffic_timing_decision::applicationLogger().LogInfo()
+      << "[DECISION][DEMAND_SCORE] frame_id=" << snapshot.frameId
+      << "; ns_score=" << score.northSouthScore
+      << "; ew_score=" << score.eastWestScore
+      << "; overall_score=" << score.overallScore
+      << "; weights=queue:0.5,vehicles:0.3,occupancy_pct:0.2";
+#endif
+
   return score;
 }
 
 TimingPlan DecisionEngine::assignGreenTime(const DemandScore& score) {
   TimingPlan plan = previousPlan;
-  plan.greenNorthSouthMs =
-      stepToward(previousPlan.greenNorthSouthMs,
-                 targetGreenTimeMs(score.northSouthScore));
-  plan.greenEastWestMs =
-      stepToward(previousPlan.greenEastWestMs,
-                 targetGreenTimeMs(score.eastWestScore));
+  plan.greenNorthSouthMs = stepToward(previousPlan.greenNorthSouthMs,
+                                      targetGreenTimeMs(score.northSouthScore));
+  plan.greenEastWestMs = stepToward(previousPlan.greenEastWestMs,
+                                    targetGreenTimeMs(score.eastWestScore));
   return plan;
 }
 
@@ -186,8 +186,7 @@ TimingPlan DecisionEngine::generateDraftTimingPlan(const DemandScore& score) {
   return draft;
 }
 
-std::uint32_t DecisionEngine::targetGreenTimeMs(
-    const float demandScore) const {
+std::uint32_t DecisionEngine::targetGreenTimeMs(const float demandScore) const {
   if (demandScore < 30.0F) {
     return 20000U;
   }

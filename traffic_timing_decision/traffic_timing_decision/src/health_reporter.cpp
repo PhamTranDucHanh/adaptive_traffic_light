@@ -1,10 +1,10 @@
 #include "health_reporter.h"
 
+#include <score/mw/health/common.h>
+
 #include <chrono>
 #include <string_view>
 #include <utility>
-
-#include <score/mw/health/common.h>
 
 #include "application_logger.h"
 
@@ -42,17 +42,15 @@ bool HealthReporter::initialize() {
   using score::mw::health::deadline::DeadlineMonitorBuilder;
   using score::mw::health::heartbeat::HeartbeatMonitorBuilder;
 
-  auto deadlineBuilder =
-      DeadlineMonitorBuilder().add_deadline(
-          kDecisionCycleDeadlineTag,
-          TimeRange{kDecisionDeadlineMin, kDecisionDeadlineMax});
-  auto heartbeatBuilder = HeartbeatMonitorBuilder(
-      TimeRange{kHeartbeatMin, kHeartbeatMax});
+  auto deadlineBuilder = DeadlineMonitorBuilder().add_deadline(
+      kDecisionCycleDeadlineTag,
+      TimeRange{kDecisionDeadlineMin, kDecisionDeadlineMax});
+  auto heartbeatBuilder =
+      HeartbeatMonitorBuilder(TimeRange{kHeartbeatMin, kHeartbeatMax});
 
   auto healthMonitorResult =
       HealthMonitorBuilder()
-          .add_deadline_monitor(kDeadlineMonitorTag,
-                                std::move(deadlineBuilder))
+          .add_deadline_monitor(kDeadlineMonitorTag, std::move(deadlineBuilder))
           .add_heartbeat_monitor(kHeartbeatMonitorTag,
                                  std::move(heartbeatBuilder))
           .with_internal_processing_cycle(kInternalProcessingCycle)
@@ -105,8 +103,9 @@ bool HealthReporter::initialize() {
   traffic_timing_decision::applicationLogger().LogInfo()
       << "[HEALTH][MONITOR] state=running; "
          "implementation=eclipse_score_health_monitor; evaluation_ms="
-      << kInternalProcessingCycle.count() << "; heartbeat_ms="
-      << kHeartbeatMin.count() << ".." << kHeartbeatMax.count()
+      << kInternalProcessingCycle.count()
+      << "; heartbeat_ms=" << kHeartbeatMin.count() << ".."
+      << kHeartbeatMax.count()
       << "; deadline_ms=" << kDecisionDeadlineMin.count() << ".."
       << kDecisionDeadlineMax.count();
   traffic_timing_decision::applicationLogger().LogInfo()
@@ -150,10 +149,13 @@ bool HealthReporter::startDecisionCycle() {
   ++monitoredCycleCount_;
   cycleStartedAt_ = std::chrono::steady_clock::now();
   heartbeatMonitor_->heartbeat();
+#ifdef LOG_HEALTH_MONITOR
   traffic_timing_decision::applicationLogger().LogDebug()
       << "[HEALTH][HEARTBEAT] local_notification=recorded; cycle="
-      << monitoredCycleCount_ << "; expected_interval_ms="
-      << kHeartbeatMin.count() << ".." << kHeartbeatMax.count();
+      << monitoredCycleCount_
+      << "; expected_interval_ms=" << kHeartbeatMin.count() << ".."
+      << kHeartbeatMax.count();
+#endif
 
   // The deadline covers only the useful decision pipeline, not its periodic
   // wait between releases.
@@ -182,11 +184,13 @@ void HealthReporter::finishDecisionCycle() {
   const auto elapsedMicroseconds =
       std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
   const bool withinConfiguredDeadline = elapsed <= kDecisionDeadlineMax;
+#ifdef LOG_HEALTH_MONITOR
   traffic_timing_decision::applicationLogger().LogDebug()
       << "[HEALTH][DEADLINE] local_window=closed; cycle="
       << monitoredCycleCount_ << "; elapsed_us=" << elapsedMicroseconds
-      << "; max_ms=" << kDecisionDeadlineMax.count()
-      << "; observed_status="
+      << "; max_ms=" << kDecisionDeadlineMax.count() << "; observed_status="
       << (withinConfiguredDeadline ? std::string_view{"met"}
                                    : std::string_view{"missed"});
+#endif 
+
 }

@@ -1,10 +1,11 @@
-load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 
 package(default_visibility = ["//visibility:public"])
 
 cc_library(
     name = "traffic_timing_decision_core",
     srcs = [
+        "src/common.cpp",
         "src/decision_engine.cpp",
         "src/health_reporter.cpp",
         "src/periodic_service.cpp",
@@ -17,10 +18,10 @@ cc_library(
         "-Wextra",
         "-Wpedantic",
     ],
+    local_defines = ["DECISION_ENGINE_STAT"],
     includes = ["include"],
     deps = [
         "//ipc:traffic_ipc",
-        "//common:absolute_periodic",
         "@score_baselibs//score/mw/log:frontend",
         "@score_lifecycle//score/health_monitor:health_monitoring_cc",
     ],
@@ -32,7 +33,7 @@ cc_library(
     hdrs = ["include/timing_decision_application.h"],
     deps = [
         ":traffic_timing_decision_core",
-        "//common:absolute_periodic",
+        "@score_baselibs//score/language/futurecpp",
         "@score_baselibs//score/mw/log:frontend",
         "@score_lifecycle//score/launch_manager:lifecycle_cc",
     ],
@@ -59,4 +60,19 @@ cc_binary(
     name = "decision_demo",
     srcs = ["src/decision_demo.cpp"],
     deps = [":traffic_timing_decision_core"],
+)
+
+cc_test(
+    name = "common_smoke",
+    srcs = [
+        "include/common.h",
+        "src/common.cpp",
+        "src/common_smoke.cpp",
+    ],
+    includes = ["include"],
+    linkopts = select({
+        "@platforms//os:linux": ["-lpthread"],
+        "//conditions:default": [],
+    }),
+    deps = ["@score_baselibs//score/language/futurecpp"],
 )

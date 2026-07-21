@@ -1,6 +1,7 @@
 #ifndef TRAFFIC_TIMING_DECISION_TIMING_DECISION_APPLICATION_H
 #define TRAFFIC_TIMING_DECISION_TIMING_DECISION_APPLICATION_H
 
+// #define LOG_NUMBER_CYCLES
 // #define RT_THREAD_CHECKING
 
 #ifdef RT_THREAD_CHECKING
@@ -13,6 +14,7 @@
 
 #include <cstdint>
 
+#include "common.h"
 #include "periodic_service.h"
 
 namespace traffic_timing_decision {
@@ -30,6 +32,7 @@ class TimingDecisionApplication final
 
  private:
   PeriodicService service_;
+  common::PeriodicWait periodicWait_;
 #ifdef RT_THREAD_CHECKING
   static void* childThreadEntry(void* application);
   bool startRtChildThread() noexcept;

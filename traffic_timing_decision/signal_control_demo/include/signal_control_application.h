@@ -1,11 +1,11 @@
 #ifndef SIGNAL_CONTROL_DEMO_APPLICATION_H
 #define SIGNAL_CONTROL_DEMO_APPLICATION_H
 
-#include <cstdint>
-
 #include <score/mw/lifecycle/application.h>
 
-#include "common/periodic_health_reporter.h"
+#include <cstdint>
+
+#include "common.h"
 #include "traffic_ipc/latest_value_queue.h"
 #include "traffic_ipc/messages.h"
 
@@ -25,7 +25,7 @@ class SignalControlApplication final
   void shutdown();
 
   traffic_ipc::LatestValueConsumer<traffic_ipc::TimingPlan> consumer_;
-  common::PeriodicHealthReporter healthReporter_;
+  common::PeriodicWait periodicWait_;
   traffic_ipc::TimingPlan lastValidPlan_{};
   std::uint32_t consecutiveMisses_{0U};
   bool initialized_{false};

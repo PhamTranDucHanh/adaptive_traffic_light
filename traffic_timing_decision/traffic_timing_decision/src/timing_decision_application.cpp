@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <score/stop_token.hpp>
 #include <string_view>
 
 #ifdef RT_THREAD_CHECKING
@@ -15,7 +16,7 @@
 #endif
 
 #include "application_logger.h"
-#include "common/absolute_periodic.h"
+#include "common.h"
 
 #ifdef RT_THREAD_CHECKING
 namespace {
@@ -168,6 +169,12 @@ std::int32_t TimingDecisionApplication::Initialize(
     const score::mw::lifecycle::ApplicationContext& context) {
   (void)context;
 
+  if (!periodicWait_.valid()) {
+    applicationLogger().LogError()
+        << "[INIT][PERIODIC] condition variable initialization failed";
+    return EXIT_FAILURE;
+  }
+
   initialized_ = service_.initialize();
   if (!initialized_) {
     applicationLogger().LogError() << "[INIT] service initialization failed";
@@ -208,18 +215,19 @@ std::int32_t TimingDecisionApplication::Run(
   }
   common::addMilliseconds(nextRelease, service_.periodMs());
 
+  score::cpp::stop_callback stopWake{
+      stopToken, [this]() noexcept { periodicWait_.requestStop(); }};
   applicationLogger().LogInfo()
       << "[RUN] periodic loop started; clock=CLOCK_MONOTONIC; "
-         "sleep=TIMER_ABSTIME";
+         "wait=pthread_cond_timedwait; deadline=absolute";
   while (!stopToken.stop_requested()) {
-    const int sleepResult = common::sleepUntil(
-        nextRelease, [&stopToken]() { return stopToken.stop_requested(); });
-    if (stopToken.stop_requested()) {
+    const int sleepResult = periodicWait_.waitUntil(nextRelease);
+    if (sleepResult == ECANCELED || stopToken.stop_requested()) {
       break;
     }
     if (sleepResult != 0) {
       applicationLogger().LogError()
-          << "[RUN] clock_nanosleep failed: "
+          << "[RUN] periodic wait failed: "
           << std::string_view{std::strerror(sleepResult)};
       exitCode = EXIT_FAILURE;
       break;
@@ -232,9 +240,11 @@ std::int32_t TimingDecisionApplication::Run(
       break;
     }
     ++cycleCount_;
+#ifdef LOG_NUMBER_CYCLES
     applicationLogger().LogDebug()
         << "[CYCLE] completed; counter=" << cycleCount_
         << "; period_ms=" << service_.periodMs();
+#endif
 
     common::addMilliseconds(nextRelease, service_.periodMs());
     timespec now{};
