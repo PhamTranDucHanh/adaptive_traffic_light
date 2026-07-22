@@ -1,6 +1,10 @@
 #ifndef ANALYTICS_H
 #define ANALYTICS_H
 
+#include <string>
+#include <vector>
+#include <cstdint>
+
 #include <common/config.h>
 
 class Analytics {

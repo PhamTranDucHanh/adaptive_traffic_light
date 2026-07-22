@@ -15,7 +15,7 @@
 namespace {
 
 score::mw::log::Logger& Logger() {
-  static auto& logger = score::mw::log::CreateLogger(ctrl::logging::KCtxDemo,
+  static auto& logger = score::mw::log::CreateLogger(ctrl::logging::kCtxDemo,
                                                      "Traffic Signal Demo");
   return logger;
 }

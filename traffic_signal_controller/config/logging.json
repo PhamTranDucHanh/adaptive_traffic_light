@@ -1,12 +1,30 @@
 {
-    "appId": "CTRL",
-    "appDesc": "Traffic Signal Controller",
-    "logLevel": "kInfo",
-    "logMode": "kConsole",
-    "contextConfigs": [
-      { "name": "PLAN", "logLevel": "kInfo" },
-      { "name": "FSM",  "logLevel": "kInfo" },
-      { "name": "OUT",  "logLevel": "kInfo" },
-      { "name": "DEMO", "logLevel": "kInfo"}
-    ]
-  }
+  "ecuId": "ECU1",
+  "appId": "CTRL",
+  "appDesc": "Traffic Signal Controller",
+  "logMode": "kConsole|kFile",
+  "logFilePath": "/tmp",
+  "logLevel": "kInfo",
+  "contextConfigs": [
+    {
+      "name": "PLAN",
+      "logLevel": "kInfo"
+    },
+    {
+      "name": "SYNC",
+      "logLevel": "kInfo"
+    },
+    {
+      "name": "FSM",
+      "logLevel": "kInfo"
+    },
+    {
+      "name": "OUT",
+      "logLevel": "kInfo"
+    },
+    {
+      "name": "DEMO",
+      "logLevel": "kInfo"
+    }
+  ]
+}
