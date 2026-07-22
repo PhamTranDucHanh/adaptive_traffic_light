@@ -19,13 +19,12 @@ namespace traffic_perception {
 
 class PerceptionModule final {
  public:
-  bool initModule(const std::string& configPath);
+  bool initModule(const AppConfig& config);
   bool startThreads();
   bool processAndPublishOneSnapshot();
   void stopThreads();
 
  private:
-  ConfigManager configManager_{};
   StreamWatchdog watchdog_{};
   FramePool pool_{};
   std::array<StreamWorker, 4U> workers_{};

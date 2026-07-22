@@ -25,18 +25,27 @@ int main(int argc, char* argv[]) {
     std::unique_ptr<Runfiles> runfiles(Runfiles::Create(argv[0], &error));
     if (!runfiles) return 1;
     
-    std::string sourceUri = runfiles->Rlocation("traffic_perception/test/data/traffic.mp4");
-    if (sourceUri.empty()) return 1;
+    // Resolve resources
+    std::string modelPath = runfiles->Rlocation("traffic_perception/test/data/yolov8m-oiv7.onnx");
+    std::array<std::string, NUM_LANES> videoPaths = {
+        runfiles->Rlocation("traffic_perception/test/data/traffic.mp4"),
+        runfiles->Rlocation("traffic_perception/test/data/traffic2.mp4"),
+        runfiles->Rlocation("traffic_perception/test/data/traffic3.mp4"),
+        runfiles->Rlocation("traffic_perception/test/data/traffic4.mp4")
+    };
 
     // Load configuration
-    ConfigManager configManager;
-    configManager.loadConfig();
+    ConfigManager configManager("config/traffic_perception_config.json");
+    configManager.loadConfig(modelPath, videoPaths);
     AppConfig config = configManager.getConfig();
 
-    constexpr uint32_t kFramePoolSize = 20;
-    constexpr auto kCapturePeriod = std::chrono::milliseconds(200);
-    constexpr auto kPipelinePeriod = std::chrono::milliseconds(100);
+    std::array<Roi, NUM_LANES> laneRois;
+    for (size_t i = 0; i < NUM_LANES; ++i) {
+        laneRois[i] = config.lanes[i].roi;
+    }
 
+    constexpr uint32_t kFramePoolSize = 20;
+    
     FramePool pool;
     if (!pool.init(kFramePoolSize)) return 1;
     
@@ -46,15 +55,15 @@ int main(int argc, char* argv[]) {
     std::vector<std::unique_ptr<StreamWorker>> workers;
     for (uint32_t i = 0; i < 4; ++i) {
         auto worker = std::make_unique<StreamWorker>();
-        worker->initStream(sourceUri, i, &pool, kCapturePeriod);
+        worker->initStream(config.lanes[i].videoSource, i, &pool, config.CapturePeriod);
         worker->start(buffer);
         workers.push_back(std::move(worker));
     }
     
     // PipelineManager
-    auto backend = std::make_unique<YoloV8OIV7Backend>(runfiles->Rlocation("traffic_perception/test/data/yolov8m-oiv7.onnx"));
+    auto backend = std::make_unique<YoloV8OIV7Backend>(config.modelPath);
     YoloV8OIV7Backend* backendPtr = backend.get(); 
-    PipelineManager pipeline(std::move(backend), buffer, pool, configManager);
+    PipelineManager pipeline(std::move(backend), buffer, pool, laneRois);
 
     // Snapshot Publisher Integration
     auto sender = std::make_unique<MQSnapshotSender>();
@@ -71,7 +80,7 @@ int main(int argc, char* argv[]) {
     auto nextPipelineRun = std::chrono::steady_clock::now();
 
     while (running) {
-        nextPipelineRun += kPipelinePeriod;
+        nextPipelineRun += config.PipelinePeriod;
 
         // Pipeline executes one cycle
         pipeline.runOneCycle();

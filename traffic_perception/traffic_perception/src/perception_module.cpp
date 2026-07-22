@@ -6,23 +6,25 @@
 
 namespace traffic_perception {
 
-bool PerceptionModule::initModule(const std::string& configPath) {
-  std::cout << "[PERCEPTION_MODULE][INIT] config=" << configPath << '\n';
+bool PerceptionModule::initModule(const AppConfig& config) {
+  std::cout << "[PERCEPTION_MODULE][INIT]\n";
 
-  if (!configManager_.loadConfig()) {
-    return false;
-  }
-  const AppConfig config = configManager_.getConfig();
   if (!pool_.init(20)) return false;
 
   // Create backend
   auto backend = std::make_unique<YOLOv8Backend>("test/data/yolov8m-oiv7.onnx");
 
   // PipelineManager will own the pipeline stages internally.
-  pipelineManager_ = std::make_unique<PipelineManager>(std::move(backend), buffers_[0], pool_, configManager_);
+  // We need to extract the ROIs from the new config structure.
+  std::array<Roi, NUM_LANES> laneRois;
+  for (size_t i = 0; i < NUM_LANES; ++i) {
+      laneRois[i] = config.lanes[i].roi;
+  }
+
+  pipelineManager_ = std::make_unique<PipelineManager>(std::move(backend), buffers_[0], pool_, laneRois);
 
   for (std::size_t i = 0; i < workers_.size(); ++i) {
-    workers_.at(i).initStream(config.trafficVidSources.at(i), static_cast<std::int32_t>(i), &pool_);
+    workers_.at(i).initStream(config.lanes[i].videoSource, static_cast<std::int32_t>(i), &pool_);
   }
 
   snapshotSenderOpen_ = true; // Temporary

@@ -12,7 +12,7 @@ namespace traffic_perception {
 class StreamWatchdog {
  public:
   static void monitorHealth(const StreamWorker &worker);
-  static void recoverStream(StreamWorker &worker, AppConfig cfg);
+  static void recoverStream(StreamWorker &worker);
 };
 
 }  // namespace traffic_perception

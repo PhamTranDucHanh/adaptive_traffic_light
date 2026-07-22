@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstdint>
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -46,15 +47,22 @@ struct FrameContext {
   bool EmergencyDetected{};
 };
 
-struct AppConfig {
-  std::array<std::string, 4U> trafficVidSources{};
-  std::array<Roi, 4U> laneRois{};
-  std::string ModelPath;
-  std::int32_t MaxQueueSize{1};
-  std::int32_t TargetFps{};
+struct LaneConfig {
+  Direction direction;
+  Roi roi;
+  std::string videoSource;
 };
 
+
 constexpr std::size_t NUM_LANES = 4;
+
+struct AppConfig {
+  std::array<LaneConfig, NUM_LANES> lanes{};
+  std::string modelPath;
+  std::chrono::milliseconds CapturePeriod{200};
+  std::chrono::milliseconds PipelinePeriod{100};
+  std::chrono::milliseconds ViewerPeriod{100};
+};
 
 struct TrafficSnapshot {
   std::int32_t frameId{};

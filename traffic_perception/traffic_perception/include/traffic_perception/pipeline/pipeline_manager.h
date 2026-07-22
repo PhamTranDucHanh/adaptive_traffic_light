@@ -17,7 +17,7 @@ class PipelineManager {
   PipelineManager(std::unique_ptr<IModelBackend> backend,
                   AtomicFrameBuffer& buffer,
                   FramePool& pool,
-                  ConfigManager& configManager);
+                  const std::array<Roi, NUM_LANES>& laneRois);
 
   void runOneCycle();
   Analyzer& analyzer() { return analyzer_; }

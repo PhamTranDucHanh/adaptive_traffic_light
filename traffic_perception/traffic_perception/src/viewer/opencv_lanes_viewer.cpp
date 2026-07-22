@@ -27,7 +27,7 @@ void OpenCVLanesViewer::render(Analyzer& analyzer) {
             }
             
             // Draw ROI
-            const auto& roi = config_.laneRois[i];
+            const auto& roi = config_.lanes[i].roi;
             std::vector<std::vector<cv::Point>> contours = {roi.Points};
             cv::polylines(frames[i]->Image, contours, true, cv::Scalar(0, 255, 0), 2);
             cv::putText(frames[i]->Image, roi.LaneId, roi.Points[0], 

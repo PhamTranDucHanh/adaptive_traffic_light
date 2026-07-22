@@ -2,12 +2,9 @@
 #include <iostream>
 
 namespace traffic_perception {
-
-bool ConfigManager::loadConfig() {
+bool ConfigManager::loadConfig(const std::string& modelPath, const std::array<std::string, NUM_LANES>& videoPaths) {
   std::cout << "[ConfigManager] loadConfig() called with file: " << ConfigFile
             << '\n';
-  CachedConfig.trafficVidSources = {"rtsp://stream1", "rtsp://stream2", "rtsp://stream3",
-                           "rtsp://stream4"};
 
   const std::vector<cv::Point> kDefaultRoi = {
     {0, 561},    
@@ -16,17 +13,17 @@ bool ConfigManager::loadConfig() {
     {1700, 0}      
   };
 
-  for (int i = 0; i < 4; ++i) {
-      CachedConfig.laneRois[i] = Roi{
-          kDefaultRoi,
-          "Lane " + std::to_string(i)
+  const std::array<Direction, NUM_LANES> directions = {Direction::North, Direction::South, Direction::East, Direction::West};
+
+  for (size_t i = 0; i < NUM_LANES; ++i) {
+      CachedConfig.lanes[i] = LaneConfig{
+          directions[i],
+          Roi{kDefaultRoi, "Lane " + std::to_string(i)},
+          videoPaths[i]
       };
   }
 
-  CachedConfig.ModelPath = "yolov8_model.onnx";
-  CachedConfig.MaxQueueSize = 1;
-  constexpr int32_t targetFpsDefault = 30;
-  CachedConfig.TargetFps = targetFpsDefault;
+  CachedConfig.modelPath = modelPath;
   return true;
 }
 

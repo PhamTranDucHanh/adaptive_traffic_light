@@ -10,9 +10,9 @@ void StreamWatchdog::monitorHealth(const StreamWorker &worker) {
   std::cout << "[StreamWatchdog] monitorHealth() called\n";
 }
 
-void StreamWatchdog::recoverStream(StreamWorker &worker, AppConfig cfg) {
+void StreamWatchdog::recoverStream(StreamWorker &worker) {
   std::cout << "[StreamWatchdog] recoverStream() called\n";
-  worker.initStream(cfg.trafficVidSources.at(0), 0, nullptr);  // Temporary fix
+  worker.restart();
 }
 
 }  // namespace traffic_perception

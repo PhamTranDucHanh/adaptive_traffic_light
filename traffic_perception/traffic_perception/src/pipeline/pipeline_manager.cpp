@@ -5,12 +5,12 @@ namespace traffic_perception {
 PipelineManager::PipelineManager(std::unique_ptr<IModelBackend> backend,
                                  AtomicFrameBuffer& buffer,
                                  FramePool& pool,
-                                 ConfigManager& configManager)
-    : laneRois_(configManager.getConfig().laneRois),
+                                 const std::array<Roi, NUM_LANES>& laneRois)
+    : laneRois_(laneRois),
       analyzer_(pool, laneRois_),
       publisher_(),
       // Inject internal analyzer into engine
-      engine_(std::move(backend), buffer, pool, analyzer_, configManager) {}
+      engine_(std::move(backend), buffer, pool, analyzer_, laneRois_) {}
 
 void PipelineManager::runOneCycle() {
   engine_.runOneCycle();

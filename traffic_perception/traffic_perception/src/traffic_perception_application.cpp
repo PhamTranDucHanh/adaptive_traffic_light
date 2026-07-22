@@ -12,32 +12,52 @@
 
 namespace traffic_perception {
 
+#include "tools/cpp/runfiles/runfiles.h"
+// ... existing includes ...
+
 std::int32_t TrafficPerceptionApplication::Initialize(
     const score::mw::lifecycle::ApplicationContext& context) {
   (void)context;
+
+  std::string error;
+  std::unique_ptr<bazel::tools::cpp::runfiles::Runfiles> runfiles(
+      bazel::tools::cpp::runfiles::Runfiles::Create(nullptr, &error));
+  if (!runfiles) return EXIT_FAILURE;
+
   std::cout << std::unitbuf;
   std::cerr << std::unitbuf;
 
-  score::mw::log::rust::StdoutLoggerBuilder loggerBuilder;
-  loggerBuilder.Context("TPER")
-      .LogLevel(score::mw::log::rust::LogLevel::Verbose)
-      .SetAsDefaultLogger();
+  // ... (logger setup) ...
 
   if (!healthReporter_.initialize()) {
-    std::cerr << "[TRAFFIC_PERCEPTION][INIT][ERROR] HealthReporter "
-                 "initialization failed\n";
     return EXIT_FAILURE;
   }
 
-  // Pipeline Initialization (Matching pipeline_manager_test)
-  configManager_.loadConfig();
+  // Resolve resources
+  std::string modelPath = runfiles->Rlocation("traffic_perception/test/data/yolov8n.onnx");
+  std::array<std::string, NUM_LANES> videoPaths = {
+      runfiles->Rlocation("traffic_perception/test/data/traffic.mp4"),
+      runfiles->Rlocation("traffic_perception/test/data/traffic2.mp4"),
+      runfiles->Rlocation("traffic_perception/test/data/traffic3.mp4"),
+      runfiles->Rlocation("traffic_perception/test/data/traffic4.mp4")
+  };
+
+  // Pipeline Initialization
+  if (!configManager_.loadConfig(modelPath, videoPaths)) return EXIT_FAILURE;
   AppConfig config = configManager_.getConfig();
+
+  if (!pool_.init(20)) return EXIT_FAILURE;
+
+  // ... (rest of init)
+  for (size_t i = 0; i < NUM_LANES; ++i) {
+      laneRois[i] = config.lanes[i].roi;
+  }
 
   if (!pool_.init(20)) return EXIT_FAILURE;
 
   backend_ = std::make_unique<YOLOv8Backend>("test/data/yolov8n.onnx");
   backendPtr_ = backend_.get();
-  pipeline_ = std::make_unique<PipelineManager>(std::move(backend_), buffer_, pool_, configManager_);
+  pipeline_ = std::make_unique<PipelineManager>(std::move(backend_), buffer_, pool_, laneRois);
 
   // MQ Sender Setup
   mqSender_ = std::make_unique<MQSnapshotSender>();
@@ -52,9 +72,9 @@ std::int32_t TrafficPerceptionApplication::Initialize(
   viewer_.init(config, backendPtr_);
 
   // Start Workers
-  for (uint32_t i = 0; i < 4; ++i) {
+  for (uint32_t i = 0; i < NUM_LANES; ++i) {
       auto worker = std::make_unique<StreamWorker>();
-      worker->initStream("test/data/traffic.mp4", i, &pool_, std::chrono::milliseconds(200));
+      worker->initStream(config.lanes[i].videoSource, i, &pool_, config.CapturePeriod);
       worker->start(buffer_);
       workers_.push_back(std::move(worker));
   }
@@ -71,9 +91,8 @@ std::int32_t TrafficPerceptionApplication::Run(
     return EXIT_FAILURE;
   }
 
-  using namespace std::chrono_literals;
-  constexpr auto kPeriod = 100ms;
-  auto nextRelease = std::chrono::steady_clock::now() + kPeriod;
+  AppConfig config = configManager_.getConfig();
+  auto nextRelease = std::chrono::steady_clock::now() + config.PipelinePeriod;
   std::int32_t exitCode{EXIT_SUCCESS};
 
   std::cout << "[TRAFFIC_PERCEPTION][RUN] periodic loop started\n";
@@ -100,7 +119,7 @@ std::int32_t TrafficPerceptionApplication::Run(
 
     ++cycleCount_;
     healthReporter_.finishPerceptionCycle();
-    nextRelease += kPeriod;
+    nextRelease += config.PipelinePeriod;
   }
 
   // Shutdown (Matching pipeline_manager_test)

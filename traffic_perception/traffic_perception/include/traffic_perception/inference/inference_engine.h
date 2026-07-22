@@ -24,7 +24,7 @@ class InferenceEngine {
                   AtomicFrameBuffer& buffer,
                   FramePool& pool,
                   IInferenceSink& sink,
-                  ConfigManager& configManager);
+                  const std::array<Roi, NUM_LANES>& laneRois);
 
   // Processes all lanes in one cycle:
   // For each lane, take frame, run inference, transfer to sink.
@@ -35,7 +35,7 @@ class InferenceEngine {
   AtomicFrameBuffer& buffer_;
   FramePool& pool_;
   IInferenceSink& sink_;
-  ConfigManager& configManager_;
+  std::array<Roi, NUM_LANES> laneRois_;
 };
 
 }  // namespace traffic_perception

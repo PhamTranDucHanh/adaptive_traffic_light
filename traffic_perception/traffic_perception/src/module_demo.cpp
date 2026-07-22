@@ -11,8 +11,12 @@ int main() {
     HealthReporter health;
     health.sendStartSignal();
 
+    ConfigManager configManager;
+    configManager.loadConfig();
+    AppConfig config = configManager.getConfig();
+
     PerceptionModule perception;
-    if (perception.initModule("config/app_config.json")) {
+    if (perception.initModule(config)) {
         std::cout << "Module initialized successfully!" << '\n';
     } else {
         std::cerr << "Failed to initialize module!" << '\n';

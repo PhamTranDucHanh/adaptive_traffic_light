@@ -26,6 +26,7 @@ class StreamWorker {
   int32_t LaneId;
   std::string SourceUri;
   FramePool* Pool;
+  AtomicFrameBuffer* Buffer{nullptr};
   std::thread WorkerThread;
   std::atomic<bool> Running{false};
   std::chrono::milliseconds AcquisitionPeriod{33};
@@ -36,6 +37,7 @@ class StreamWorker {
  public:
   ~StreamWorker();
   bool initStream(std::string sourceUri, int32_t streamId, FramePool* pool, std::chrono::milliseconds period = std::chrono::milliseconds(200));
+  bool restart();
   void start(AtomicFrameBuffer &frameBuffer);
   void stop();
   void producerLoop(AtomicFrameBuffer &frameBuffer);

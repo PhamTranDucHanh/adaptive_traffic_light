@@ -11,6 +11,13 @@ StreamWorker::~StreamWorker() {
   stop();
 }
 
+bool StreamWorker::restart() {
+  if (Buffer == nullptr) return false;
+  stop();
+  start(*Buffer);
+  return true;
+}
+
 bool StreamWorker::initStream(std::string sourceUri, int32_t streamId, FramePool* pool, std::chrono::milliseconds period) {
   SourceUri = std::move(sourceUri);
   LaneId = streamId;
@@ -47,6 +54,7 @@ cv::VideoCapture StreamWorker::createCapture(const std::string& source) {
   }
 }
 void StreamWorker::start(AtomicFrameBuffer &frameBuffer) {
+  Buffer = &frameBuffer;
   Running = true;
   WorkerThread = std::thread(&StreamWorker::producerLoop, this, std::ref(frameBuffer));
 }

@@ -13,7 +13,8 @@ class ConfigManager {
   AppConfig CachedConfig;
 
  public:
-  bool loadConfig();
+  explicit ConfigManager(std::string configFile) : ConfigFile(std::move(configFile)) {}
+  bool loadConfig(const std::string& modelPath, const std::array<std::string, NUM_LANES>& videoPaths);
   AppConfig getConfig();
 };
 

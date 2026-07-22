@@ -35,7 +35,7 @@ class TrafficPerceptionApplication final
   bool initialized_{false};
 
   // Pipeline members
-  ConfigManager configManager_;
+  ConfigManager configManager_{"config/traffic_perception_config.json"};
   FramePool pool_;
   AtomicFrameBuffer buffer_;
   std::vector<std::unique_ptr<StreamWorker>> workers_;

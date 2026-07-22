@@ -7,15 +7,14 @@ InferenceEngine::InferenceEngine(std::unique_ptr<IModelBackend> backend,
                                  AtomicFrameBuffer& buffer,
                                  FramePool& pool,
                                  IInferenceSink& sink,
-                                 ConfigManager& configManager)
+                                 const std::array<Roi, NUM_LANES>& laneRois)
     : backend_(std::move(backend)),
       buffer_(buffer),
       pool_(pool),
       sink_(sink),
-      configManager_(configManager) {}
+      laneRois_(laneRois) {}
 
 void InferenceEngine::runOneCycle() {
-  AppConfig config = configManager_.getConfig();
   for (uint32_t laneId = 0; laneId < 4; ++laneId) {
     // 1. Ownership Transfer: Engine takes Frame from Buffer
     // Ownership transferred from AtomicFrameBuffer
@@ -43,7 +42,7 @@ void InferenceEngine::runOneCycle() {
     }
 
     // 5. ROI Filtering
-    const auto& roi = config.laneRois[laneId];
+    const auto& roi = laneRois_[laneId];
     if (!roi.Points.empty()) {
       std::vector<Detection> filteredDetections;
       for (const auto& det : result.Detections) {
