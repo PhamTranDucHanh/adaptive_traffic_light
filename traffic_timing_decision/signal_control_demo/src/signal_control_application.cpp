@@ -98,13 +98,15 @@ std::int32_t SignalControlApplication::Run(
         validatePlan(plan)) {
       lastValidPlan_ = plan;
       consecutiveMisses_ = 0U;
+#ifdef SIGNAL_CONTROLLER_CONSUMED
       applicationLogger().LogInfo()
-          << "[IPC][PLAN][CONSUMED] plan_id=" << plan.planId
+          << "[SIGNAL][PLAN][CONSUMED] plan_id=" << plan.planId
           << "; ns_green_ms=" << plan.greenNorthSouthMs
           << "; ew_green_ms=" << plan.greenEastWestMs
           << "; cycle_ms=" << plan.cycleLengthMs
           << "; emergency_ns=" << plan.emergencyNorthSouth
           << "; emergency_ew=" << plan.emergencyEastWest;
+#endif
     } else {
       ++consecutiveMisses_;
       if (receiveStatus == traffic_ipc::QueueStatus::kSuccess) {

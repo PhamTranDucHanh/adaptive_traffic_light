@@ -9,16 +9,37 @@
 
 namespace {
 
-constexpr std::uint64_t kMaximumSnapshotAgeUs = 6000000ULL;
-constexpr std::uint64_t kMaximumFutureToleranceUs = 100000ULL;
-constexpr std::uint32_t kMaximumVehicleCount = 10000U;
+enum class SnapshotMicroseconds : std::uint64_t {
+  kNanosecondsPerMicrosecond = 1000ULL,
+  kMaximumFutureTolerance = 100000ULL,
+  kMaximumAge = 6000000ULL,
+};
+
+constexpr std::uint64_t toMicroseconds(
+    const SnapshotMicroseconds value) noexcept {
+  return static_cast<std::uint64_t>(value);
+}
+
+enum class SnapshotCountLimit : std::uint32_t {
+  kMaximumVehiclesPerDirection = 10000U,
+};
+
+constexpr std::uint32_t toCount(const SnapshotCountLimit value) noexcept {
+  return static_cast<std::uint32_t>(value);
+}
+
+constexpr float kMinimumQueueLength = 0.0F;
 constexpr float kMaximumQueueLength = 1000.0F;
+constexpr float kMinimumOccupancy = 0.0F;
+constexpr float kMaximumOccupancy = 1.0F;
 
 bool validQueueLength(const float value) noexcept {
-  return std::isfinite(value) && value >= 0.0F && value <= kMaximumQueueLength;
+  return std::isfinite(value) && value >= kMinimumQueueLength &&
+         value <= kMaximumQueueLength;
 }
 bool validOccupancy(const float value) noexcept {
-  return std::isfinite(value) && value >= 0.0F && value <= 1.0F;
+  return std::isfinite(value) && value >= kMinimumOccupancy &&
+         value <= kMaximumOccupancy;
 }
 
 }  // namespace
@@ -46,7 +67,9 @@ traffic_ipc::QueueStatus SnapshotQueue::lastStatus() const noexcept {
   return lastStatus_;
 }
 
-int SnapshotQueue::lastError() const noexcept { return queue_.lastError(); }
+std::int32_t SnapshotQueue::lastError() const noexcept {
+  return static_cast<std::int32_t>(queue_.lastError());
+}
 
 //
 // TrafficDataReceiver
@@ -78,17 +101,24 @@ bool TrafficDataReceiver::requestSnapshot(TrafficSnapshot& snapshot) {
 }
 
 bool TrafficDataReceiver::validateSnapshot(const TrafficSnapshot& snapshot) {
-  const std::uint64_t nowUs = common::monotonicNanoseconds() / 1000ULL;
-  const bool identityValid =
-      snapshot.frameId != 0U && snapshot.frameId > previousSnapshot.frameId;
+  const std::uint64_t nowUs =
+      common::monotonicNanoseconds() /
+      toMicroseconds(SnapshotMicroseconds::kNanosecondsPerMicrosecond);
+  const bool identityValid = snapshot.frameId != std::uint64_t{} &&
+                             snapshot.frameId > previousSnapshot.frameId;
   const bool timestampValid =
-      snapshot.timestampUs != 0U &&
-      snapshot.timestampUs <= nowUs + kMaximumFutureToleranceUs &&
-      nowUs <= snapshot.timestampUs + kMaximumSnapshotAgeUs;
-  const bool countsValid = snapshot.vehicleCountNorth <= kMaximumVehicleCount &&
-                           snapshot.vehicleCountSouth <= kMaximumVehicleCount &&
-                           snapshot.vehicleCountEast <= kMaximumVehicleCount &&
-                           snapshot.vehicleCountWest <= kMaximumVehicleCount;
+      snapshot.timestampUs != std::uint64_t{} &&
+      snapshot.timestampUs <=
+          nowUs +
+              toMicroseconds(SnapshotMicroseconds::kMaximumFutureTolerance) &&
+      nowUs <= snapshot.timestampUs +
+                   toMicroseconds(SnapshotMicroseconds::kMaximumAge);
+  const std::uint32_t maximumVehicleCount =
+      toCount(SnapshotCountLimit::kMaximumVehiclesPerDirection);
+  const bool countsValid = snapshot.vehicleCountNorth <= maximumVehicleCount &&
+                           snapshot.vehicleCountSouth <= maximumVehicleCount &&
+                           snapshot.vehicleCountEast <= maximumVehicleCount &&
+                           snapshot.vehicleCountWest <= maximumVehicleCount;
   const bool queuesValid = validQueueLength(snapshot.queueLengthNorth) &&
                            validQueueLength(snapshot.queueLengthSouth) &&
                            validQueueLength(snapshot.queueLengthEast) &&
@@ -116,6 +146,6 @@ traffic_ipc::QueueStatus TrafficDataReceiver::lastQueueStatus() const noexcept {
   return snapshotQueue.lastStatus();
 }
 
-int TrafficDataReceiver::lastQueueError() const noexcept {
+std::int32_t TrafficDataReceiver::lastQueueError() const noexcept {
   return snapshotQueue.lastError();
 }

@@ -22,28 +22,46 @@
 namespace {
 
 constexpr char kRtChildThreadName[] = "timing_rt_child";
-constexpr useconds_t kChildStopPollingIntervalUs = 100000U;
+
+enum class RtThreadConfiguration : std::int32_t {
+  kChildPriorityOffset = 1,
+};
+
+enum class RtThreadIntervalMicroseconds : std::uint32_t {
+  kChildStopPolling = 100000U,
+};
+
+constexpr std::int32_t toValue(const RtThreadConfiguration value) noexcept {
+  return static_cast<std::int32_t>(value);
+}
+
+constexpr std::uint32_t toMicroseconds(
+    const RtThreadIntervalMicroseconds value) noexcept {
+  return static_cast<std::uint32_t>(value);
+}
 
 // Create a pthread with an explicit real-time policy instead of inheriting
 // scheduling attributes implicitly from the caller.
-int create_rt_thread(pthread_t* const thread, void* (*const entryPoint)(void*),
-                     void* const argument, const int priority) noexcept {
+std::int32_t create_rt_thread(pthread_t* const thread,
+                              void* (*const entryPoint)(void*),
+                              void* const argument,
+                              const std::int32_t priority) noexcept {
   pthread_attr_t attributes{};
-  int result = pthread_attr_init(&attributes);
-  if (result != 0) {
+  std::int32_t result = pthread_attr_init(&attributes);
+  if (result != std::int32_t{}) {
     return result;
   }
 
   result = pthread_attr_setinheritsched(&attributes, PTHREAD_EXPLICIT_SCHED);
-  if (result == 0) {
+  if (result == std::int32_t{}) {
     result = pthread_attr_setschedpolicy(&attributes, SCHED_FIFO);
   }
-  if (result == 0) {
+  if (result == std::int32_t{}) {
     sched_param parameters{};
     parameters.sched_priority = priority;
     result = pthread_attr_setschedparam(&attributes, &parameters);
   }
-  if (result == 0) {
+  if (result == std::int32_t{}) {
     result = pthread_create(thread, &attributes, entryPoint, argument);
   }
 
@@ -72,11 +90,11 @@ bool TimingDecisionApplication::startRtChildThread() noexcept {
     return true;
   }
 
-  int parentPolicy{0};
+  std::int32_t parentPolicy{};
   sched_param parentParameters{};
-  const int queryResult =
+  const std::int32_t queryResult =
       pthread_getschedparam(pthread_self(), &parentPolicy, &parentParameters);
-  if (queryResult != 0) {
+  if (queryResult != std::int32_t{}) {
     applicationLogger().LogError()
         << "[RT_THREAD_CHECK][CREATE] could not read parent scheduling: "
         << std::string_view{std::strerror(queryResult)};
@@ -90,16 +108,18 @@ bool TimingDecisionApplication::startRtChildThread() noexcept {
     return false;
   }
 
-  const int minimumPriority = sched_get_priority_min(SCHED_FIFO);
-  const int childPriority = parentParameters.sched_priority > minimumPriority
-                                ? parentParameters.sched_priority - 1
-                                : minimumPriority;
+  const std::int32_t minimumPriority = sched_get_priority_min(SCHED_FIFO);
+  const std::int32_t childPriority =
+      parentParameters.sched_priority > minimumPriority
+          ? parentParameters.sched_priority -
+                toValue(RtThreadConfiguration::kChildPriorityOffset)
+          : minimumPriority;
 
   childThreadRunning_.store(true, std::memory_order_release);
-  const int createResult = create_rt_thread(
+  const std::int32_t createResult = create_rt_thread(
       &childThread_, &TimingDecisionApplication::childThreadEntry, this,
       childPriority);
-  if (createResult != 0) {
+  if (createResult != std::int32_t{}) {
     childThreadRunning_.store(false, std::memory_order_release);
     applicationLogger().LogError()
         << "[RT_THREAD_CHECK][CREATE] pthread creation failed: "
@@ -123,8 +143,8 @@ void TimingDecisionApplication::stopRtChildThread() noexcept {
   }
 
   childThreadRunning_.store(false, std::memory_order_release);
-  const int joinResult = pthread_join(childThread_, nullptr);
-  if (joinResult != 0) {
+  const std::int32_t joinResult = pthread_join(childThread_, nullptr);
+  if (joinResult != std::int32_t{}) {
     applicationLogger().LogError()
         << "[RT_THREAD_CHECK][STOP] pthread_join failed: "
         << std::string_view{std::strerror(joinResult)};
@@ -135,15 +155,16 @@ void TimingDecisionApplication::stopRtChildThread() noexcept {
 }
 
 void TimingDecisionApplication::runRtChildThread() noexcept {
-  const int nameResult = pthread_setname_np(pthread_self(), kRtChildThreadName);
+  const std::int32_t nameResult =
+      pthread_setname_np(pthread_self(), kRtChildThreadName);
 
-  int policy{0};
+  std::int32_t policy{};
   sched_param parameters{};
-  const int schedulingResult =
+  const std::int32_t schedulingResult =
       pthread_getschedparam(pthread_self(), &policy, &parameters);
-  const auto threadId = static_cast<long>(syscall(SYS_gettid));
+  const std::int64_t threadId = static_cast<std::int64_t>(syscall(SYS_gettid));
 
-  if (nameResult != 0 || schedulingResult != 0) {
+  if (nameResult != std::int32_t{} || schedulingResult != std::int32_t{}) {
     applicationLogger().LogError()
         << "[RT_THREAD_CHECK][CHILD] setup failed; tid=" << threadId
         << "; name_result=" << nameResult
@@ -156,7 +177,10 @@ void TimingDecisionApplication::runRtChildThread() noexcept {
   }
 
   while (childThreadRunning_.load(std::memory_order_acquire)) {
-    if (usleep(kChildStopPollingIntervalUs) != 0 && errno != EINTR) {
+    if (usleep(
+            toMicroseconds(RtThreadIntervalMicroseconds::kChildStopPolling)) !=
+            std::int32_t{} &&
+        errno != EINTR) {
       applicationLogger().LogError()
           << "[RT_THREAD_CHECK][CHILD] usleep failed; errno=" << errno;
       break;
@@ -189,7 +213,7 @@ std::int32_t TimingDecisionApplication::Initialize(
   }
 #endif
 
-  cycleCount_ = 0U;
+  cycleCount_ = std::uint64_t{};
   applicationLogger().LogInfo()
       << "[INIT] service ready; period_ms=" << service_.periodMs();
   return EXIT_SUCCESS;
@@ -221,11 +245,11 @@ std::int32_t TimingDecisionApplication::Run(
       << "[RUN] periodic loop started; clock=CLOCK_MONOTONIC; "
          "wait=pthread_cond_timedwait; deadline=absolute";
   while (!stopToken.stop_requested()) {
-    const int sleepResult = periodicWait_.waitUntil(nextRelease);
+    const std::int32_t sleepResult = periodicWait_.waitUntil(nextRelease);
     if (sleepResult == ECANCELED || stopToken.stop_requested()) {
       break;
     }
-    if (sleepResult != 0) {
+    if (sleepResult != std::int32_t{}) {
       applicationLogger().LogError()
           << "[RUN] periodic wait failed: "
           << std::string_view{std::strerror(sleepResult)};
@@ -251,7 +275,7 @@ std::int32_t TimingDecisionApplication::Run(
     if (common::monotonicNow(now)) {
       const std::uint32_t skipped =
           common::advancePastNow(nextRelease, service_.periodMs(), now);
-      if (skipped > 0U) {
+      if (skipped != std::uint32_t{}) {
         applicationLogger().LogWarn()
             << "[RUN][OVERRUN] skipped_releases=" << skipped;
       }

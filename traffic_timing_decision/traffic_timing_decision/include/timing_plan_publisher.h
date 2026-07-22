@@ -21,7 +21,7 @@ class TimingPlanPublisher {
  private:
   traffic_ipc::LatestValuePublisher<TimingPlan> queue_;
   TimingPlan lastPublishedPlan;
-  std::uint64_t lastPublishTimestampNs{0U};
+  std::uint64_t lastPublishTimestampNs{};
 };
 
 #endif  // !TIMING_PLAN_PUBLISHER_H

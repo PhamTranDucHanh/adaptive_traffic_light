@@ -30,7 +30,7 @@ bool PeriodicService::initialize() {
     return false;
   }
 
-  consecutiveSnapshotMisses_ = 0U;
+  consecutiveSnapshotMisses_ = std::uint32_t{};
   running_ = true;
   return true;
 }
@@ -46,7 +46,7 @@ void PeriodicService::shutdown() {
   running_ = false;
 }
 
-uint32_t PeriodicService::periodMs() const { return periodMs_; }
+std::uint32_t PeriodicService::periodMs() const { return periodMs_; }
 
 //
 // Decision Pipeline
@@ -86,7 +86,7 @@ bool PeriodicService::runDecisionCycle() {
         << "; consecutive_misses=" << consecutiveSnapshotMisses_
         << "; action=keep_previous_plan";
   } else {
-    consecutiveSnapshotMisses_ = 0U;
+    consecutiveSnapshotMisses_ = std::uint32_t{};
     const TimingPlan plan = decisionEngine.processTrafficMetrics(snapshot);
     cycleSuccessful = timingPublisher.publishTimingPlan(plan);
     if (cycleSuccessful) {

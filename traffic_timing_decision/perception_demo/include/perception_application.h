@@ -10,6 +10,8 @@
 #include "traffic_ipc/latest_value_queue.h"
 #include "traffic_ipc/messages.h"
 
+#define SCENERIO_DETAIL
+
 namespace perception_demo {
 
 class PerceptionApplication final : public score::mw::lifecycle::Application {

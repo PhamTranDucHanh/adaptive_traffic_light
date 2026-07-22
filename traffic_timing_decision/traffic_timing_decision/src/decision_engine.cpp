@@ -3,22 +3,21 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
-#ifdef DECISION_ENGINE_STAT
+#if defined(DECISION_ENGINE_STAT) || defined(DECISION_STEPS)
 #include "application_logger.h"
 #endif
 #include "common.h"
 
 namespace {
 
-constexpr std::uint32_t kInitialGreenMs = 30000U;
-constexpr std::uint32_t kGreenAdjustmentStepMs = 5000U;
-
 float mean(const float first, const float second) noexcept {
-  return (first + second) * 0.5F;
+  return (first + second) * traffic_timing_decision::kPairMeanMultiplier;
 }
 float mean(const std::uint32_t first, const std::uint32_t second) noexcept {
-  return static_cast<float>(first + second) * 0.5F;
+  return static_cast<float>(first + second) *
+         traffic_timing_decision::kPairMeanMultiplier;
 }
 
 }  // namespace
@@ -43,12 +42,16 @@ TimingPlan ConstraintManager::applyTimingConstraints(
   if (!validateCycleLength(constrained)) {
     const TimingPlan unconstrained = constrained;
     constrained = scaleGreenTime(constrained);
-#ifdef DECISION_ENGINE_STAT
-    const std::uint32_t intergreenTime = 2U * (yellowTimeMs + allRedTimeMs);
+    const std::uint32_t intergreenTime =
+        traffic_timing_decision::toCount(
+            traffic_timing_decision::IntersectionLayout::
+                kDirectionalPhaseCount) *
+        (yellowTimeMs + allRedTimeMs);
     const std::uint32_t availableGreen =
         maximumCycleLengthMs > intergreenTime
             ? maximumCycleLengthMs - intergreenTime
-            : 0U;
+            : std::uint32_t{};
+#ifdef DECISION_STEPS
     traffic_timing_decision::applicationLogger().LogWarn()
         << "[DECISION][CONSTRAINT][PROPORTIONAL_REDUCTION]"
         << " draft_ns_green_ms=" << unconstrained.greenNorthSouthMs
@@ -71,7 +74,10 @@ bool ConstraintManager::validateCycleLength(const TimingPlan& plan) const {
 
 TimingPlan ConstraintManager::scaleGreenTime(const TimingPlan& plan) {
   TimingPlan scaled = plan;
-  const std::uint32_t intergreenTime = 2U * (yellowTimeMs + allRedTimeMs);
+  const std::uint32_t intergreenTime =
+      traffic_timing_decision::toCount(
+          traffic_timing_decision::IntersectionLayout::kDirectionalPhaseCount) *
+      (yellowTimeMs + allRedTimeMs);
   if (maximumCycleLengthMs <= intergreenTime) {
     scaled.greenNorthSouthMs = minimumGreenMs;
     scaled.greenEastWestMs = minimumGreenMs;
@@ -81,7 +87,7 @@ TimingPlan ConstraintManager::scaleGreenTime(const TimingPlan& plan) {
   const std::uint32_t availableGreen = maximumCycleLengthMs - intergreenTime;
   const std::uint64_t totalGreen =
       static_cast<std::uint64_t>(plan.greenNorthSouthMs) + plan.greenEastWestMs;
-  if (totalGreen <= availableGreen || totalGreen == 0U) {
+  if (totalGreen <= availableGreen || totalGreen == std::uint64_t{}) {
     return scaled;
   }
 
@@ -101,8 +107,12 @@ std::uint32_t ConstraintManager::calculateCycleLength(
   const std::uint64_t value =
       static_cast<std::uint64_t>(plan.greenNorthSouthMs) +
       plan.greenEastWestMs +
-      2ULL * (static_cast<std::uint64_t>(plan.yellowMs) + plan.allRedMs);
-  return static_cast<std::uint32_t>(std::min<std::uint64_t>(value, UINT32_MAX));
+      static_cast<std::uint64_t>(traffic_timing_decision::toCount(
+          traffic_timing_decision::IntersectionLayout::
+              kDirectionalPhaseCount)) *
+          (static_cast<std::uint64_t>(plan.yellowMs) + plan.allRedMs);
+  return static_cast<std::uint32_t>(std::min<std::uint64_t>(
+      value, std::numeric_limits<std::uint32_t>::max()));
 }
 
 //
@@ -110,13 +120,19 @@ std::uint32_t ConstraintManager::calculateCycleLength(
 //
 
 DecisionEngine::DecisionEngine() {
-  previousPlan.greenNorthSouthMs = kInitialGreenMs;
-  previousPlan.greenEastWestMs = kInitialGreenMs;
-  previousPlan.yellowMs = 3000U;
-  previousPlan.allRedMs = 1000U;
+  previousPlan.greenNorthSouthMs = traffic_timing_decision::toMilliseconds(
+      traffic_timing_decision::TimingMilliseconds::kInitialGreen);
+  previousPlan.greenEastWestMs = traffic_timing_decision::toMilliseconds(
+      traffic_timing_decision::TimingMilliseconds::kInitialGreen);
+  previousPlan.yellowMs = traffic_timing_decision::toMilliseconds(
+      traffic_timing_decision::TimingMilliseconds::kYellow);
+  previousPlan.allRedMs = traffic_timing_decision::toMilliseconds(
+      traffic_timing_decision::TimingMilliseconds::kAllRed);
   previousPlan.cycleLengthMs =
       previousPlan.greenNorthSouthMs + previousPlan.greenEastWestMs +
-      2U * (previousPlan.yellowMs + previousPlan.allRedMs);
+      traffic_timing_decision::toCount(
+          traffic_timing_decision::IntersectionLayout::kDirectionalPhaseCount) *
+          (previousPlan.yellowMs + previousPlan.allRedMs);
 }
 
 TimingPlan DecisionEngine::processTrafficMetrics(
@@ -175,20 +191,27 @@ DemandScore DecisionEngine::calculateDemandScore(
   const float eastWestVehicles =
       mean(snapshot.vehicleCountEast, snapshot.vehicleCountWest);
   const float northSouthOccupancy =
-      mean(snapshot.occupancyNorth, snapshot.occupancySouth) * 100.0F;
+      mean(snapshot.occupancyNorth, snapshot.occupancySouth) *
+      traffic_timing_decision::kOccupancyPercentageMultiplier;
   const float eastWestOccupancy =
-      mean(snapshot.occupancyEast, snapshot.occupancyWest) * 100.0F;
+      mean(snapshot.occupancyEast, snapshot.occupancyWest) *
+      traffic_timing_decision::kOccupancyPercentageMultiplier;
 
-  score.northSouthScore = 0.5F * northSouthQueue + 0.3F * northSouthVehicles +
-                          0.2F * northSouthOccupancy;
+  score.northSouthScore =
+      traffic_timing_decision::kQueueLengthWeight * northSouthQueue +
+      traffic_timing_decision::kVehicleCountWeight * northSouthVehicles +
+      traffic_timing_decision::kOccupancyWeight * northSouthOccupancy;
   score.eastWestScore =
-      0.5F * eastWestQueue + 0.3F * eastWestVehicles + 0.2F * eastWestOccupancy;
-  score.overallScore = (score.northSouthScore + score.eastWestScore) * 0.5F;
+      traffic_timing_decision::kQueueLengthWeight * eastWestQueue +
+      traffic_timing_decision::kVehicleCountWeight * eastWestVehicles +
+      traffic_timing_decision::kOccupancyWeight * eastWestOccupancy;
+  score.overallScore = (score.northSouthScore + score.eastWestScore) *
+                       traffic_timing_decision::kPairMeanMultiplier;
 
-#ifdef DECISION_ENGINE_STAT
   const std::uint32_t northSouthTargetMs =
       targetGreenTimeMs(score.northSouthScore);
   const std::uint32_t eastWestTargetMs = targetGreenTimeMs(score.eastWestScore);
+#ifdef DECISION_STEPS
   traffic_timing_decision::applicationLogger().LogInfo()
       << "[DECISION][DEMAND_SCORE] frame_id=" << snapshot.frameId
       << "; ns_score=" << score.northSouthScore
@@ -211,7 +234,7 @@ TimingPlan DecisionEngine::assignGreenTime(const DemandScore& score) {
       stepToward(previousPlan.greenNorthSouthMs, northSouthTargetMs);
   plan.greenEastWestMs =
       stepToward(previousPlan.greenEastWestMs, eastWestTargetMs);
-#ifdef DECISION_ENGINE_STAT
+#ifdef DECISION_STEPS
   traffic_timing_decision::applicationLogger().LogInfo()
       << "[DECISION][GREEN_ADJUSTMENT]"
       << " ns_current_ms=" << previousPlan.greenNorthSouthMs
@@ -219,8 +242,9 @@ TimingPlan DecisionEngine::assignGreenTime(const DemandScore& score) {
       << "; ns_draft_ms=" << plan.greenNorthSouthMs
       << "; ew_current_ms=" << previousPlan.greenEastWestMs
       << "; ew_target_ms=" << eastWestTargetMs
-      << "; ew_draft_ms=" << plan.greenEastWestMs
-      << "; maximum_step_ms=" << kGreenAdjustmentStepMs;
+      << "; ew_draft_ms=" << plan.greenEastWestMs << "; maximum_step_ms="
+      << traffic_timing_decision::toMilliseconds(
+             traffic_timing_decision::TimingMilliseconds::kGreenAdjustmentStep);
 #endif
   return plan;
 }
@@ -235,25 +259,35 @@ TimingPlan DecisionEngine::generateDraftTimingPlan(const DemandScore& score) {
 }
 
 std::uint32_t DecisionEngine::targetGreenTimeMs(const float demandScore) const {
-  if (demandScore < 30.0F) {
-    return 20000U;
+  if (demandScore < traffic_timing_decision::kLowDemandScoreUpperBound) {
+    return traffic_timing_decision::toMilliseconds(
+        traffic_timing_decision::TimingMilliseconds::kLowDemandGreen);
   }
-  if (demandScore < 60.0F) {
-    return 30000U;
+  if (demandScore < traffic_timing_decision::kModerateDemandScoreUpperBound) {
+    return traffic_timing_decision::toMilliseconds(
+        traffic_timing_decision::TimingMilliseconds::kModerateDemandGreen);
   }
-  if (demandScore < 90.0F) {
-    return 40000U;
+  if (demandScore < traffic_timing_decision::kHighDemandScoreUpperBound) {
+    return traffic_timing_decision::toMilliseconds(
+        traffic_timing_decision::TimingMilliseconds::kHighDemandGreen);
   }
-  return 50000U;
+  return traffic_timing_decision::toMilliseconds(
+      traffic_timing_decision::TimingMilliseconds::kVeryHighDemandGreen);
 }
 
 std::uint32_t DecisionEngine::stepToward(const std::uint32_t current,
                                          const std::uint32_t target) const {
   if (current < target) {
-    return std::min(target, current + kGreenAdjustmentStepMs);
+    return std::min(target,
+                    current + traffic_timing_decision::toMilliseconds(
+                                  traffic_timing_decision::TimingMilliseconds::
+                                      kGreenAdjustmentStep));
   }
   if (current > target) {
-    return current - std::min(kGreenAdjustmentStepMs, current - target);
+    return current - std::min(traffic_timing_decision::toMilliseconds(
+                                  traffic_timing_decision::TimingMilliseconds::
+                                      kGreenAdjustmentStep),
+                              current - target);
   }
   return current;
 }

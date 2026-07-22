@@ -43,7 +43,7 @@ class TimingDecisionApplication final
   std::atomic_bool childThreadRunning_{false};
   bool childThreadCreated_{false};
 #endif
-  std::uint64_t cycleCount_{0U};
+  std::uint64_t cycleCount_{};
   bool initialized_{false};
 };
 

@@ -14,18 +14,18 @@ using TimingPlan = traffic_ipc::TimingPlan;
 // Demand Score
 //============================================================
 struct DemandScore {
-  float northSouthScore{0.0F};
-  float eastWestScore{0.0F};
-  float overallScore{0.0F};
+  float northSouthScore{};
+  float eastWestScore{};
+  float overallScore{};
 };
 
 //============================================================
 // Health Report
 //============================================================
 struct HealthReport {
-  uint64_t cycleStartTimestampNs{0};
-  uint64_t cycleFinishTimestampNs{0};
-  uint64_t executionTimeNs{0};
+  std::uint64_t cycleStartTimestampNs{};
+  std::uint64_t cycleFinishTimestampNs{};
+  std::uint64_t executionTimeNs{};
   bool deadlineMissed{false};
   bool heartbeat{true};
 };

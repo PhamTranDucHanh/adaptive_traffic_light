@@ -350,6 +350,7 @@ traffic_ipc::TrafficSnapshot PerceptionApplication::makeSnapshot() {
 
 void PerceptionApplication::logCurrentScenario() const {
   const auto& scenario = kScenarios[scenarioIndex_];
+#ifdef SCENERIO_DETAIL
   applicationLogger().LogInfo()
       << "============================================================";
   applicationLogger().LogInfo()
@@ -394,6 +395,7 @@ void PerceptionApplication::logCurrentScenario() const {
         << "; ew_target_green_ms=" << expectedTargetGreenMs(eastWestScore)
         << "; decision_action=step_toward_targets";
   }
+#endif
 }
 
 void PerceptionApplication::advanceScenario() {

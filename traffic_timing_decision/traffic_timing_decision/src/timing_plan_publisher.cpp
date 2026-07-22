@@ -56,7 +56,7 @@ bool TimingPlanPublisher::publishTimingPlan(const TimingPlan& plan) {
 }
 
 bool TimingPlanPublisher::publishPreviousTimingPlan() {
-  if (lastPublishedPlan.planId == 0U) {
+  if (lastPublishedPlan.planId == std::uint64_t{}) {
     return false;
   }
   return publishTimingPlan(lastPublishedPlan);

@@ -10,14 +10,32 @@
 
 namespace {
 
-using namespace std::chrono_literals;
+enum class HealthIntervalMilliseconds : std::int64_t {
+  kDecisionDeadlineMinimum = 0,
+  kInternalProcessingCycle = 100,
+  kSupervisorApiCycle = 500,
+  kHeartbeatMinimum = 2000,
+  kDecisionDeadlineMaximum = 2500,
+  kHeartbeatMaximum = 3000,
+};
 
-constexpr auto kDecisionDeadlineMin = 0ms;
-constexpr auto kDecisionDeadlineMax = 2500ms;
-constexpr auto kHeartbeatMin = 2000ms;
-constexpr auto kHeartbeatMax = 3000ms;
-constexpr auto kInternalProcessingCycle = 100ms;
-constexpr auto kSupervisorApiCycle = 500ms;
+constexpr std::chrono::milliseconds toDuration(
+    const HealthIntervalMilliseconds value) noexcept {
+  return std::chrono::milliseconds{static_cast<std::int64_t>(value)};
+}
+
+constexpr auto kDecisionDeadlineMin =
+    toDuration(HealthIntervalMilliseconds::kDecisionDeadlineMinimum);
+constexpr auto kDecisionDeadlineMax =
+    toDuration(HealthIntervalMilliseconds::kDecisionDeadlineMaximum);
+constexpr auto kHeartbeatMin =
+    toDuration(HealthIntervalMilliseconds::kHeartbeatMinimum);
+constexpr auto kHeartbeatMax =
+    toDuration(HealthIntervalMilliseconds::kHeartbeatMaximum);
+constexpr auto kInternalProcessingCycle =
+    toDuration(HealthIntervalMilliseconds::kInternalProcessingCycle);
+constexpr auto kSupervisorApiCycle =
+    toDuration(HealthIntervalMilliseconds::kSupervisorApiCycle);
 
 const score::mw::health::MonitorTag kDeadlineMonitorTag{
     "timing_decision_deadline_monitor"};
@@ -97,7 +115,7 @@ bool HealthReporter::initialize() {
   // worker starts. Starting here also guarantees Alive supervision is active
   // before run_application reports the process as Running after Initialize().
   healthMonitor_->start();
-  monitoredCycleCount_ = 0U;
+  monitoredCycleCount_ = std::uint64_t{};
   initialized_ = true;
 
   traffic_timing_decision::applicationLogger().LogInfo()
@@ -130,7 +148,7 @@ void HealthReporter::shutdown() {
     traffic_timing_decision::applicationLogger().LogInfo()
         << "[HEALTH][STOP] monitor stopped";
   }
-  monitoredCycleCount_ = 0U;
+  monitoredCycleCount_ = std::uint64_t{};
   initialized_ = false;
 }
 
@@ -180,17 +198,16 @@ void HealthReporter::finishDecisionCycle() {
   // Destroying the guard reports the end checkpoint to DeadlineMonitor.
   deadlineGuard_.reset();
 
+#ifdef LOG_HEALTH_MONITOR
   const auto elapsed = std::chrono::steady_clock::now() - cycleStartedAt_;
   const auto elapsedMicroseconds =
       std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
   const bool withinConfiguredDeadline = elapsed <= kDecisionDeadlineMax;
-#ifdef LOG_HEALTH_MONITOR
   traffic_timing_decision::applicationLogger().LogDebug()
       << "[HEALTH][DEADLINE] local_window=closed; cycle="
       << monitoredCycleCount_ << "; elapsed_us=" << elapsedMicroseconds
       << "; max_ms=" << kDecisionDeadlineMax.count() << "; observed_status="
       << (withinConfiguredDeadline ? std::string_view{"met"}
                                    : std::string_view{"missed"});
-#endif 
-
+#endif
 }

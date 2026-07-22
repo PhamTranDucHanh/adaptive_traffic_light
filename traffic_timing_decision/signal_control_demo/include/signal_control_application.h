@@ -9,6 +9,8 @@
 #include "traffic_ipc/latest_value_queue.h"
 #include "traffic_ipc/messages.h"
 
+#define SIGNAL_CONTROLLER_CONSUMED
+
 namespace signal_control_demo {
 
 class SignalControlApplication final

@@ -16,12 +16,19 @@ class PeriodicService {
   bool initialize();
   void shutdown();
   bool runDecisionCycle();
-  uint32_t periodMs() const;
+  std::uint32_t periodMs() const;
 
  private:
-  uint32_t periodMs_{2500};
-  std::uint32_t consecutiveSnapshotMisses_{0U};
-  std::uint32_t maximumConsecutiveSnapshotMisses_{3U};
+  enum class Configuration : std::uint32_t {
+    kPeriodMilliseconds = 2500U,
+    kMaximumConsecutiveSnapshotMisses = 3U,
+  };
+
+  std::uint32_t periodMs_{
+      static_cast<std::uint32_t>(Configuration::kPeriodMilliseconds)};
+  std::uint32_t consecutiveSnapshotMisses_{};
+  std::uint32_t maximumConsecutiveSnapshotMisses_{static_cast<std::uint32_t>(
+      Configuration::kMaximumConsecutiveSnapshotMisses)};
   bool running_{false};
   TrafficDataReceiver trafficReceiver;
   DecisionEngine decisionEngine;

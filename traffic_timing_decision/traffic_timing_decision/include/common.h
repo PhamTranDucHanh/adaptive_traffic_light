@@ -26,7 +26,7 @@ class PeriodicWait final {
   PeriodicWait& operator=(const PeriodicWait&) = delete;
 
   bool valid() const noexcept;
-  int waitUntil(const timespec& absoluteRelease) noexcept;
+  std::int32_t waitUntil(const timespec& absoluteRelease) noexcept;
   void requestStop() noexcept;
 
  private:

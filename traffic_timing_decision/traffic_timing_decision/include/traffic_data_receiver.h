@@ -17,7 +17,7 @@ class SnapshotQueue {
   void close();
   bool receive(TrafficSnapshot& snapshot);
   traffic_ipc::QueueStatus lastStatus() const noexcept;
-  int lastError() const noexcept;
+  std::int32_t lastError() const noexcept;
 
  private:
   traffic_ipc::LatestValueConsumer<TrafficSnapshot> queue_;
@@ -43,7 +43,7 @@ class TrafficDataReceiver {
   bool validateSnapshot(const TrafficSnapshot& snapshot);
   TrafficSnapshot getLatestSnapshot() const;
   traffic_ipc::QueueStatus lastQueueStatus() const noexcept;
-  int lastQueueError() const noexcept;
+  std::int32_t lastQueueError() const noexcept;
 
  private:
   SnapshotQueue snapshotQueue;

@@ -35,7 +35,7 @@ class HealthReporter {
   std::optional<score::mw::health::deadline::Deadline> cycleDeadline_;
   std::optional<score::mw::health::deadline::DeadlineHandle> deadlineGuard_;
   std::chrono::steady_clock::time_point cycleStartedAt_{};
-  std::uint64_t monitoredCycleCount_{0U};
+  std::uint64_t monitoredCycleCount_{};
   bool initialized_{false};
 };
 
