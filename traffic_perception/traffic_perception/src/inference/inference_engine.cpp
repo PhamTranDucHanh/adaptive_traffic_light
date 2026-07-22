@@ -31,7 +31,18 @@ void InferenceEngine::runOneCycle() {
     // 3. Perform Inference
     InferenceResult result = backend_->infer(*frame);
     
-    // 4. ROI Filtering
+    // 4. Vehicle Filtering — only vehicle detections reach the Analyzer
+    {
+      std::vector<Detection> vehicleDetections;
+      for (const auto& det : result.Detections) {
+        if (det.IsVehicle) {
+          vehicleDetections.push_back(det);
+        }
+      }
+      result.Detections = std::move(vehicleDetections);
+    }
+
+    // 5. ROI Filtering
     const auto& roi = config.laneRois[laneId];
     if (!roi.Points.empty()) {
       std::vector<Detection> filteredDetections;
@@ -40,7 +51,7 @@ void InferenceEngine::runOneCycle() {
             det.Box.x + det.Box.width * 0.5f,
             det.Box.y + det.Box.height
         );
-        
+
         // Use OpenCV pointPolygonTest to check if inside ROI
         if (cv::pointPolygonTest(roi.Points, bottomCenter, false) >= 0) {
           filteredDetections.push_back(det);

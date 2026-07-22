@@ -30,6 +30,7 @@ cc_library(
         "src/inference/inference_engine.cpp",
         "src/inference/model_backend.cpp",
         "src/inference/yolov8_backend.cpp",
+        "src/inference/yolov8_oiv7_backend.cpp",
         "src/ingestion/atomic_frame_buffer.cpp",
 
         "src/ingestion/stream_watchdog.cpp",
@@ -39,6 +40,7 @@ cc_library(
         "src/perception_module.cpp",
         "src/pipeline/pipeline_manager.cpp",
         "src/pipeline/snapshot_publisher.cpp",
+        "src/viewer/opencv_lanes_viewer.cpp",
     ],
     hdrs = glob([
         "include/traffic_perception/core/*.h",
@@ -46,6 +48,7 @@ cc_library(
         "include/traffic_perception/ingestion/*.h",
         "include/traffic_perception/io/*.h",
         "include/traffic_perception/pipeline/*.h",
+        "include/traffic_perception/viewer/*.h",
     ]) + ["include/traffic_perception/perception_module.h"],
     copts = OPENCV_COPTS,
     includes = ["include"],

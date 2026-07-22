@@ -135,7 +135,7 @@ class Analyzer : public IInferenceSink {
       }
 
       for (const auto& det : ctx.Detections) {
-          if (det.ClassId == kEmergencyVehicleClassId) {
+          if (det.IsEmergency) {
               ctx.EmergencyDetected = true;
           }
       }

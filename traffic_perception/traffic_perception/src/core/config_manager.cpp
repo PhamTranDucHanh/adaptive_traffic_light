@@ -10,10 +10,10 @@ bool ConfigManager::loadConfig() {
                            "rtsp://stream4"};
 
   const std::vector<cv::Point> kDefaultRoi = {
-      {0, 250},   // Bottom-left
-      {1740, 0},    // Top-left
-      {630, 1080},   // Top-right
-      {1740, 1080}   // Bottom-right
+    {0, 561},    
+    {0, 1075},     
+    {1920, 40},    
+    {1700, 0}      
   };
 
   for (int i = 0; i < 4; ++i) {

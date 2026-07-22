@@ -8,10 +8,12 @@
 #include "traffic_perception/core/frame_pool.h"
 #include "traffic_perception/ingestion/atomic_frame_buffer.h"
 #include "traffic_perception/ingestion/stream_worker.h"
-#include "traffic_perception/inference/yolov8_backend.h"
+#include "traffic_perception/inference/yolov8_oiv7_backend.h"
 #include "traffic_perception/pipeline/pipeline_manager.h"
+#include <traffic_perception/inference/yolov8_backend.h>
 #include "traffic_perception/pipeline/snapshot_publisher.h"
 #include "traffic_perception/io/snapshot_sender.h"
+#include "traffic_perception/viewer/opencv_lanes_viewer.h"
 #include "tools/cpp/runfiles/runfiles.h"
 
 using namespace traffic_perception;
@@ -50,8 +52,8 @@ int main(int argc, char* argv[]) {
     }
     
     // PipelineManager
-    auto backend = std::make_unique<YOLOv8Backend>(runfiles->Rlocation("traffic_perception/test/data/yolov8n.onnx"));
-    YOLOv8Backend* backendPtr = backend.get(); 
+    auto backend = std::make_unique<YoloV8OIV7Backend>(runfiles->Rlocation("traffic_perception/test/data/yolov8m-oiv7.onnx"));
+    YoloV8OIV7Backend* backendPtr = backend.get(); 
     PipelineManager pipeline(std::move(backend), buffer, pool, configManager);
 
     // Snapshot Publisher Integration
@@ -62,10 +64,8 @@ int main(int argc, char* argv[]) {
         std::cerr << "Failed to open snapshot sender" << std::endl;
     }
 
-    cv::namedWindow("Pipeline Integration", cv::WINDOW_AUTOSIZE);
-
-    std::array<cv::Mat, 4> lastRenderedFrames;
-    for (auto& frame : lastRenderedFrames) frame = cv::Mat();
+    OpenCVLanesViewer viewer;
+    viewer.init(config, backendPtr);
 
     bool running = true;
     auto nextPipelineRun = std::chrono::steady_clock::now();
@@ -76,46 +76,8 @@ int main(int argc, char* argv[]) {
         // Pipeline executes one cycle
         pipeline.runOneCycle();
 
-        // Get latest frames
-        auto frames = pipeline.analyzer().takeRenderFrames();
-
-        std::vector<cv::Mat> canvasLanes(4);
-        for (uint32_t i = 0; i < 4; ++i) {
-            if (frames[i] && !frames[i]->Image.empty()) {
-                // Get latest context for detections
-                const auto& ctx = pipeline.analyzer().latestContext(i);
-                
-                // Draw detections onto frame using the backend
-                backendPtr->draw(frames[i]->Image, ctx.Detections);
-                
-                // Draw ROI
-                const auto& roi = config.laneRois[i];
-                std::vector<std::vector<cv::Point>> contours = {roi.Points};
-                cv::polylines(frames[i]->Image, contours, true, cv::Scalar(0, 255, 0), 2);
-                cv::putText(frames[i]->Image, roi.LaneId, roi.Points[0], 
-                            cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0), 1);
-
-                // Resize/copy into cache
-                cv::resize(frames[i]->Image, lastRenderedFrames[i], cv::Size(320, 240));
-                pipeline.analyzer().releaseFrame(frames[i]);
-            }
-
-            // Compose output
-            if (!lastRenderedFrames[i].empty()) {
-                canvasLanes[i] = lastRenderedFrames[i];
-            } else {
-                canvasLanes[i] = cv::Mat(240, 320, CV_8UC3, cv::Scalar(0, 0, 0));
-                cv::putText(canvasLanes[i], "Waiting...", cv::Point(100, 120),
-                            cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 2);
-            }
-        }
-        
-        cv::Mat top, bottom, canvas;
-        cv::hconcat(canvasLanes[0], canvasLanes[1], top);
-        cv::hconcat(canvasLanes[2], canvasLanes[3], bottom);
-        cv::vconcat(top, bottom, canvas);
-        
-        cv::imshow("Pipeline Integration", canvas);
+        // Visualize
+        viewer.render(pipeline.analyzer());
         
         // Handle UI
         int key = cv::waitKey(30);
@@ -124,8 +86,8 @@ int main(int argc, char* argv[]) {
         std::this_thread::sleep_until(nextPipelineRun);
     }
     
+    viewer.shutdown();
     for (auto& worker : workers) worker->stop();
     
-    cv::destroyAllWindows();
     return 0;
 }

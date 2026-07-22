@@ -12,8 +12,12 @@
 #include "traffic_perception/core/frame_pool.h"
 #include "traffic_perception/ingestion/atomic_frame_buffer.h"
 #include "traffic_perception/ingestion/stream_worker.h"
-#include "traffic_perception/inference/yolov8_backend.h"
+#include "traffic_perception/inference/imodel_backend.h"
 #include "traffic_perception/pipeline/pipeline_manager.h"
+#include "traffic_perception/pipeline/snapshot_publisher.h"
+#include "traffic_perception/io/snapshot_sender.h"
+#include "traffic_perception/viewer/opencv_lanes_viewer.h"
+#include "traffic_perception/core/config_manager.h"
 
 namespace traffic_perception {
 
@@ -31,12 +35,15 @@ class TrafficPerceptionApplication final
   bool initialized_{false};
 
   // Pipeline members
+  ConfigManager configManager_;
   FramePool pool_;
   AtomicFrameBuffer buffer_;
   std::vector<std::unique_ptr<StreamWorker>> workers_;
-  std::unique_ptr<YOLOv8Backend> backend_;
-  YOLOv8Backend* backendPtr_{nullptr};
+  std::unique_ptr<IModelBackend> backend_;
+  IModelBackend* backendPtr_{nullptr};
   std::unique_ptr<PipelineManager> pipeline_;
+  std::unique_ptr<MQSnapshotSender> mqSender_;
+  OpenCVLanesViewer viewer_;
 };
 
 }  // namespace traffic_perception

@@ -29,6 +29,8 @@ class DummyModelBackend : public IModelBackend {
         int x = 100 + (frame.FrameId * 5) % 400;
         int y = 120 + (i * 50);
         d.Box = cv::Rect(x, y, 50, 40);
+        d.IsVehicle = isVehicleClass(d.ClassId);
+        d.IsEmergency = isEmergencyClass(d.ClassId);
         result.Detections.push_back(d);
     }
     
@@ -41,6 +43,11 @@ class DummyModelBackend : public IModelBackend {
   std::string getModelName() const override {
     return "Dummy Backend";
   }
+
+ private:
+  // All dummy detections are treated as vehicles (class 0 = Van/Emergency)
+  static bool isVehicleClass(int /*classId*/) { return true; }
+  static bool isEmergencyClass(int classId) { return classId == 0; }
 };
 
 }  // namespace traffic_perception

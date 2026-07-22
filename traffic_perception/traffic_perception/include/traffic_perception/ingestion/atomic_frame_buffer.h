@@ -9,8 +9,6 @@
 
 namespace traffic_perception {
 
-constexpr std::size_t NUM_LANES = 4;
-
 class AtomicFrameBuffer {
 public:
     // Exchanges current frame with new frame. Returns old frame.

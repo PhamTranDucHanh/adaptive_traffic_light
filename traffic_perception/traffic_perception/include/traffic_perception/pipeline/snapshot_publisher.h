@@ -10,8 +10,6 @@ namespace traffic_perception {
 
 class SnapshotPublisher {
  public:
-  std::string BrokerUrl{};
-
   // Initialize the sender that will actually transmit snapshots.
   void initSender(ISnapshotSender* sender);
 

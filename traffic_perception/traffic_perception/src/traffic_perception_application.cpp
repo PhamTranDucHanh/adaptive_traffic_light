@@ -8,6 +8,7 @@
 #include "score/concurrency/interruptible_wait.h"
 #include "score/mw/log/rust/stdout_logger_init.h"
 #include "traffic_perception/ingestion/stream_worker.h"
+#include "traffic_perception/inference/yolov8_backend.h"
 
 namespace traffic_perception {
 
@@ -28,21 +29,35 @@ std::int32_t TrafficPerceptionApplication::Initialize(
     return EXIT_FAILURE;
   }
 
-  // Pipeline Initialization
+  // Pipeline Initialization (Matching pipeline_manager_test)
+  configManager_.loadConfig();
+  AppConfig config = configManager_.getConfig();
+
   if (!pool_.init(20)) return EXIT_FAILURE;
 
   backend_ = std::make_unique<YOLOv8Backend>("test/data/yolov8n.onnx");
   backendPtr_ = backend_.get();
-  pipeline_ = std::make_unique<PipelineManager>(std::move(backend_), buffer_, pool_);
+  pipeline_ = std::make_unique<PipelineManager>(std::move(backend_), buffer_, pool_, configManager_);
 
+  // MQ Sender Setup
+  mqSender_ = std::make_unique<MQSnapshotSender>();
+  if (mqSender_->open()) {
+      pipeline_->getPublisher().initSender(mqSender_.get());
+  } else {
+      std::cerr << "[TRAFFIC_PERCEPTION][INIT][ERROR] Failed to open snapshot sender\n";
+      return EXIT_FAILURE;
+  }
+
+  // Visualization Setup
+  viewer_.init(config, backendPtr_);
+
+  // Start Workers
   for (uint32_t i = 0; i < 4; ++i) {
       auto worker = std::make_unique<StreamWorker>();
       worker->initStream("test/data/traffic.mp4", i, &pool_, std::chrono::milliseconds(200));
       worker->start(buffer_);
       workers_.push_back(std::move(worker));
   }
-
-  cv::namedWindow("Pipeline Integration", cv::WINDOW_AUTOSIZE);
 
   cycleCount_ = 0U;
   initialized_ = true;
@@ -61,9 +76,6 @@ std::int32_t TrafficPerceptionApplication::Run(
   auto nextRelease = std::chrono::steady_clock::now() + kPeriod;
   std::int32_t exitCode{EXIT_SUCCESS};
 
-  std::array<cv::Mat, 4> lastRenderedFrames;
-  for (auto& frame : lastRenderedFrames) frame = cv::Mat();
-
   std::cout << "[TRAFFIC_PERCEPTION][RUN] periodic loop started\n";
   while (!stopToken.stop_requested()) {
     if (score::concurrency::wait_until(stopToken, nextRelease)) {
@@ -76,42 +88,25 @@ std::int32_t TrafficPerceptionApplication::Run(
       break;
     }
 
-    // Pipeline Logic
+    // Orchestrated Pipeline Logic (Reusing pipeline_manager_test flow)
     pipeline_->runOneCycle();
-    auto frames = pipeline_->analyzer().takeRenderFrames();
+    viewer_.render(pipeline_->analyzer());
 
-    std::vector<cv::Mat> canvasLanes(4);
-    for (uint32_t i = 0; i < 4; ++i) {
-        if (frames[i] && !frames[i]->Image.empty()) {
-            backendPtr_->draw(frames[i]->Image, pipeline_->analyzer().latestResult(i));
-            cv::resize(frames[i]->Image, lastRenderedFrames[i], cv::Size(320, 240));
-            pipeline_->analyzer().releaseFrame(frames[i]);
-        }
-        
-        if (!lastRenderedFrames[i].empty()) {
-            canvasLanes[i] = lastRenderedFrames[i];
-        } else {
-            canvasLanes[i] = cv::Mat(240, 320, CV_8UC3, cv::Scalar(0, 0, 0));
-            cv::putText(canvasLanes[i], "Waiting...", cv::Point(100, 120),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 2);
-        }
+    // UI Handle
+    if (cv::waitKey(1) == 'q') {
+        exitCode = EXIT_SUCCESS; // Signal handled by stop_token in production
+        break;
     }
-    
-    cv::Mat top, bottom, canvas;
-    cv::hconcat(canvasLanes[0], canvasLanes[1], top);
-    cv::hconcat(canvasLanes[2], canvasLanes[3], bottom);
-    cv::vconcat(top, bottom, canvas);
-    cv::imshow("Pipeline Integration", canvas);
-    cv::waitKey(1);
 
     ++cycleCount_;
     healthReporter_.finishPerceptionCycle();
     nextRelease += kPeriod;
   }
 
-  // Shutdown
+  // Shutdown (Matching pipeline_manager_test)
+  viewer_.shutdown();
   for (auto& worker : workers_) worker->stop();
-  cv::destroyAllWindows();
+  mqSender_->close();
   
   initialized_ = false;
   std::cout << "[TRAFFIC_PERCEPTION][STOP] cycles_completed=" << cycleCount_ << '\n';

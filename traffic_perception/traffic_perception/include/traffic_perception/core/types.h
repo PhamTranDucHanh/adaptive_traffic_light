@@ -25,6 +25,8 @@ struct Detection {
   std::int32_t ClassId{};
   float Confidence{};
   std::string ClassName;
+  bool IsVehicle{false};
+  bool IsEmergency{false};
 };
 
 struct Frame {
@@ -52,8 +54,7 @@ struct AppConfig {
   std::int32_t TargetFps{};
 };
 
-// Temporary assumption: Van is the emergency vehicle
-constexpr std::int32_t kEmergencyVehicleClassId = 1; // Assuming 1 maps to 'Van'
+constexpr std::size_t NUM_LANES = 4;
 
 struct TrafficSnapshot {
   std::int32_t frameId{};
