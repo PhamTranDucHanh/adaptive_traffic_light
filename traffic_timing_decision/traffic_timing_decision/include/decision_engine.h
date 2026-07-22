@@ -22,7 +22,7 @@ class ConstraintManager {
   std::uint32_t calculateCycleLength(const TimingPlan& plan) const;
   std::uint32_t minimumGreenMs{10000U};
   std::uint32_t maximumGreenMs{60000U};
-  std::uint32_t maximumCycleLengthMs{120000U};
+  std::uint32_t maximumCycleLengthMs{100000U};
   std::uint32_t yellowTimeMs{3000U};
   std::uint32_t allRedTimeMs{1000U};
 };

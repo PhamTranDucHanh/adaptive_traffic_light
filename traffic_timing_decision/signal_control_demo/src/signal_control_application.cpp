@@ -13,7 +13,7 @@ namespace {
 constexpr std::uint32_t kPeriodMs = 3000U;
 constexpr std::uint32_t kMinimumGreenMs = 10000U;
 constexpr std::uint32_t kMaximumGreenMs = 60000U;
-constexpr std::uint32_t kMaximumCycleMs = 120000U;
+constexpr std::uint32_t kMaximumCycleMs = 100000U;
 constexpr std::uint64_t kMaximumPlanAgeNs = 10000000000ULL;
 constexpr std::uint32_t kMaximumConsecutiveMisses = 3U;
 

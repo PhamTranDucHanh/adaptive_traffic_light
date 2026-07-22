@@ -59,7 +59,10 @@ cc_binary(
 cc_binary(
     name = "decision_demo",
     srcs = ["src/decision_demo.cpp"],
-    deps = [":traffic_timing_decision_core"],
+    deps = [
+        ":traffic_timing_decision_core",
+        "@score_baselibs//score/mw/log",
+    ],
 )
 
 cc_test(
