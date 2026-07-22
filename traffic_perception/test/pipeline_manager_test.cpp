@@ -91,6 +91,9 @@ int main(int argc, char* argv[]) {
         
         // Handle UI
         int key = cv::waitKey(30);
+        if (key == 'd') {
+            pipeline.getPublisher().flush();
+        }
         if (key == 'q' || key == 27) running = false;
         
         std::this_thread::sleep_until(nextPipelineRun);

@@ -35,6 +35,7 @@ cc_library(
 
         "src/ingestion/stream_watchdog.cpp",
         "src/ingestion/stream_worker.cpp",
+        "src/io/logger.cpp",
         "src/io/snapshot_sender.cpp",
         "src/io/telemetry_manager.cpp",
         "src/perception_module.cpp",

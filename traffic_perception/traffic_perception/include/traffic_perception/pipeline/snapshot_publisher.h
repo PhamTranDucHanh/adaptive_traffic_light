@@ -5,6 +5,7 @@
 
 #include "traffic_perception/core/types.h"
 #include "traffic_perception/io/snapshot_sender.h"
+#include "traffic_perception/io/logger.h"
 
 namespace traffic_perception {
 
@@ -17,8 +18,12 @@ class SnapshotPublisher {
   // Returns true on success, false otherwise.
   bool broadcastSnapshot(const TrafficSnapshot& snapshot);
 
+  // Dump stored logs
+  void flush();
+
  private:
   ISnapshotSender* sender_{nullptr};
+  Logger logger_;
 };
 
 }  // namespace traffic_perception
