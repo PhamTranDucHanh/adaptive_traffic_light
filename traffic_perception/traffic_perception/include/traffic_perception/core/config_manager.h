@@ -14,8 +14,8 @@ class ConfigManager {
 
  public:
   explicit ConfigManager(std::string configFile) : ConfigFile(std::move(configFile)) {}
-  bool loadConfig(const std::string& modelPath, const std::array<std::string, NUM_LANES>& videoPaths);
-  AppConfig getConfig();
+  bool loadConfig();
+  AppConfig& getConfig();
 };
 
 }  // namespace traffic_perception

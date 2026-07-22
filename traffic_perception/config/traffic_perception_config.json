@@ -1,0 +1,43 @@
+{
+  "target_fps": 30,
+  "capture_period_ms": 200,
+  "pipeline_period_ms": 100,
+  "viewer_period_ms": 100,
+  "model": "traffic_perception/test/data/yolov8m-oiv7.onnx",
+  "lanes": [
+    {
+      "direction": "North",
+      "video": "traffic_perception/test/data/traffic.mp4",
+      "roi": [[0,561], [0,1075], [1920,40], [1700,0]]
+    },
+    {
+      "direction": "South",
+      "video": "traffic_perception/test/data/traffic2.mp4",
+      "roi": [
+        [0, 750],
+        [0, 1080],
+        [1920, 1080],
+        [1919, 425],
+        [1537, 0],
+        [735, 0]
+      ]
+    },
+    {
+      "direction": "East",
+      "video": "traffic_perception/test/data/traffic3.mp4",
+      "roi": [[0,561], [0,1075], [1920,40], [1700,0]]
+    },
+    {
+      "direction": "West",
+      "video": "traffic_perception/test/data/traffic4.mp4",
+      "roi": [
+        [0, 750],
+        [0, 1080],
+        [1920, 1080],
+        [1919, 425],
+        [1537, 0],
+        [735, 0]
+      ]
+    }
+  ]
+}

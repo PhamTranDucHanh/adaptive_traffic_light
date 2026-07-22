@@ -33,31 +33,28 @@ std::int32_t TrafficPerceptionApplication::Initialize(
     return EXIT_FAILURE;
   }
 
-  // Resolve resources
-  std::string modelPath = runfiles->Rlocation("traffic_perception/test/data/yolov8n.onnx");
-  std::array<std::string, NUM_LANES> videoPaths = {
-      runfiles->Rlocation("traffic_perception/test/data/traffic.mp4"),
-      runfiles->Rlocation("traffic_perception/test/data/traffic2.mp4"),
-      runfiles->Rlocation("traffic_perception/test/data/traffic3.mp4"),
-      runfiles->Rlocation("traffic_perception/test/data/traffic4.mp4")
-  };
-
   // Pipeline Initialization
-  if (!configManager_.loadConfig(modelPath, videoPaths)) return EXIT_FAILURE;
-  AppConfig config = configManager_.getConfig();
+  if (!configManager_.loadConfig()) return EXIT_FAILURE;
+  AppConfig& config = configManager_.getConfig();
 
-  if (!pool_.init(20)) return EXIT_FAILURE;
+  // Resolve paths post-load in-place
+  config.modelPath = runfiles->Rlocation(config.modelPath);
+  for (size_t i = 0; i < NUM_LANES; ++i) {
+      config.lanes[i].videoSource = runfiles->Rlocation(config.lanes[i].videoSource);
+  }
 
-  // ... (rest of init)
+  std::array<Roi, NUM_LANES> laneRois;
   for (size_t i = 0; i < NUM_LANES; ++i) {
       laneRois[i] = config.lanes[i].roi;
   }
 
   if (!pool_.init(20)) return EXIT_FAILURE;
 
-  backend_ = std::make_unique<YOLOv8Backend>("test/data/yolov8n.onnx");
+  backend_ = std::make_unique<YOLOv8Backend>(config.modelPath);
   backendPtr_ = backend_.get();
   pipeline_ = std::make_unique<PipelineManager>(std::move(backend_), buffer_, pool_, laneRois);
+
+  // ... (rest of init)
 
   // MQ Sender Setup
   mqSender_ = std::make_unique<MQSnapshotSender>();

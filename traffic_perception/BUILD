@@ -74,7 +74,7 @@ cc_binary(
     name = "pipeline_manager_test",
     srcs = ["test/pipeline_manager_test.cpp"],
     copts = COMMON_COPTS,
-    data = ["//test/data:test_data"],
+    data = ["//test/data:test_data", "//config:traffic_perception_config.json"],
     linkopts = select({
         "@platforms//os:linux": OPENCV_LINKOPTS,
         "//conditions:default": [],

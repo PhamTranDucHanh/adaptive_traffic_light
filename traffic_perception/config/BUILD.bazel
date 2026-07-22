@@ -7,6 +7,7 @@ exports_files([
     "hm_logging.json",
     "logging.json",
     "traffic_perception_lifecycle.json",
+    "traffic_perception_config.json",
 ])
 
 launch_manager_config(

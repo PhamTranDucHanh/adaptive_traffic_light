@@ -25,19 +25,20 @@ int main(int argc, char* argv[]) {
     std::unique_ptr<Runfiles> runfiles(Runfiles::Create(argv[0], &error));
     if (!runfiles) return 1;
     
-    // Resolve resources
-    std::string modelPath = runfiles->Rlocation("traffic_perception/test/data/yolov8m-oiv7.onnx");
-    std::array<std::string, NUM_LANES> videoPaths = {
-        runfiles->Rlocation("traffic_perception/test/data/traffic.mp4"),
-        runfiles->Rlocation("traffic_perception/test/data/traffic2.mp4"),
-        runfiles->Rlocation("traffic_perception/test/data/traffic3.mp4"),
-        runfiles->Rlocation("traffic_perception/test/data/traffic4.mp4")
-    };
-
+    // Resolve config path via Runfiles
+    std::string configPath = runfiles->Rlocation("traffic_perception/config/traffic_perception_config.json");
+    if (configPath.empty()) return 1;
+    
     // Load configuration
-    ConfigManager configManager("config/traffic_perception_config.json");
-    configManager.loadConfig(modelPath, videoPaths);
-    AppConfig config = configManager.getConfig();
+    ConfigManager configManager(configPath);
+    configManager.loadConfig();
+    AppConfig& config = configManager.getConfig();
+
+    // Resolve paths post-load in-place
+    config.modelPath = runfiles->Rlocation(config.modelPath);
+    for (size_t i = 0; i < NUM_LANES; ++i) {
+        config.lanes[i].videoSource = runfiles->Rlocation(config.lanes[i].videoSource);
+    }
 
     std::array<Roi, NUM_LANES> laneRois;
     for (size_t i = 0; i < NUM_LANES; ++i) {

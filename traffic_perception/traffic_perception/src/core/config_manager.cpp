@@ -1,34 +1,53 @@
 #include "traffic_perception/core/config_manager.h"
 #include <iostream>
+#include <fstream>
+#include <nlohmann/json.hpp>
 
 namespace traffic_perception {
-bool ConfigManager::loadConfig(const std::string& modelPath, const std::array<std::string, NUM_LANES>& videoPaths) {
-  std::cout << "[ConfigManager] loadConfig() called with file: " << ConfigFile
-            << '\n';
 
-  const std::vector<cv::Point> kDefaultRoi = {
-    {0, 561},    
-    {0, 1075},     
-    {1920, 40},    
-    {1700, 0}      
-  };
+using json = nlohmann::json;
 
-  const std::array<Direction, NUM_LANES> directions = {Direction::North, Direction::South, Direction::East, Direction::West};
+bool ConfigManager::loadConfig() {
+  std::cout << "[ConfigManager] loadConfig() called with file: " << ConfigFile << '\n';
+  
+  std::ifstream f(ConfigFile);
+  if (!f.is_open()) {
+      std::cerr << "Failed to open config file: " << ConfigFile << '\n';
+      return false;
+  }
+  json data = json::parse(f);
 
+  CachedConfig.CapturePeriod = std::chrono::milliseconds(data.value("capture_period_ms", 200));
+  CachedConfig.PipelinePeriod = std::chrono::milliseconds(data.value("pipeline_period_ms", 100));
+  CachedConfig.ViewerPeriod = std::chrono::milliseconds(data.value("viewer_period_ms", 100));
+  CachedConfig.modelPath = data["model"].get<std::string>();
+
+  auto lanes = data["lanes"];
   for (size_t i = 0; i < NUM_LANES; ++i) {
+      auto lane = lanes[i];
+      std::string dirStr = lane["direction"];
+      Direction dir = Direction::North;
+      if (dirStr == "North") dir = Direction::North;
+      else if (dirStr == "South") dir = Direction::South;
+      else if (dirStr == "East") dir = Direction::East;
+      else if (dirStr == "West") dir = Direction::West;
+
+      std::vector<cv::Point> points;
+      for (auto& p : lane["roi"]) {
+          points.push_back({p[0], p[1]});
+      }
+
       CachedConfig.lanes[i] = LaneConfig{
-          directions[i],
-          Roi{kDefaultRoi, "Lane " + std::to_string(i)},
-          videoPaths[i]
+          dir,
+          Roi{points, "Lane " + std::to_string(i)},
+          lane["video"]
       };
   }
 
-  CachedConfig.modelPath = modelPath;
   return true;
 }
 
-AppConfig ConfigManager::getConfig() {
-  std::cout << "[ConfigManager] getConfig() called" << '\n';
+AppConfig& ConfigManager::getConfig() {
   return CachedConfig;
 }
 

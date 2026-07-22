@@ -33,6 +33,7 @@ bazel_dep(
     name = "score_toolchains_rust",
     version = "0.9.1",
 )
+bazel_dep(name = "nlohmann_json", version = "3.12.0")
 
 gcc = use_extension(
     "@score_bazel_cpp_toolchains//extensions:gcc.bzl",
