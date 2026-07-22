@@ -117,13 +117,11 @@ PlanData PlanReceiver::TranslatePlan(
       2ULL * static_cast<std::uint64_t>(plan.allRedMs);
 
   output.totalCycleMs = static_cast<std::uint32_t>(calculatedCycleLengthMs);
-
   return output;
 }
 
 std::uint64_t PlanReceiver::GetMonotonicTimestampNs() {
   timespec timestamp{};
-
   if (clock_gettime(CLOCK_MONOTONIC, &timestamp) != 0) {
     return 0U;
   }
