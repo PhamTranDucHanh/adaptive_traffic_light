@@ -2,13 +2,14 @@
 #include <iostream>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include "score/mw/log/logging.h"
 
 namespace traffic_perception {
 
 using json = nlohmann::json;
 
 bool ConfigManager::loadConfig() {
-  std::cout << "[ConfigManager] loadConfig() called with file: " << ConfigFile << '\n';
+  score::mw::log::LogDebug() << "[ConfigManager] loadConfig() called with file: " << ConfigFile << '\n';
   
   std::ifstream f(ConfigFile);
   if (!f.is_open()) {

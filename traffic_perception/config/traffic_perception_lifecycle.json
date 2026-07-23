@@ -3,8 +3,8 @@
     "defaults": {
         "deployment_config": {
             "bin_dir": "/tmp/traffic_perception/bin",
-            "ready_timeout": 3.0,
-            "shutdown_timeout": 3.0,
+            "ready_timeout": 30.0,
+            "shutdown_timeout": 5.0,
             "ready_recovery_action": {
                 "restart": {
                     "number_of_attempts": 1,
@@ -68,8 +68,8 @@
                 "application_profile": {
                     "application_type": "Reporting_And_Supervised",
                     "alive_supervision": {
-                        "reporting_cycle": 2.0,
-                        "min_indications": 2,
+                        "reporting_cycle": 3.0,
+                        "min_indications": 1,
                         "max_indications": 4,
                         "failed_cycles_tolerance": 1
                     }
@@ -86,7 +86,7 @@
                 },
                 "sandbox": {
                     "scheduling_policy": "SCHED_FIFO",
-                    "scheduling_priority": 80
+                    "scheduling_priority": 0
                 }
             }
         }

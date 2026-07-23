@@ -1,18 +1,21 @@
 #include "traffic_perception/inference/model_backend.h"
+#include "score/mw/log/logging.h"
 
 #include <iostream>
 
 namespace traffic_perception {
 
 bool ModelBackend::init(const std::string &modelPath) {
-  std::cout << "[ModelBackend] init() called with path: " << modelPath << '\n';
+  score::mw::log::LogDebug()
+      << "[ModelBackend] init() called with path: " << modelPath << '\n';
   InternalModelPtr = nullptr;
   return true;
 }
 
 std::vector<Detection> ModelBackend::detect(const cv::Mat &frame) {
-  std::cout << "[ModelBackend] detect() called, frame size: " << frame.cols
-            << "x" << frame.rows << '\n';
+  score::mw::log::LogDebug()
+      << "[ModelBackend] detect() called, frame size: " << frame.cols << "x"
+      << frame.rows << '\n';
   std::vector<Detection> results;
 
   // Named constants to avoid magic numbers

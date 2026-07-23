@@ -12,6 +12,7 @@
 #include "traffic_perception/core/frame_pool.h"
 #include "traffic_perception/core/types.h"
 #include "traffic_perception/inference/inference_result.h"
+#include "score/mw/log/logging.h"
 
 namespace traffic_perception {
 
@@ -273,7 +274,7 @@ class Analyzer : public IInferenceSink {
   }
 
   static void logLaneMetrics(const LaneMetrics& metrics) {
-      std::cout << "----------------------------------------\n"
+    score::mw::log::LogInfo() << "----------------------------------------\n"
                 << "[Analyzer]\n\n"
                 << "Lane: " << laneName(metrics.LaneId) << "\n\n"
                 << "Vehicles: " << metrics.VehicleCount << "\n\n"

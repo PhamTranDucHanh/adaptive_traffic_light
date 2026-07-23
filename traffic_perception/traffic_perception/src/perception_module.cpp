@@ -1,4 +1,5 @@
 #include "traffic_perception/perception_module.h"
+#include "score/mw/log/logging.h"
 
 #include <iostream>
 #include <opencv2/core.hpp>
@@ -7,7 +8,7 @@
 namespace traffic_perception {
 
 bool PerceptionModule::initModule(const AppConfig& config) {
-  std::cout << "[PERCEPTION_MODULE][INIT]\n";
+  score::mw::log::LogInfo() << "[PERCEPTION_MODULE][INIT]\n";
 
   if (!pool_.init(20)) return false;
 

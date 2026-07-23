@@ -1,10 +1,12 @@
 #include "traffic_perception/lifecycle_health_reporter.h"
 
+#include <score/mw/health/common.h>
+
 #include <chrono>
 #include <iostream>
 #include <utility>
 
-#include <score/mw/health/common.h>
+#include "score/mw/log/logging.h"
 
 namespace {
 
@@ -28,9 +30,7 @@ const score::mw::health::DeadlineTag kCycleDeadlineTag{
 
 namespace traffic_perception {
 
-LifecycleHealthReporter::~LifecycleHealthReporter() {
-  shutdown();
-}
+LifecycleHealthReporter::~LifecycleHealthReporter() { shutdown(); }
 
 bool LifecycleHealthReporter::initialize() {
   if (initialized_) {
@@ -42,19 +42,17 @@ bool LifecycleHealthReporter::initialize() {
   using score::mw::health::deadline::DeadlineMonitorBuilder;
   using score::mw::health::heartbeat::HeartbeatMonitorBuilder;
 
-  auto deadlineBuilder =
-      DeadlineMonitorBuilder().add_deadline(
-          kCycleDeadlineTag,
-          TimeRange{kPerceptionDeadlineMin, kPerceptionDeadlineMax});
+  auto deadlineBuilder = DeadlineMonitorBuilder().add_deadline(
+      kCycleDeadlineTag,
+      TimeRange{kPerceptionDeadlineMin, kPerceptionDeadlineMax});
   auto heartbeatBuilder =
       HeartbeatMonitorBuilder(TimeRange{kHeartbeatMin, kHeartbeatMax});
 
   auto healthResult =
       HealthMonitorBuilder()
-          .add_deadline_monitor(
-              kDeadlineMonitorTag, std::move(deadlineBuilder))
-          .add_heartbeat_monitor(
-              kHeartbeatMonitorTag, std::move(heartbeatBuilder))
+          .add_deadline_monitor(kDeadlineMonitorTag, std::move(deadlineBuilder))
+          .add_heartbeat_monitor(kHeartbeatMonitorTag,
+                                 std::move(heartbeatBuilder))
           .with_internal_processing_cycle(kInternalProcessingCycle)
           .with_supervisor_api_cycle(kSupervisorApiCycle)
           .build();
@@ -85,8 +83,7 @@ bool LifecycleHealthReporter::initialize() {
   }
   heartbeatMonitor_.emplace(std::move(heartbeatMonitorResult.value()));
 
-  auto deadlineResult =
-      deadlineMonitor_->get_deadline(kCycleDeadlineTag);
+  auto deadlineResult = deadlineMonitor_->get_deadline(kCycleDeadlineTag);
   if (!deadlineResult.has_value()) {
     std::cerr << "[TRAFFIC_PERCEPTION][HEALTH][ERROR] could not obtain "
                  "perception-cycle deadline\n";
@@ -100,37 +97,40 @@ bool LifecycleHealthReporter::initialize() {
   healthMonitor_->start();
   monitoredCycleCount_ = 0U;
   initialized_ = true;
-  std::cout << "[TRAFFIC_PERCEPTION][HEALTH][MONITOR] state=running; "
-               "implementation=eclipse_score_health_monitor; evaluation_ms="
-            << kInternalProcessingCycle.count() << "; heartbeat_ms="
-            << kHeartbeatMin.count() << ".." << kHeartbeatMax.count()
-            << "; deadline_ms=" << kPerceptionDeadlineMin.count() << ".."
-            << kPerceptionDeadlineMax.count() << '\n';
-  std::cout << "[TRAFFIC_PERCEPTION][HEALTH][ALIVE] "
-               "notifications=enabled; producer=health_monitor_worker; "
-               "delivery=asynchronous; configured_min_interval_ms="
-            << kSupervisorApiCycle.count()
-            << "; receiver=launch_manager_phm\n";
+  score::mw::log::LogDebug()
+      << "[TRAFFIC_PERCEPTION][HEALTH][MONITOR] state=running; "
+         "implementation=eclipse_score_health_monitor; evaluation_ms="
+      << kInternalProcessingCycle.count()
+      << "; heartbeat_ms=" << kHeartbeatMin.count() << ".."
+      << kHeartbeatMax.count()
+      << "; deadline_ms=" << kPerceptionDeadlineMin.count() << ".."
+      << kPerceptionDeadlineMax.count() << '\n';
+  score::mw::log::LogDebug()
+      << "[TRAFFIC_PERCEPTION][HEALTH][ALIVE] "
+         "notifications=enabled; producer=health_monitor_worker; "
+         "delivery=asynchronous; configured_min_interval_ms="
+      << kSupervisorApiCycle.count() << "; receiver=launch_manager_phm\n";
   return true;
 }
 
 bool LifecycleHealthReporter::startPerceptionCycle() {
   if (!initialized_ || !heartbeatMonitor_.has_value() ||
-      !cycleDeadline_.has_value() ||
-      activeDeadline_.has_value()) {
-    std::cerr << "[TRAFFIC_PERCEPTION][HEALTH][ERROR] invalid monitor state "
-                 "at cycle start\n";
+      !cycleDeadline_.has_value() || activeDeadline_.has_value()) {
+    score::mw::log::LogDebug()
+        << "[TRAFFIC_PERCEPTION][HEALTH][ERROR] invalid monitor state "
+           "at cycle start\n";
     return false;
   }
 
   ++monitoredCycleCount_;
   cycleStartedAt_ = std::chrono::steady_clock::now();
   heartbeatMonitor_->heartbeat();
-  std::cout << "[TRAFFIC_PERCEPTION][HEALTH][HEARTBEAT] "
-               "local_notification=recorded; cycle="
-            << monitoredCycleCount_ << "; expected_interval_ms="
-            << kHeartbeatMin.count() << ".." << kHeartbeatMax.count()
-            << '\n';
+  score::mw::log::LogDebug()
+      << "[TRAFFIC_PERCEPTION][HEALTH][HEARTBEAT] "
+         "local_notification=recorded; cycle="
+      << monitoredCycleCount_
+      << "; expected_interval_ms=" << kHeartbeatMin.count() << ".."
+      << kHeartbeatMax.count() << '\n';
 
   // The deadline covers useful perception work, not the periodic wait.
   auto result = cycleDeadline_->start();
@@ -156,14 +156,14 @@ void LifecycleHealthReporter::finishPerceptionCycle() {
   const auto elapsed = std::chrono::steady_clock::now() - cycleStartedAt_;
   const auto elapsedMicroseconds =
       std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
-  const bool withinConfiguredDeadline =
-      elapsed <= kPerceptionDeadlineMax;
-  std::cout << "[TRAFFIC_PERCEPTION][HEALTH][DEADLINE] "
-               "local_window=closed; cycle="
-            << monitoredCycleCount_ << "; elapsed_us=" << elapsedMicroseconds
-            << "; max_ms=" << kPerceptionDeadlineMax.count()
-            << "; observed_status="
-            << (withinConfiguredDeadline ? "met" : "missed") << '\n';
+  const bool withinConfiguredDeadline = elapsed <= kPerceptionDeadlineMax;
+  score::mw::log::LogDebug()
+      << "[TRAFFIC_PERCEPTION][HEALTH][DEADLINE] "
+         "local_window=closed; cycle="
+      << monitoredCycleCount_ << "; elapsed_us=" << elapsedMicroseconds
+      << "; max_ms=" << kPerceptionDeadlineMax.count()
+      << "; observed_status=" << (withinConfiguredDeadline ? "met" : "missed")
+      << '\n';
 }
 
 void LifecycleHealthReporter::shutdown() {
@@ -175,7 +175,8 @@ void LifecycleHealthReporter::shutdown() {
   heartbeatMonitor_.reset();
   deadlineMonitor_.reset();
   if (initialized_) {
-    std::cout << "[TRAFFIC_PERCEPTION][HEALTH][STOP] monitor stopped\n";
+    score::mw::log::LogDebug()
+        << "[TRAFFIC_PERCEPTION][HEALTH][STOP] monitor stopped\n";
   }
   monitoredCycleCount_ = 0U;
   initialized_ = false;

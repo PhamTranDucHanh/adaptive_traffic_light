@@ -10,6 +10,18 @@ exports_files([
     "traffic_perception_config.json",
 ])
 
+filegroup(
+    name = "all_configs",
+    srcs = [
+        "ecu_logging_config.json",
+        "hm_logging.json",
+        "logging.json",
+        "traffic_perception_lifecycle.json",
+        "traffic_perception_config.json",
+    ],
+    visibility = ["//visibility:public"],
+)
+
 launch_manager_config(
     name = "traffic_perception_lifecycle_config",
     config = ":traffic_perception_lifecycle.json",

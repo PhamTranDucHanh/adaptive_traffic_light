@@ -56,6 +56,11 @@ cc_library(
     deps = [
         "//lib/onnxruntime:onnxruntime",
         "@nlohmann_json//:json",
+
+        "@score_baselibs//score/mw/log:frontend",
+        "@score_baselibs//src/log/stdout_logger_cpp_init",
+        "@score_logging//score/mw/log/backend:file",
+        "@score_baselibs//score/mw/log:console",
     ],
     linkopts = select({
         "@platforms//os:linux": OPENCV_LINKOPTS + [
@@ -72,7 +77,10 @@ cc_library(
     hdrs = ["include/traffic_perception/lifecycle_health_reporter.h"],
     copts = COMMON_COPTS,
     includes = ["include"],
-    deps = ["@score_lifecycle//score/health_monitor:health_monitoring_cc"],
+    deps = [
+        "@score_lifecycle//score/health_monitor:health_monitoring_cc",
+        "@score_baselibs//score/mw/log",
+    ],
 )
 
 cc_library(
@@ -82,12 +90,16 @@ cc_library(
     copts = OPENCV_COPTS,
     includes = ["include"],
     deps = [
-        ":traffic_perception_core", 
+        ":traffic_perception_core",
         ":traffic_perception_health",
+
         "@score_baselibs//score/concurrency:interruptible_wait",
+        "@score_baselibs//score/mw/log:frontend",
         "@score_baselibs//src/log/stdout_logger_cpp_init",
+        "@score_logging//score/mw/log/backend:file",
+        "@score_baselibs//score/mw/log:console",
         "@score_lifecycle//score/launch_manager:lifecycle_cc",
-    ],
+    ]
 )
 
 cc_binary(
@@ -123,3 +135,13 @@ cc_binary(
     deps = [":traffic_perception_core"],
 )
 
+# Analyzer binary for log analysis
+cc_binary(
+    name = "analyze_log",
+    srcs = ["src/analyze_log.cpp", "src/io/timeline_analyzer.cpp"],
+    copts = OPENCV_COPTS,
+    deps = [
+        ":traffic_perception_core",
+        "//timeline_analyzer:statistics",
+    ],
+)

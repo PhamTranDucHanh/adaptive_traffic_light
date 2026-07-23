@@ -3,15 +3,17 @@
 #include <cstdio>
 #include <iostream>
 
+#include "score/mw/log/logging.h"
+
 namespace traffic_perception {
 
 void StreamWatchdog::monitorHealth(const StreamWorker &worker) {
   (void)worker;
-  std::cout << "[StreamWatchdog] monitorHealth() called\n";
+  score::mw::log::LogDebug() << "[StreamWatchdog] monitorHealth() called\n";
 }
 
 void StreamWatchdog::recoverStream(StreamWorker &worker) {
-  std::cout << "[StreamWatchdog] recoverStream() called\n";
+  score::mw::log::LogDebug() << "[StreamWatchdog] recoverStream() called\n";
   worker.restart();
 }
 

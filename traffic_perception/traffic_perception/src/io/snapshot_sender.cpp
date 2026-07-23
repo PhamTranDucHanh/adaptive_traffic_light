@@ -14,17 +14,21 @@
 
 #include "traffic_perception/io/snapshot_sender.h"
 
+#include <fcntl.h>  // O_CREAT, O_WRONLY
+#include <sys/stat.h>
+
 #include <cerrno>    // errno
 #include <cstring>   // std::strerror
-#include <fcntl.h>   // O_CREAT, O_WRONLY
 #include <iostream>  // std::cerr, std::cout
-#include <sys/stat.h>
+
+#include "score/mw/log/logging.h"
 
 namespace traffic_perception {
 
 // Guarantee at compile time that a raw byte-copy of TrafficSnapshot is valid.
-static_assert(std::is_trivially_copyable_v<TrafficSnapshot>,
-              "TrafficSnapshot must be trivially copyable for POSIX MQ transport");
+static_assert(
+    std::is_trivially_copyable_v<TrafficSnapshot>,
+    "TrafficSnapshot must be trivially copyable for POSIX MQ transport");
 
 // The queue name used by the traffic perception module.
 static const char kQueueName[] = "/traffic_snapshot_q";
@@ -39,7 +43,8 @@ MQSnapshotSender::MQSnapshotSender()
       attributes{} {}
 
 MQSnapshotSender::~MQSnapshotSender() {
-  // Ensure the descriptor is released even if the caller forgot to call close().
+  // Ensure the descriptor is released even if the caller forgot to call
+  // close().
   close();
 }
 
@@ -63,14 +68,13 @@ bool MQSnapshotSender::open() {
   }
 
   // One message slot is enough; the consumer is expected to drain quickly.
-  attributes.mq_flags   = 0;
-  attributes.mq_maxmsg  = 10;
+  attributes.mq_flags = 0;
+  attributes.mq_maxmsg = 10;
   attributes.mq_msgsize = static_cast<long>(sizeof(TrafficSnapshot));
   attributes.mq_curmsgs = 0;
 
-  mqDescriptor = ::mq_open(queueName,
-                           O_CREAT | O_WRONLY | O_NONBLOCK,
-                           0644,        // rw-r--r-- permissions
+  mqDescriptor = ::mq_open(queueName, O_CREAT | O_RDWR | O_NONBLOCK,
+                           0644,  // rw-r--r-- permissions
                            &attributes);
   if (mqDescriptor == static_cast<mqd_t>(-1)) {
     std::cerr << "[MQSnapshotSender][ERROR] mq_open(\"" << queueName
@@ -78,7 +82,8 @@ bool MQSnapshotSender::open() {
     return false;
   }
 
-  std::cout << "[MQSnapshotSender] queue opened: " << queueName << '\n';
+  score::mw::log::LogDebug()
+      << "[MQSnapshotSender] queue opened: " << queueName << '\n';
   return true;
 }
 
@@ -90,7 +95,8 @@ bool MQSnapshotSender::open() {
  */
 bool MQSnapshotSender::send(const TrafficSnapshot& snapshot) {
   if (mqDescriptor == static_cast<mqd_t>(-1)) {
-    std::cerr << "[MQSnapshotSender][ERROR] queue not open – call open() first\n";
+    std::cerr
+        << "[MQSnapshotSender][ERROR] queue not open – call open() first\n";
     return false;
   }
 
@@ -101,14 +107,18 @@ bool MQSnapshotSender::send(const TrafficSnapshot& snapshot) {
   }
 
   if (errno == EAGAIN) {
-    std::cout << "[MQSnapshotSender] Queue full, dropping oldest snapshot." << std::endl;
-    
+    score::mw::log::LogDebug()
+        << "[MQSnapshotSender] Queue full, dropping oldest snapshot."
+        << "\n";
+
     char buffer[sizeof(TrafficSnapshot)];
-    if (::mq_receive(mqDescriptor, buffer, sizeof(TrafficSnapshot), nullptr) != -1) {
+    if (::mq_receive(mqDescriptor, buffer, sizeof(TrafficSnapshot), nullptr) !=
+        -1) {
       if (::mq_send(mqDescriptor, msgPtr, sizeof(TrafficSnapshot), 0) == 0) {
         return true;
       }
-      std::cerr << "[MQSnapshotSender] Retry send failed: " << std::strerror(errno) << '\n';
+      std::cerr << "[MQSnapshotSender] Retry send failed: "
+                << std::strerror(errno) << '\n';
     }
   }
 
@@ -127,7 +137,8 @@ void MQSnapshotSender::close() {
   if (mqDescriptor != static_cast<mqd_t>(-1)) {
     ::mq_close(mqDescriptor);
     mqDescriptor = static_cast<mqd_t>(-1);
-    std::cout << "[MQSnapshotSender] queue closed: " << queueName << '\n';
+    score::mw::log::LogDebug()
+        << "[MQSnapshotSender] queue closed: " << queueName << '\n';
   }
 }
 
