@@ -14,7 +14,9 @@ cc_library(
     ),
     hdrs = glob(
         ["include/**/*.h"],
-        exclude = ["include/traffic_signal_controller/signal_control_app.h"],
+        exclude = [
+            "include/traffic_signal_controller/signal_control_app.h",
+        ],
     ),
     copts = [
         "-Wall",
@@ -33,8 +35,12 @@ cc_library(
 
 cc_library(
     name = "traffic_signal_controller_application",
-    srcs = ["src/signal_control_app.cpp"],
-    hdrs = ["include/traffic_signal_controller/signal_control_app.h"],
+    srcs = [
+        "src/signal_control_app.cpp",
+    ],
+    hdrs = [
+        "include/traffic_signal_controller/signal_control_app.h",
+    ],
     copts = [
         "-Wall",
         "-Wextra",
@@ -54,7 +60,12 @@ cc_library(
 
 cc_binary(
     name = "traffic_signal_controller",
-    srcs = ["src/main.cpp"],
+    srcs = [
+        "src/main.cpp",
+    ],
+    data = [
+        "//config:logging.json",
+    ],
     linkopts = select({
         "@platforms//os:linux": [
             "-lpthread",
@@ -62,7 +73,6 @@ cc_binary(
         ],
         "//conditions:default": [],
     }),
-    data = ["//config:logging.json"],
     deps = [
         ":traffic_signal_controller_application",
         "@score_baselibs//score/mw/log",
@@ -72,9 +82,13 @@ cc_binary(
 
 cc_binary(
     name = "traffic_signal_controller_demo",
-    srcs = ["src/traffic_signal_controller_demo.cpp"],
+    srcs = [
+        "src/traffic_signal_controller_demo.cpp",
+    ],
+    data = [
+        "//config:logging.json",
+    ],
     deps = [
         ":traffic_signal_control_lib",
     ],
-    data = ["//config:logging.json"],
 )

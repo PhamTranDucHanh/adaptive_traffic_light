@@ -22,7 +22,7 @@ class SignalControlApplication final
  public:
   SignalControlApplication() = default;
 
-  ~SignalControlApplication() override;
+  ~SignalControlApplication() override = default;
 
   std::int32_t Initialize(
       const score::mw::lifecycle::ApplicationContext& context) override;

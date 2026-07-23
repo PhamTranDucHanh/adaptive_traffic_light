@@ -4,11 +4,43 @@
 #include <cstdint>
 #include <ctime>
 
+#include "common/logging_contexts.h"
+#include "score/mw/log/logger.h"
+
 namespace {
 
 constexpr std::uint64_t kNanosecondsPerMillisecond{1'000'000ULL};
 
 constexpr std::uint64_t kNanosecondsPerSecond{1'000'000'000ULL};
+
+std::uint64_t timespecToNanoseconds(const timespec& timestamp) noexcept {
+  return static_cast<std::uint64_t>(timestamp.tv_sec) * kNanosecondsPerSecond +
+         static_cast<std::uint64_t>(timestamp.tv_nsec);
+}
+
+score::mw::log::Logger& Logger() {
+  static auto& logger =
+      score::mw::log::CreateLogger(ctrl::logging::kCtxFsm, "FSM");
+  return logger;
+}
+
+const char* phaseToString(const PhaseId phaseId) noexcept {
+  switch (phaseId) {
+    case PhaseId::NS_GREEN:
+      return "NS_GREEN";
+
+    case PhaseId::EW_GREEN:
+      return "EW_GREEN";
+
+    case PhaseId::YELLOW:
+      return "YELLOW";
+
+    case PhaseId::ALL_RED:
+      return "ALL_RED";
+  }
+
+  return "UNKNOWN";
+}
 
 }  // namespace
 
@@ -37,8 +69,6 @@ SignalDisplay SignalFSMEngine::processTick() {
     decrementRemainingTime();
   }
 
-  const SignalDisplay display{processedPhase, remainingTimeMs_};
-
   if (remainingTimeMs_ == 0U) {
     /*
      * Normal plan mới được lấy tại cuối ALL_RED,
@@ -50,7 +80,7 @@ SignalDisplay SignalFSMEngine::processTick() {
     advancePhase();
   }
 
-  return display;
+  return SignalDisplay{currentPhaseId(), remainingTimeMs_};
 }
 
 void SignalFSMEngine::reset() noexcept {
@@ -65,7 +95,29 @@ void SignalFSMEngine::reset() noexcept {
   nextDeadline_ = timespec{};
   deadlineInitialized_ = false;
 
+  wakeupSampleCount_ = 0U;
+  droppedWakeupSampleCount_ = 0U;
+
   syncChannel_.SetCurrentPhase(currentPhaseId());
+}
+
+void SignalFSMEngine::dumpWakeupSamplesToLog() {
+  for (std::size_t index = 0U; index < wakeupSampleCount_; ++index) {
+    const WakeupSample& sample = wakeupSamples_[index];
+
+    Logger().LogInfo() << "event=FSM_WAKEUP"
+                       << ", deadline_ns=" << sample.deadlineNs
+                       << ", actual_wakeup_ns=" << sample.actualWakeupNs
+                       << ", latency_ns=" << sample.latencyNs;
+  }
+
+  if (droppedWakeupSampleCount_ > 0U) {
+    Logger().LogWarn() << "event=FSM_WAKEUP_SAMPLES_DROPPED"
+                       << ", count=" << droppedWakeupSampleCount_;
+  }
+
+  wakeupSampleCount_ = 0U;
+  droppedWakeupSampleCount_ = 0U;
 }
 
 bool SignalFSMEngine::loadPendingPlan() {
@@ -100,6 +152,8 @@ bool SignalFSMEngine::loadPendingPlan() {
    * phase tiếp theo của plan mới.
    */
   currentPlan_ = pendingPlan;
+  Logger().LogInfo() << "event=PLAN_APPLIED"
+                     << ", plan_id=" << pendingPlan.sourcePlanId;
 
   /*
    * Giữ currentPhaseIndex nếu index vẫn hợp lệ.
@@ -119,7 +173,9 @@ void SignalFSMEngine::advancePhase() {
     remainingTimeMs_ = 0U;
     return;
   }
-
+  Logger().LogInfo() << "event=PHASE_EXIT"
+                     << ", phase=" << phaseToString(currentPhaseId())
+                     << ", plan_id=" << currentPlan_.sourcePlanId;
   ++currentPhaseIndex_;
 
   if (currentPhaseIndex_ >= currentPlan_.phaseCount) {
@@ -127,6 +183,10 @@ void SignalFSMEngine::advancePhase() {
   }
 
   remainingTimeMs_ = currentPlan_.phases[currentPhaseIndex_].durationMs;
+  Logger().LogInfo() << "event=PHASE_ENTER"
+                     << ", phase=" << phaseToString(currentPhaseId())
+                     << ", duration_ms=" << remainingTimeMs_
+                     << ", plan_id=" << currentPlan_.sourcePlanId;
 
   syncChannel_.SetCurrentPhase(currentPhaseId());
 }
@@ -139,25 +199,54 @@ void SignalFSMEngine::processGreenPhase(const timespec& absoluteDeadline) {
 
   switch (result) {
     case PlanSyncChannel::WaitResult::EMERGENCY_AVAILABLE: {
-      const bool accepted = evaluateEmergencyPlan(emergencyPlan);
+      const EmergencyEvaluationResult evaluationResult =
+          evaluateEmergencyPlan(emergencyPlan);
 
-      if (accepted) {
+      if (evaluationResult == EmergencyEvaluationResult::ACCEPTED) {
+        Logger().LogInfo() << "event=EMERGENCY_ACCEPTED"
+                           << ", plan_id=" << emergencyPlan.sourcePlanId
+                           << ", phase=" << phaseToString(currentPhaseId())
+                           << ", remaining_ms=" << remainingTimeMs_;
+
         applyEmergencyPlan(emergencyPlan);
-      } else if (remainingTimeMs_ > 0U) {
-        processGreenPhase(absoluteDeadline);
+
+        /*
+         * Emergency có thể đánh thức FSM trước deadline.
+         * Chờ hết tick hiện tại để giữ chu kỳ output 1 giây.
+         */
+        if (remainingTimeMs_ > 0U) {
+          processGreenPhase(absoluteDeadline);
+        }
+      } else {
+        Logger().LogWarn() << "event=EMERGENCY_REJECTED"
+                           << ", plan_id=" << emergencyPlan.sourcePlanId
+                           << ", phase=" << phaseToString(currentPhaseId())
+                           << ", remaining_ms=" << remainingTimeMs_
+                           << ", reason="
+                           << emergencyEvaluationResultToString(
+                                  evaluationResult);
+
+        /*
+         * Request bị reject nhưng deadline của tick chưa hết.
+         * Tiếp tục chờ request khác hoặc chờ timeout.
+         */
+        if (remainingTimeMs_ > 0U) {
+          processGreenPhase(absoluteDeadline);
+        }
       }
+
       break;
     }
 
     case PlanSyncChannel::WaitResult::TIMEOUT:
+      recordWakeupSample(absoluteDeadline);
       decrementRemainingTime();
       break;
 
     case PlanSyncChannel::WaitResult::ERROR:
-      /*
-       * Có thể là shutdown hoặc lỗi pthread.
-       * Không thay đổi timing state.
-       */
+      Logger().LogWarn() << "event=EMERGENCY_WAIT_ERROR"
+                         << ", phase=" << phaseToString(currentPhaseId())
+                         << ", remaining_ms=" << remainingTimeMs_;
       break;
   }
 }
@@ -170,65 +259,117 @@ void SignalFSMEngine::processNonInterruptiblePhase(
     result = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &absoluteDeadline,
                              nullptr);
   } while (result == EINTR);
+
+  if (result == 0) {
+    recordWakeupSample(absoluteDeadline);
+  } else {
+    Logger().LogWarn() << "event=FSM_SLEEP_ERROR"
+                       << ", error_code=" << result;
+  }
 }
 
-bool SignalFSMEngine::evaluateEmergencyPlan(
-    const PlanData& emergencyPlan) const {
+const char* SignalFSMEngine::emergencyEvaluationResultToString(
+    const EmergencyEvaluationResult result) noexcept {
+  switch (result) {
+    case EmergencyEvaluationResult::ACCEPTED:
+      return "ACCEPTED";
+
+    case EmergencyEvaluationResult::NO_ACTIVE_PLAN:
+      return "NO_ACTIVE_PLAN";
+
+    case EmergencyEvaluationResult::INVALID_DIRECTION_FLAGS:
+      return "INVALID_DIRECTION_FLAGS";
+
+    case EmergencyEvaluationResult::TOO_EARLY:
+      return "TOO_EARLY";
+
+    case EmergencyEvaluationResult::TOO_LATE:
+      return "TOO_LATE";
+
+    case EmergencyEvaluationResult::WRONG_DIRECTION:
+      return "WRONG_DIRECTION";
+
+    case EmergencyEvaluationResult::NOT_GREEN_PHASE:
+      return "NOT_GREEN_PHASE";
+  }
+
+  return "UNKNOWN";
+}
+
+SignalFSMEngine::EmergencyEvaluationResult
+SignalFSMEngine::evaluateEmergencyPlan(const PlanData& emergencyPlan) const {
   if (!hasActivePlan_) {
-    return false;
+    return EmergencyEvaluationResult::NO_ACTIVE_PLAN;
   }
-
-  // Phải có đúng một hướng emergency.
-  if (emergencyPlan.isEmergencyNS == emergencyPlan.isEmergencyEW) {
-    return false;
-  }
-
-  constexpr std::uint32_t kThresholdMs{5'000U};
-  constexpr std::uint32_t kMinEmergencyMs{10'000U};
 
   /*
-   * Chấp nhận khi:
-   *
-   * 5 giây < thời gian còn lại < 10 giây.
+   * Emergency phải có đúng một hướng:
+   * NS=true, EW=false hoặc NS=false, EW=true.
    */
-  const bool timingWindowValid =
-      remainingTimeMs_ > kThresholdMs &&
-      remainingTimeMs_ < kMinEmergencyMs;
+  if (emergencyPlan.isEmergencyNS == emergencyPlan.isEmergencyEW) {
+    return EmergencyEvaluationResult::INVALID_DIRECTION_FLAGS;
+  }
 
-  if (!timingWindowValid) {
-    return false;
+  constexpr std::uint32_t kLowerThresholdMs{5'000U};
+  constexpr std::uint32_t kUpperThresholdMs{10'000U};
+
+  /*
+   * Chỉ chấp nhận khi:
+   *
+   * 5 giây < remainingTimeMs_ < 10 giây.
+   */
+  if (remainingTimeMs_ >= kUpperThresholdMs) {
+    return EmergencyEvaluationResult::TOO_EARLY;
+  }
+
+  if (remainingTimeMs_ <= kLowerThresholdMs) {
+    return EmergencyEvaluationResult::TOO_LATE;
   }
 
   const PhaseId phaseId = currentPhaseId();
 
-  // Emergency phải cùng hướng với GREEN hiện tại.
   if (phaseId == PhaseId::NS_GREEN) {
-    return emergencyPlan.isEmergencyNS;
+    if (!emergencyPlan.isEmergencyNS) {
+      return EmergencyEvaluationResult::WRONG_DIRECTION;
+    }
+
+    return EmergencyEvaluationResult::ACCEPTED;
   }
 
   if (phaseId == PhaseId::EW_GREEN) {
-    return emergencyPlan.isEmergencyEW;
+    if (!emergencyPlan.isEmergencyEW) {
+      return EmergencyEvaluationResult::WRONG_DIRECTION;
+    }
+
+    return EmergencyEvaluationResult::ACCEPTED;
   }
 
-  return false;
+  return EmergencyEvaluationResult::NOT_GREEN_PHASE;
 }
 
-
-void SignalFSMEngine::applyEmergencyPlan(
-    const PlanData& emergencyPlan) {
+void SignalFSMEngine::applyEmergencyPlan(const PlanData& emergencyPlan) {
   constexpr std::uint32_t kEmergencyGreenDurationMs{20'000U};
 
   const PhaseId phaseId = currentPhaseId();
+  const std::uint32_t oldRemainingTimeMs = remainingTimeMs_;
 
-  if (phaseId == PhaseId::NS_GREEN &&
-      emergencyPlan.isEmergencyNS) {
+  if (phaseId == PhaseId::NS_GREEN && emergencyPlan.isEmergencyNS) {
     remainingTimeMs_ = kEmergencyGreenDurationMs;
+    Logger().LogInfo() << "event=EMERGENCY_APPLIED"
+                       << ", plan_id=" << emergencyPlan.sourcePlanId
+                       << ", phase=" << phaseToString(phaseId)
+                       << ", old_remaining_ms=" << oldRemainingTimeMs
+                       << ", new_remaining_ms=" << remainingTimeMs_;
     return;
   }
 
-  if (phaseId == PhaseId::EW_GREEN &&
-      emergencyPlan.isEmergencyEW) {
+  if (phaseId == PhaseId::EW_GREEN && emergencyPlan.isEmergencyEW) {
     remainingTimeMs_ = kEmergencyGreenDurationMs;
+    Logger().LogInfo() << "event=EMERGENCY_APPLIED"
+                       << ", plan_id=" << emergencyPlan.sourcePlanId
+                       << ", phase=" << phaseToString(phaseId)
+                       << ", old_remaining_ms=" << oldRemainingTimeMs
+                       << ", new_remaining_ms=" << remainingTimeMs_;
   }
 }
 
@@ -239,6 +380,32 @@ void SignalFSMEngine::decrementRemainingTime() noexcept {
   }
 
   remainingTimeMs_ -= TIMER_INTERVAL_MS;
+}
+
+void SignalFSMEngine::recordWakeupSample(
+    const timespec& absoluteDeadline) noexcept {
+  timespec actualWakeupTime{};
+
+  if (clock_gettime(CLOCK_MONOTONIC, &actualWakeupTime) != 0) {
+    ++droppedWakeupSampleCount_;
+    return;
+  }
+
+  const std::uint64_t deadlineNs = timespecToNanoseconds(absoluteDeadline);
+  const std::uint64_t actualWakeupNs = timespecToNanoseconds(actualWakeupTime);
+
+  if (actualWakeupNs < deadlineNs) {
+    return;
+  }
+
+  if (wakeupSampleCount_ >= wakeupSamples_.size()) {
+    ++droppedWakeupSampleCount_;
+    return;
+  }
+
+  wakeupSamples_[wakeupSampleCount_] =
+      WakeupSample{deadlineNs, actualWakeupNs, actualWakeupNs - deadlineNs};
+  ++wakeupSampleCount_;
 }
 
 void SignalFSMEngine::initializeDeadline() {

@@ -1,6 +1,8 @@
 #ifndef TRAFFIC_SIGNAL_CONTROLLER_SIGNAL_FSM_ENGINE_H_
 #define TRAFFIC_SIGNAL_CONTROLLER_SIGNAL_FSM_ENGINE_H_
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <ctime>
 
@@ -14,7 +16,27 @@ class SignalFSMEngine final {
   SignalDisplay processTick();
   void reset() noexcept;
 
+  // Call only after the FSM real-time thread has stopped.
+  void dumpWakeupSamplesToLog();
+
  private:
+  struct WakeupSample {
+    std::uint64_t deadlineNs{0U};
+    std::uint64_t actualWakeupNs{0U};
+    std::uint64_t latencyNs{0U};
+  };
+
+  static constexpr std::size_t kWakeupSampleCapacity{4096U};
+
+  enum class EmergencyEvaluationResult {
+    ACCEPTED,
+    NO_ACTIVE_PLAN,
+    INVALID_DIRECTION_FLAGS,
+    TOO_EARLY,
+    TOO_LATE,
+    WRONG_DIRECTION,
+    NOT_GREEN_PHASE
+  };
   bool loadPendingPlan();
   void advancePhase();
 
@@ -22,11 +44,17 @@ class SignalFSMEngine final {
 
   void processNonInterruptiblePhase(const timespec& absoluteDeadline);
 
-  bool evaluateEmergencyPlan(const PlanData& emergencyPlan) const;
+  EmergencyEvaluationResult evaluateEmergencyPlan(
+      const PlanData& emergencyPlan) const;
 
+  static const char* emergencyEvaluationResultToString(
+    EmergencyEvaluationResult result) noexcept;
+    
   void applyEmergencyPlan(const PlanData& emergencyPlan);
 
   void decrementRemainingTime() noexcept;
+
+  void recordWakeupSample(const timespec& absoluteDeadline) noexcept;
 
   void initializeDeadline();
 
@@ -46,6 +74,10 @@ class SignalFSMEngine final {
 
   timespec nextDeadline_{};
   bool deadlineInitialized_{false};
+
+  std::array<WakeupSample, kWakeupSampleCapacity> wakeupSamples_{};
+  std::size_t wakeupSampleCount_{0U};
+  std::uint64_t droppedWakeupSampleCount_{0U};
 };
 
 #endif  // TRAFFIC_SIGNAL_CONTROLLER_SIGNAL_FSM_ENGINE_H_

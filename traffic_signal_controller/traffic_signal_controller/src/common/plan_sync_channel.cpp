@@ -2,6 +2,19 @@
 
 #include <cerrno>
 #include <stdexcept>
+#include "common/logging_contexts.h"
+#include "score/mw/log/logger.h" 
+
+namespace {
+
+score::mw::log::Logger& Logger() {
+  static auto& logger =
+      score::mw::log::CreateLogger(ctrl::logging::kCtxSync, "Plan Sync");
+  return logger;
+}
+
+}  // namespace
+
 
 PlanSyncChannel::PlanSyncChannel() {
   const int mutexResult = pthread_mutex_init(&mutex_, nullptr);
@@ -78,7 +91,9 @@ bool PlanSyncChannel::PublishPlan(const PlanData& plan) {
      * phải bị loại.
      */
     if (!IsGreenPhase(currentPhase_) || shutdownRequested_) {
-      pthread_mutex_unlock(&mutex_);
+    Logger().LogWarn() << "event=EMERGENCY_DROPPED"
+                       << ", plan_id=" << plan.sourcePlanId 
+                       << ", reason=NOT_GREEN";
       return false;
     }
 
@@ -86,6 +101,8 @@ bool PlanSyncChannel::PublishPlan(const PlanData& plan) {
      * Chỉ giữ emergency plan mới nhất.
      */
     pendingEmergencyPlan_ = plan;
+    Logger().LogInfo() << "event=EMERGENCY_QUEUED"
+                    << ", plan_id=" << plan.sourcePlanId ;
     hasPendingEmergency_ = true;
 
     /*
@@ -102,6 +119,8 @@ bool PlanSyncChannel::PublishPlan(const PlanData& plan) {
    * Plan mới nhất ghi đè plan cũ chưa được áp dụng.
    */
   pendingNormalPlan_ = plan;
+  Logger().LogInfo() << "event=PLAN_QUEUED"
+                     << ", plan_id=" << plan.sourcePlanId ;
   hasPendingNormal_ = true;
 
   pthread_mutex_unlock(&mutex_);
@@ -137,13 +156,15 @@ PlanSyncChannel::WaitResult PlanSyncChannel::WaitForEmergencyUntil(
   }
 
   outPlan = pendingEmergencyPlan_;
+  Logger().LogInfo() << "event=EMERGENCY_CONSUMED"
+                     << ", plan_id=" << outPlan.sourcePlanId ;
 
   pendingEmergencyPlan_ = PlanData{};
   hasPendingEmergency_ = false;
 
   pthread_mutex_unlock(&mutex_);
 
-  return WaitResult::EMERGENCY_AVAILABLE;
+  return WaitResult::EMERGENCY_AVAILABLE;                                                                                         
 }
 
 bool PlanSyncChannel::ConsumePendingPlan(PlanData& outPlan) {
@@ -155,6 +176,9 @@ bool PlanSyncChannel::ConsumePendingPlan(PlanData& outPlan) {
   }
 
   outPlan = pendingNormalPlan_;
+
+  Logger().LogInfo() << "event=PLAN_CONSUMED"
+                     << ", plan_id=" << outPlan.sourcePlanId;
 
   pendingNormalPlan_ = PlanData{};
   hasPendingNormal_ = false;
@@ -184,5 +208,3 @@ bool PlanSyncChannel::IsGreenPhase(const PhaseId phaseId) {
 bool PlanSyncChannel::IsEmergencyPlan(const PlanData& plan) {
   return plan.isEmergencyNS || plan.isEmergencyEW;
 }
-
-

@@ -3,6 +3,8 @@
 #include <ctime>
 #include <limits>
 
+#include "common/logging_contexts.h"
+#include "score/mw/log/logger.h"
 namespace {
 
 constexpr std::uint32_t kMinGreenDurationMs{1000U};
@@ -14,21 +16,43 @@ constexpr std::uint32_t kMaxYellowDurationMs{10000U};
 constexpr std::uint32_t kMinAllRedDurationMs{500U};
 constexpr std::uint32_t kMaxAllRedDurationMs{10000U};
 
+score::mw::log::Logger& Logger() {
+  static auto& logger =
+      score::mw::log::CreateLogger(ctrl::logging::kCtxPlan, "Plan Receiver");
+  return logger;
+}
+
 }  // namespace
 
 PlanReceiver::PlanReceiver(PlanSyncChannel& syncChannel)
     : syncChannel_{syncChannel} {}
 
 bool PlanReceiver::ReceivePlan(const TimingPlan& plan) {
+  Logger().LogInfo() << "event=PLAN_RECEIVED"
+                     << ", plan_id=" << plan.planId
+                     << ", emergency_ns=" << plan.emergencyNorthSouth
+                     << ", emergency_ew=" << plan.emergencyEastWest;
+
   if (!ValidatePlan(plan)) {
+    Logger().LogWarn() << "event=PLAN_REJECTED"
+                       << ", plan_id=" << plan.planId
+                       << ", reason=INVALID_PLAN";
     return false;
   }
 
-  const std::uint64_t receivedTimestampNs = GetMonotonicTimestampNs();
-  const PlanData translatedPlan =
-      TranslatePlan(plan, receivedTimestampNs);
+  Logger().LogInfo() << "event=PLAN_VALIDATED"
+                     << ", plan_id=" << plan.planId;
 
-  return syncChannel_.PublishPlan(translatedPlan);
+  const std::uint64_t receivedTimestampNs = GetMonotonicTimestampNs();
+  const PlanData translatedPlan = TranslatePlan(plan, receivedTimestampNs);
+
+  const bool result = syncChannel_.PublishPlan(translatedPlan);
+
+  Logger().LogInfo() << "event=PLAN_PUBLISHED"
+                     << ", plan_id=" << plan.planId
+                     << ", result=" << (result ? "SUCCESS" : "FAILED");
+
+  return result;
 }
 
 bool PlanReceiver::ValidatePlan(const TimingPlan& plan) const {
@@ -85,7 +109,6 @@ bool PlanReceiver::ValidatePlan(const TimingPlan& plan) const {
 
   return true;
 }
-
 
 PlanData PlanReceiver::TranslatePlan(
     const TimingPlan& plan, const std::uint64_t receivedTimestampNs) const {

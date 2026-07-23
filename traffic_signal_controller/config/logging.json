@@ -2,7 +2,7 @@
   "ecuId": "ECU1",
   "appId": "CTRL",
   "appDesc": "Traffic Signal Controller",
-  "logMode": "kConsole|kFile",
+  "logMode": "kFile|kConsole",
   "logFilePath": "/tmp",
   "logLevel": "kInfo",
   "contextConfigs": [
