@@ -85,8 +85,101 @@ bazel run --config=x86_64-linux //control_daemon:lmcontrol -- Startup
 bazel run --config=x86_64-linux //control_daemon:lmcontrol -- Running
 bazel run --config=x86_64-linux //control_daemon:lmcontrol -- Stop
 ```
+The Timing Decision process uses Eclipse S-CORE's DLT file backend. Every
+deployment truncates the previous capture and writes the new trace to:
 
+```text
+/tmp/linux_rt_application/logs/timing_decision.dlt
+```
 
+DLT application identifiers are limited to four bytes. S-CORE therefore opens
+the canonical `DECI.dlt` name for application ID `DECI`; deployment creates
+`DECI.dlt` and `timing_decision.dlt` as hard links to the same inode. Open the
+descriptive `timing_decision.dlt` path in tooling. The Timing Decision logging
+configuration uses `kConsole|kFile`: S-CORE creates a composite recorder that
+forwards every existing `DECI` logger record to both the terminal and the DLT
+file. Perception and Signal Control keep their console recorders, so the
+terminal still shows the complete three-process pipeline. Output is no longer
+mirrored to `test.log`.
 
-Merged runtime output is also written to
-`/tmp/linux_rt_application/logs/test.log`.
+## Timing report
+
+Every successful periodic release produces records in two additional,
+independent S-CORE DLT files:
+
+```text
+/tmp/linux_rt_application/logs/wakeup_latency.dlt
+/tmp/linux_rt_application/logs/execution_time.dlt
+```
+
+`wakeup_latency.dlt` uses APID `WKUP` and context `LATN`. Each record contains
+`cycle_id`, the scheduled and actual `CLOCK_MONOTONIC` timestamps in
+nanoseconds, wake-up latency in microseconds, and the period in milliseconds:
+
+```text
+wakeup_latency_us = (actual_wakeup_ns - scheduled_release_ns) / 1,000
+period_ms = period_ns / 1,000,000
+```
+
+`execution_time.dlt` uses APID `EXEC` and context `TIME`.
+`execution_start_ns` and `execution_end_ns` bracket only
+`service_.runDecisionCycle()`, while `execution_time_us` stores that duration
+in microseconds. `deadline_ms` stores the 2.5-second deadline as `2500`.
+`response_time_ns` runs from the scheduled release to completion. The file
+records two explicit checks:
+
+- `execution_deadline_miss`: execution itself exceeded 2.5 seconds, matching
+  the decision-pipeline window monitored by Health Monitor.
+- `cycle_deadline_miss`: completion occurred more than 2.5 seconds after the
+  scheduled release. This is the periodic task's end-to-end deadline result
+  and includes wake-up latency.
+
+Both overrun values are zero when the corresponding deadline is met. Timing
+records are written only after the completion timestamp has been captured, so
+the newly added timing-report write is not included in the measured execution
+or response time. Existing logs emitted inside `runDecisionCycle()` remain part
+of its real execution cost.
+
+S-CORE's `CreateLogger()` contexts in one process share the recorder owned by
+the logging runtime. Timing Decision configures that process-wide recorder as
+a console/file composite for its normal `DECI` records. The timing report owns
+two additional S-CORE file recorders directly so that `WKUP.dlt` and
+`EXEC.dlt` are genuinely separate files. Deployment exposes all three streams
+through the descriptive hard-link names shown above.
+
+## Open the trace with DLT Viewer
+
+On Ubuntu 24.04, install the packaged COVESA DLT Viewer:
+
+```bash
+sudo apt update
+sudo apt install dlt-viewer
+```
+
+Open the capture in the GUI:
+
+```bash
+dlt-viewer /tmp/linux_rt_application/logs/timing_decision.dlt
+```
+
+Open either timing report in the same way:
+
+```bash
+dlt-viewer /tmp/linux_rt_application/logs/wakeup_latency.dlt
+```
+```bash
+dlt-viewer /tmp/linux_rt_application/logs/execution_time.dlt
+```
+Then we can copy those .dlt files into our repo at traffic traffic_timing_decision/traffic_timing_decision/output/ (this folder will be ignore by git):
+
+```bash
+cd traffic_timing_decision/
+mkdir traffic_timing_decision/output/
+cp /tmp/linux_rt_application/logs/{timing_decision,wakeup_latency,execution_time}.dlt   output/
+```
+After that, the analytic module is ready, run to see statistics from ```wakeup_latency.dlt``` and ```execution_time.dlt``` :
+
+```bash
+bazel build --config=x86_64-linux //traffic_timing_decision:analytics
+bazel-bin/traffic_timing_decision/analytics
+```

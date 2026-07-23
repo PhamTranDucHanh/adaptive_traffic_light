@@ -51,4 +51,5 @@ build:arm64-linux --linkopt=-latomic
 
 build:stub --@score_baselibs//score/mw/log/flags:KRemote_Logging=False
 build:stub --@score_baselibs//score/mw/log/detail/flags:KConsole_Logging=True
+build:stub --@score_logging//score/mw/log/detail/flags:KFile_Logging=True
 build:stub --@score_baselibs//score/json:base_library=nlohmann

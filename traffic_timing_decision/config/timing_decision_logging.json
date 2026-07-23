@@ -2,7 +2,8 @@
     "ecuId": "TLGT",
     "appId": "DECI",
     "appDesc": "Traffic Timing Decision",
-    "logMode": "kConsole",
+    "logMode": "kConsole|kFile",
+    "logFilePath": "/tmp/linux_rt_application/logs",
     "logLevel": "kDebug",
     "logLevelThresholdConsole": "kDebug",
     "contextConfigs": [

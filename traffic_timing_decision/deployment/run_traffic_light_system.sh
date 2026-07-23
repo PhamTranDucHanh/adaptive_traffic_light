@@ -80,7 +80,12 @@ runtime_root="${LINUX_RT_RUNTIME_DIR:-/tmp/linux_rt_application}"
 runtime_bin="$runtime_root/bin"
 runtime_etc="$runtime_root/etc"
 runtime_logs="$runtime_root/logs"
-test_log="$runtime_logs/test.log"
+timing_decision_dlt="$runtime_logs/timing_decision.dlt"
+timing_decision_backend_dlt="$runtime_logs/DECI.dlt"
+wakeup_latency_dlt="$runtime_logs/wakeup_latency.dlt"
+wakeup_latency_backend_dlt="$runtime_logs/WKUP.dlt"
+execution_time_dlt="$runtime_logs/execution_time.dlt"
+execution_time_backend_dlt="$runtime_logs/EXEC.dlt"
 
 # Must be at least the maximum SCHED_FIFO priority requested by any managed
 # component in config/traffic_light_lifecycle.json.
@@ -103,13 +108,28 @@ if [[ "$rtprio_limit" != "unlimited" ]] && \
 fi
 
 mkdir -p "$runtime_bin" "$runtime_etc" "$runtime_logs"
-: > "$test_log"
-# Keep the mirror alive while Launch Manager performs its signal-driven
-# shutdown. Otherwise Bazel can close the reader first and trigger SIGPIPE in
-# a process that is still writing its final lifecycle logs.
-exec > >(setsid --fork tee -a "$test_log") 2>&1
+# S-CORE's file backend derives the canonical file name from the four-byte DLT
+# application ID. Keep protocol-correct four-byte APIDs while exposing each
+# recorder through a descriptive hard link to the same freshly truncated file.
+rm -f "$runtime_logs/test.log" "$timing_decision_dlt" \
+  "$timing_decision_backend_dlt" "$runtime_logs/PERC.dlt" \
+  "$runtime_logs/SIGC.dlt" "$runtime_logs/adaptive_traffic.dlt" \
+  "$runtime_logs/ADPT.dlt" \
+  "$wakeup_latency_backend_dlt" "$execution_time_backend_dlt"
+: > "$timing_decision_dlt"
+: > "$wakeup_latency_dlt"
+: > "$execution_time_dlt"
+ln "$timing_decision_dlt" "$timing_decision_backend_dlt"
+ln "$wakeup_latency_dlt" "$wakeup_latency_backend_dlt"
+ln "$execution_time_dlt" "$execution_time_backend_dlt"
 
-echo "[DEPLOYMENT][LOG] console output is mirrored to $test_log"
+# Do not redirect stdout/stderr: Launch Manager and all three managed
+# applications inherit the Bazel terminal directly. Timing Decision's S-CORE
+# composite recorder independently fans each DECI log record out to the
+# console and its DLT file.
+echo "[DEPLOYMENT][LOG] timing decision DLT=$timing_decision_dlt"
+echo "[DEPLOYMENT][LOG] wake-up latency DLT=$wakeup_latency_dlt"
+echo "[DEPLOYMENT][LOG] execution/deadline DLT=$execution_time_dlt"
 echo "[DEPLOYMENT][STAGE] preparing runtime=$runtime_root"
 if ! "$ipc_reset"; then
   echo "[DEPLOYMENT][IPC][ERROR] could not reset POSIX MQ objects" >&2
@@ -140,6 +160,7 @@ echo "[DEPLOYMENT][STAGE] runtime ready"
 echo "[LAUNCH_MANAGER][START] binary=$runtime_bin/launch_manager"
 launch_manager_pid=$$
 echo "[LAUNCH_MANAGER][START] pid=$launch_manager_pid"
+export TIMING_REPORT_LOG_DIR="$runtime_logs"
 
 # Startup contains the control daemon. Once its IPC endpoint is ready, request
 # Running so Launch Manager starts the ordered three-process pipeline.

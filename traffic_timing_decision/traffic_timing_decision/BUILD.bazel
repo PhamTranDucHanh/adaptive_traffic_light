@@ -29,12 +29,20 @@ cc_library(
 
 cc_library(
     name = "traffic_timing_decision_application",
-    srcs = ["src/timing_decision_application.cpp"],
-    hdrs = ["include/timing_decision_application.h"],
+    srcs = [
+        "src/timing_decision_application.cpp",
+        "src/timing_report_logger.cpp",
+    ],
+    hdrs = [
+        "include/timing_decision_application.h",
+        "include/timing_report_logger.h",
+    ],
     deps = [
         ":traffic_timing_decision_core",
         "@score_baselibs//score/language/futurecpp",
-        "@score_baselibs//score/mw/log:frontend",
+        "@score_baselibs//score/mw/log",
+        "@score_baselibs//score/mw/log/configuration",
+        "@score_logging//score/mw/log/backend:file",
         "@score_lifecycle//score/launch_manager:lifecycle_cc",
     ],
 )
@@ -51,7 +59,6 @@ cc_binary(
     }),
     deps = [
         ":traffic_timing_decision_application",
-        "@score_baselibs//score/mw/log",
         "@score_lifecycle//score/launch_manager:lifecycle_cc",
     ],
 )
@@ -63,6 +70,25 @@ cc_binary(
         ":traffic_timing_decision_core",
         "@score_baselibs//score/mw/log",
     ],
+)
+
+cc_binary(
+    name = "analytics",
+    srcs = [
+        "include/analytics.h",
+        "src/analytics.cpp",
+    ],
+    copts = [
+        "-D_GNU_SOURCE",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+    ],
+    data = [
+        "output/execution_time.dlt",
+        "output/wakeup_latency.dlt",
+    ],
+    includes = ["include"],
 )
 
 cc_test(

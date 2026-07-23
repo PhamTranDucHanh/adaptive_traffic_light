@@ -18,6 +18,65 @@
 #include "application_logger.h"
 #include "common.h"
 
+namespace {
+
+constexpr std::string_view kDefaultTimingReportDirectory{
+    "/tmp/linux_rt_application/logs"};
+constexpr char kTimingReportDirectoryEnvironment[] = "TIMING_REPORT_LOG_DIR";
+
+enum class TimeConversion : std::uint64_t {
+  kNanosecondsPerMillisecond = 1000000ULL,
+  kNanosecondsPerSecond = 1000000000ULL,
+};
+
+constexpr std::uint64_t toNanoseconds(const TimeConversion value) noexcept {
+  return static_cast<std::uint64_t>(value);
+}
+
+std::int64_t timestampNanoseconds(const timespec& timestamp) noexcept {
+  return static_cast<std::int64_t>(timestamp.tv_sec) *
+             static_cast<std::int64_t>(
+                 toNanoseconds(TimeConversion::kNanosecondsPerSecond)) +
+         static_cast<std::int64_t>(timestamp.tv_nsec);
+}
+
+std::int64_t signedDurationNanoseconds(const timespec& start,
+                                       const timespec& end) noexcept {
+  return timestampNanoseconds(end) - timestampNanoseconds(start);
+}
+
+std::uint64_t durationNanoseconds(const timespec& start,
+                                  const timespec& end) noexcept {
+  const std::int64_t duration = signedDurationNanoseconds(start, end);
+  return duration > std::int64_t{} ? static_cast<std::uint64_t>(duration)
+                                   : std::uint64_t{};
+}
+
+std::uint64_t periodNanoseconds(
+    const std::uint32_t periodMilliseconds) noexcept {
+  return static_cast<std::uint64_t>(periodMilliseconds) *
+         toNanoseconds(TimeConversion::kNanosecondsPerMillisecond);
+}
+
+std::uint64_t deadlineOverrunNanoseconds(
+    const std::uint64_t elapsedNanoseconds,
+    const std::uint64_t deadlineNanoseconds) noexcept {
+  return elapsedNanoseconds > deadlineNanoseconds
+             ? elapsedNanoseconds - deadlineNanoseconds
+             : std::uint64_t{};
+}
+
+std::string_view timingReportDirectory() noexcept {
+  const char* const configuredDirectory =
+      std::getenv(kTimingReportDirectoryEnvironment);
+  if (configuredDirectory == nullptr || configuredDirectory[0] == '\0') {
+    return kDefaultTimingReportDirectory;
+  }
+  return std::string_view{configuredDirectory};
+}
+
+}  // namespace
+
 #ifdef RT_THREAD_CHECKING
 namespace {
 
@@ -199,23 +258,33 @@ std::int32_t TimingDecisionApplication::Initialize(
     return EXIT_FAILURE;
   }
 
+  if (!timingReportLogger_.initialize(timingReportDirectory())) {
+    applicationLogger().LogError()
+        << "[INIT][TIMING_REPORT] could not create WKUP/EXEC DLT recorders";
+    return EXIT_FAILURE;
+  }
+
   initialized_ = service_.initialize();
   if (!initialized_) {
     applicationLogger().LogError() << "[INIT] service initialization failed";
+    timingReportLogger_.shutdown();
     return EXIT_FAILURE;
   }
 
 #ifdef RT_THREAD_CHECKING
   if (!startRtChildThread()) {
     service_.shutdown();
+    timingReportLogger_.shutdown();
     initialized_ = false;
     return EXIT_FAILURE;
   }
 #endif
 
   cycleCount_ = std::uint64_t{};
+  deadlineMissCount_ = std::uint64_t{};
   applicationLogger().LogInfo()
-      << "[INIT] service ready; period_ms=" << service_.periodMs();
+      << "[INIT] service ready; period_ms=" << service_.periodMs()
+      << "; timing_report_dir=" << timingReportDirectory();
   return EXIT_SUCCESS;
 }
 
@@ -234,6 +303,7 @@ std::int32_t TimingDecisionApplication::Run(
     stopRtChildThread();
 #endif
     service_.shutdown();
+    timingReportLogger_.shutdown();
     initialized_ = false;
     return EXIT_FAILURE;
   }
@@ -245,6 +315,7 @@ std::int32_t TimingDecisionApplication::Run(
       << "[RUN] periodic loop started; clock=CLOCK_MONOTONIC; "
          "wait=pthread_cond_timedwait; deadline=absolute";
   while (!stopToken.stop_requested()) {
+    const std::uint64_t cycleId = cycleCount_ + std::uint64_t{1U};
     const std::int32_t sleepResult = periodicWait_.waitUntil(nextRelease);
     if (sleepResult == ECANCELED || stopToken.stop_requested()) {
       break;
@@ -257,7 +328,73 @@ std::int32_t TimingDecisionApplication::Run(
       break;
     }
 
-    if (!service_.runDecisionCycle()) {
+    // Capture the actual wake-up before doing any logging or domain work.
+    timespec actualWakeup{};
+    const bool wakeupTimestampValid = common::monotonicNow(actualWakeup);
+
+    // These two timestamps intentionally bracket only runDecisionCycle().
+    timespec executionStart{};
+    const bool executionStartValid = common::monotonicNow(executionStart);
+    const bool cycleSucceeded = service_.runDecisionCycle();
+    timespec executionEnd{};
+    const bool executionEndTimestampValid = common::monotonicNow(executionEnd);
+
+    const std::uint64_t deadlineNs = periodNanoseconds(service_.periodMs());
+    if (wakeupTimestampValid) {
+      const WakeupTimingRecord wakeupRecord{
+          cycleId, timestampNanoseconds(nextRelease),
+          timestampNanoseconds(actualWakeup),
+          signedDurationNanoseconds(nextRelease, actualWakeup), deadlineNs};
+      if (!timingReportLogger_.logWakeup(wakeupRecord)) {
+        applicationLogger().LogWarn()
+            << "[TIMING_REPORT][WAKEUP] record dropped; cycle=" << cycleId;
+      }
+    } else {
+      applicationLogger().LogError()
+          << "[TIMING_REPORT][WAKEUP] clock_gettime(CLOCK_MONOTONIC) failed; "
+             "cycle="
+          << cycleId;
+    }
+
+    if (executionStartValid && executionEndTimestampValid) {
+      const std::uint64_t executionTimeNs =
+          durationNanoseconds(executionStart, executionEnd);
+      const std::uint64_t responseTimeNs =
+          durationNanoseconds(nextRelease, executionEnd);
+      const std::uint64_t executionOverrunNs =
+          deadlineOverrunNanoseconds(executionTimeNs, deadlineNs);
+      const std::uint64_t cycleOverrunNs =
+          deadlineOverrunNanoseconds(responseTimeNs, deadlineNs);
+      const bool executionDeadlineMiss = executionOverrunNs != std::uint64_t{};
+      const bool cycleDeadlineMiss = cycleOverrunNs != std::uint64_t{};
+      if (cycleDeadlineMiss) {
+        ++deadlineMissCount_;
+      }
+
+      const ExecutionTimingRecord executionRecord{
+          cycleId,
+          timestampNanoseconds(executionStart),
+          timestampNanoseconds(executionEnd),
+          executionTimeNs,
+          responseTimeNs,
+          deadlineNs,
+          executionOverrunNs,
+          cycleOverrunNs,
+          executionDeadlineMiss,
+          cycleDeadlineMiss,
+          cycleSucceeded};
+      if (!timingReportLogger_.logExecution(executionRecord)) {
+        applicationLogger().LogWarn()
+            << "[TIMING_REPORT][EXECUTION] record dropped; cycle=" << cycleId;
+      }
+    } else {
+      applicationLogger().LogError()
+          << "[TIMING_REPORT][EXECUTION] "
+             "clock_gettime(CLOCK_MONOTONIC) failed; cycle="
+          << cycleId;
+    }
+
+    if (!cycleSucceeded) {
       applicationLogger().LogError()
           << "[RUN] health-monitored decision cycle failed";
       exitCode = EXIT_FAILURE;
@@ -286,8 +423,11 @@ std::int32_t TimingDecisionApplication::Run(
   stopRtChildThread();
 #endif
   service_.shutdown();
+  timingReportLogger_.shutdown();
   initialized_ = false;
-  applicationLogger().LogInfo() << "[STOP] cycles_completed=" << cycleCount_;
+  applicationLogger().LogInfo()
+      << "[STOP] cycles_completed=" << cycleCount_
+      << "; cycle_deadline_misses=" << deadlineMissCount_;
   return exitCode;
 }
 

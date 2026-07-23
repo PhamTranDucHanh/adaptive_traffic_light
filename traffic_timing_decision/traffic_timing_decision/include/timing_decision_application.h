@@ -16,6 +16,7 @@
 
 #include "common.h"
 #include "periodic_service.h"
+#include "timing_report_logger.h"
 
 namespace traffic_timing_decision {
 
@@ -33,6 +34,7 @@ class TimingDecisionApplication final
  private:
   PeriodicService service_;
   common::PeriodicWait periodicWait_;
+  TimingReportLogger timingReportLogger_;
 #ifdef RT_THREAD_CHECKING
   static void* childThreadEntry(void* application);
   bool startRtChildThread() noexcept;
@@ -44,6 +46,7 @@ class TimingDecisionApplication final
   bool childThreadCreated_{false};
 #endif
   std::uint64_t cycleCount_{};
+  std::uint64_t deadlineMissCount_{};
   bool initialized_{false};
 };
 

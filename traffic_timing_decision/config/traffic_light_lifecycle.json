@@ -18,7 +18,7 @@
             },
             "sandbox": {
                 "scheduling_policy": "SCHED_FIFO",
-                "scheduling_priority": 70
+                "scheduling_priority": 50
             }
         },
         "component_properties": {
@@ -101,7 +101,8 @@
                 "environmental_variables": {
                     "PROCESSIDENTIFIER": "timing_decision",
                     "IDENTIFIER": "timing_decision",
-                    "MW_LOG_CONFIG_FILE": "/tmp/linux_rt_application/etc/timing_decision_logging.json"
+                    "MW_LOG_CONFIG_FILE": "/tmp/linux_rt_application/etc/timing_decision_logging.json",
+                    "TIMING_REPORT_LOG_DIR": "/tmp/linux_rt_application/logs"
                 }
             }
         },
