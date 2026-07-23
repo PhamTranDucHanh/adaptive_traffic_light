@@ -17,10 +17,17 @@ namespace traffic_perception {
 
 class Analyzer : public IInferenceSink {
  public:
+  struct LaneMetrics {
+      std::vector<Detection> Detections;
+      std::uint32_t VehicleCount{0};
+      float Occupancy{0.0f};
+      float QueueLength{0.0f};
+      bool EmergencyDetected{false};
+      std::int32_t LaneId{0};
+  };
+
   struct LaneState {
-      // Stable internal perception state
-      FrameContext Context{};
-      // Atomic frame for thread-safe rendering ownership transfer
+      LaneMetrics Metrics{};
       std::atomic<Frame*> LatestRenderFrame{nullptr};
   };
 
@@ -32,14 +39,20 @@ class Analyzer : public IInferenceSink {
   void accept(Frame* frame, InferenceResult&& result) override {
     if (!frame) return;
     
+    frame->timeline.add(TimelineStage::AnalyzerBegin);
+
     uint32_t lane = static_cast<uint32_t>(result.LaneId);
     if (lane < NUM_LANES) {
-        // 1. Convert InferenceResult to FrameContext
-        FrameContext ctx = buildFrameContext(frame, result);
-
+        // 1. Calculate lane metrics
+        LaneMetrics metrics = buildLaneMetrics(frame, result);
+        
         // 2. Update LaneState (internal perception state)
-        laneStates_[lane].Context = std::move(ctx);
-        logLaneMetrics(laneStates_[lane].Context);
+        laneStates_[lane].Metrics = std::move(metrics);
+        logLaneMetrics(laneStates_[lane].Metrics);
+
+        frame->timeline.add(TimelineStage::AnalyzerEnd);
+        latestFrame_ = frame;
+        latestTimeline_ = frame->timeline;
 
         // 3. Atomically update the render frame ownership
         Frame* old = laneStates_[lane].LatestRenderFrame.exchange(frame);
@@ -47,6 +60,7 @@ class Analyzer : public IInferenceSink {
             pool_.release(old);
         }
     } else {
+        frame->timeline.add(TimelineStage::AnalyzerEnd);
         // Fallback for invalid lane, release frame
         pool_.release(frame);
     }
@@ -61,10 +75,13 @@ class Analyzer : public IInferenceSink {
     return frames;
   }
 
-  // Read-only access to latest context
-  const FrameContext& latestContext(uint32_t lane) const {
-      return laneStates_[lane].Context;
+  // Read-only access to latest metrics
+  const LaneMetrics& latestContext(uint32_t lane) const {
+      return laneStates_[lane].Metrics;
   }
+
+  Frame* latestFrame() const { return latestFrame_; }
+  const Timeline& latestTimeline() const { return latestTimeline_; }
 
   // Builder for TrafficSnapshot DTO
   TrafficSnapshot buildTrafficSnapshot() {
@@ -79,32 +96,32 @@ class Analyzer : public IInferenceSink {
 
       // 3. Aggregate per-lane metrics
       for (uint32_t i = 0; i < NUM_LANES; ++i) {
-          const auto& ctx = laneStates_[i].Context;
+          const auto& metrics = laneStates_[i].Metrics;
 
           switch (static_cast<Direction>(i)) {
               case Direction::North:
-                  snapshot.vehicleCountNorth = static_cast<int32_t>(ctx.VehicleCount);
-                  snapshot.occupancyNorth = ctx.Occupancy;
-                  snapshot.queueLengthNorth = ctx.QueueLength;
-                  snapshot.emergencyNorth = ctx.EmergencyDetected;
+                  snapshot.vehicleCountNorth = static_cast<int32_t>(metrics.VehicleCount);
+                  snapshot.occupancyNorth = metrics.Occupancy;
+                  snapshot.queueLengthNorth = metrics.QueueLength;
+                  snapshot.emergencyNorth = metrics.EmergencyDetected;
                   break;
               case Direction::South:
-                  snapshot.vehicleCountSouth = static_cast<int32_t>(ctx.VehicleCount);
-                  snapshot.occupancySouth = ctx.Occupancy;
-                  snapshot.queueLengthSouth = ctx.QueueLength;
-                  snapshot.emergencySouth = ctx.EmergencyDetected;
+                  snapshot.vehicleCountSouth = static_cast<int32_t>(metrics.VehicleCount);
+                  snapshot.occupancySouth = metrics.Occupancy;
+                  snapshot.queueLengthSouth = metrics.QueueLength;
+                  snapshot.emergencySouth = metrics.EmergencyDetected;
                   break;
               case Direction::East:
-                  snapshot.vehicleCountEast = static_cast<int32_t>(ctx.VehicleCount);
-                  snapshot.occupancyEast = ctx.Occupancy;
-                  snapshot.queueLengthEast = ctx.QueueLength;
-                  snapshot.emergencyEast = ctx.EmergencyDetected;
+                  snapshot.vehicleCountEast = static_cast<int32_t>(metrics.VehicleCount);
+                  snapshot.occupancyEast = metrics.Occupancy;
+                  snapshot.queueLengthEast = metrics.QueueLength;
+                  snapshot.emergencyEast = metrics.EmergencyDetected;
                   break;
               case Direction::West:
-                  snapshot.vehicleCountWest = static_cast<int32_t>(ctx.VehicleCount);
-                  snapshot.occupancyWest = ctx.Occupancy;
-                  snapshot.queueLengthWest = ctx.QueueLength;
-                  snapshot.emergencyWest = ctx.EmergencyDetected;
+                  snapshot.vehicleCountWest = static_cast<int32_t>(metrics.VehicleCount);
+                  snapshot.occupancyWest = metrics.Occupancy;
+                  snapshot.queueLengthWest = metrics.QueueLength;
+                  snapshot.emergencyWest = metrics.EmergencyDetected;
                   break;
           }
       }
@@ -116,16 +133,12 @@ class Analyzer : public IInferenceSink {
   }
 
  private:
-  // Dedicated conversion step from raw InferenceResult to internal FrameContext
-  FrameContext buildFrameContext(Frame* frame, const InferenceResult& result) const {
-      FrameContext ctx;
-      ctx.CapturedFrame = frame;
-      ctx.LaneId = result.LaneId;
-      ctx.Timestamp = std::chrono::steady_clock::now();
-      
-      // Map detections: InferenceResult now uses the core Detection type directly.
-      ctx.Detections = result.Detections;
-      ctx.VehicleCount = static_cast<uint32_t>(ctx.Detections.size());
+  // Dedicated conversion step from raw InferenceResult to internal LaneMetrics
+  LaneMetrics buildLaneMetrics(Frame* frame, const InferenceResult& result) const {
+      LaneMetrics metrics;
+      metrics.LaneId = result.LaneId;
+      metrics.Detections = result.Detections;
+      metrics.VehicleCount = static_cast<uint32_t>(metrics.Detections.size());
 
       const uint32_t lane = static_cast<uint32_t>(result.LaneId);
       const Roi& roi = laneRois_[lane];
@@ -134,9 +147,9 @@ class Analyzer : public IInferenceSink {
           roiBounds = cv::boundingRect(roi.Points);
       }
 
-      for (const auto& det : ctx.Detections) {
+      for (const auto& det : metrics.Detections) {
           if (det.IsEmergency) {
-              ctx.EmergencyDetected = true;
+              metrics.EmergencyDetected = true;
           }
       }
 
@@ -152,7 +165,7 @@ class Analyzer : public IInferenceSink {
           cv::fillPoly(roiMask, roiContours, cv::Scalar(255));
 
           cv::Mat vehicleMask(roiBounds.height, roiBounds.width, CV_8UC1, cv::Scalar(0));
-          for (const auto& det : ctx.Detections) {
+          for (const auto& det : metrics.Detections) {
               const cv::Rect clippedBox = det.Box & roiBounds;
               if (clippedBox.width <= 0 || clippedBox.height <= 0) {
                   continue;
@@ -168,15 +181,15 @@ class Analyzer : public IInferenceSink {
           const int roiPixels = cv::countNonZero(roiMask);
           if (roiPixels > 0) {
               const int occupiedPixels = cv::countNonZero(vehicleMask);
-              ctx.Occupancy = clampMetric(static_cast<float>(occupiedPixels) /
-                                          static_cast<float>(roiPixels));
+              metrics.Occupancy = clampMetric(static_cast<float>(occupiedPixels) /
+                                              static_cast<float>(roiPixels));
           }
 
-          ctx.QueueLength = calculateQueueLength(ctx.Detections,
-                                                 static_cast<float>(roiBounds.height));
+          metrics.QueueLength = calculateQueueLength(metrics.Detections,
+                                                     static_cast<float>(roiBounds.height));
       }
 
-      return ctx;
+      return metrics;
   }
 
   static float clampMetric(float value) {
@@ -259,20 +272,22 @@ class Analyzer : public IInferenceSink {
       }
   }
 
-  static void logLaneMetrics(const FrameContext& ctx) {
+  static void logLaneMetrics(const LaneMetrics& metrics) {
       std::cout << "----------------------------------------\n"
                 << "[Analyzer]\n\n"
-                << "Lane: " << laneName(ctx.LaneId) << "\n\n"
-                << "Vehicles: " << ctx.VehicleCount << "\n\n"
-                << "Occupancy: " << ctx.Occupancy << "\n\n"
-                << "Queue Length: " << ctx.QueueLength << "\n\n"
-                << "Emergency: " << (ctx.EmergencyDetected ? "YES" : "NO") << "\n\n";
+                << "Lane: " << laneName(metrics.LaneId) << "\n\n"
+                << "Vehicles: " << metrics.VehicleCount << "\n\n"
+                << "Occupancy: " << metrics.Occupancy << "\n\n"
+                << "Queue Length: " << metrics.QueueLength << "\n\n"
+                << "Emergency: " << (metrics.EmergencyDetected ? "YES" : "NO") << "\n\n";
   }
 
   FramePool& pool_;
   const std::array<Roi, NUM_LANES>& laneRois_;
   std::array<LaneState, NUM_LANES> laneStates_{};
   std::int32_t frameCounter_{0};
+  Frame* latestFrame_{nullptr};
+  Timeline latestTimeline_{};
 };
 
 }  // namespace traffic_perception

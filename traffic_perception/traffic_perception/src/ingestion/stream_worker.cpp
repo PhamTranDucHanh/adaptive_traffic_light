@@ -90,6 +90,9 @@ void StreamWorker::producerLoop(AtomicFrameBuffer &frameBuffer) {
     if (frame != nullptr) {
       if (cap.read(frame->Image)) {
         frame->FrameId = ++localFrameCounter;
+        frame->timeline.entries.clear();
+        frame->timeline.frameId = frame->FrameId;
+        frame->timeline.add(TimelineStage::Capture);
         std::cout << "[StreamWorker] Published FrameId: " << frame->FrameId << " Lane: " << LaneId << std::endl;
         Frame* old = frameBuffer.exchange(LaneId, frame);
         if (old != nullptr) {

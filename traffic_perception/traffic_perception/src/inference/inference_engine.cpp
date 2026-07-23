@@ -28,7 +28,9 @@ void InferenceEngine::runOneCycle() {
     std::cout << "[InferenceEngine] Received FrameId: " << frame->FrameId << " Lane: " << laneId << std::endl;
 
     // 3. Perform Inference
+    frame->timeline.add(TimelineStage::InferenceBegin);
     InferenceResult result = backend_->infer(*frame);
+    frame->timeline.add(TimelineStage::InferenceEnd);
     
     // 4. Vehicle Filtering — only vehicle detections reach the Analyzer
     {

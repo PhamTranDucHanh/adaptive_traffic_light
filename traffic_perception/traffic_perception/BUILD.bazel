@@ -27,6 +27,7 @@ cc_library(
     srcs = [
         "src/core/config_manager.cpp",
         "src/core/frame_pool.cpp",
+        "src/core/runtime_paths.cpp",
         "src/inference/inference_engine.cpp",
         "src/inference/model_backend.cpp",
         "src/inference/yolov8_backend.cpp",
@@ -37,7 +38,6 @@ cc_library(
         "src/ingestion/stream_worker.cpp",
         "src/io/logger.cpp",
         "src/io/snapshot_sender.cpp",
-        "src/io/telemetry_manager.cpp",
         "src/perception_module.cpp",
         "src/pipeline/pipeline_manager.cpp",
         "src/pipeline/snapshot_publisher.cpp",

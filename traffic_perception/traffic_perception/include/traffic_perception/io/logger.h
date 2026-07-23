@@ -1,7 +1,7 @@
 #ifndef TRAFFIC_PERCEPTION_IO_LOGGER_H_
 #define TRAFFIC_PERCEPTION_IO_LOGGER_H_
 
-#include <vector>
+#include <array>
 #include <iostream>
 #include "traffic_perception/core/types.h"
 
@@ -9,11 +9,15 @@ namespace traffic_perception {
 
 class Logger {
 public:
-    void log(const TrafficSnapshot& snapshot);
+    void log(const Timeline& timeline);
     void dump(std::ostream& out = std::cout);
     void clear();
 private:
-    std::vector<TrafficSnapshot> snapshots_;
+    static constexpr std::size_t CAPACITY = 100;
+    std::array<Timeline, CAPACITY> buffer_;
+    std::size_t head_{0};
+    std::size_t tail_{0};
+    std::size_t size_{0};
 };
 
 }  // namespace traffic_perception

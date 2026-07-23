@@ -30,21 +30,45 @@ struct Detection {
   bool IsEmergency{false};
 };
 
+enum class TimelineStage {
+  Capture,
+  InferenceBegin,
+  InferenceEnd,
+  AnalyzerBegin,
+  AnalyzerEnd,
+  Publish
+};
+
+inline std::string to_string(TimelineStage stage) {
+  switch (stage) {
+    case TimelineStage::Capture: return "Capture";
+    case TimelineStage::InferenceBegin: return "InferenceBegin";
+    case TimelineStage::InferenceEnd: return "InferenceEnd";
+    case TimelineStage::AnalyzerBegin: return "AnalyzerBegin";
+    case TimelineStage::AnalyzerEnd: return "AnalyzerEnd";
+    case TimelineStage::Publish: return "Publish";
+    default: return "Unknown";
+  }
+}
+
+struct TimelineEntry {
+  TimelineStage stage;
+  std::chrono::steady_clock::time_point timestamp;
+};
+
+struct Timeline {
+  std::int32_t frameId{0};
+  std::vector<TimelineEntry> entries;
+
+  void add(TimelineStage stage) {
+    entries.push_back({stage, std::chrono::steady_clock::now()});
+  }
+};
+
 struct Frame {
   std::int32_t FrameId{};
   cv::Mat Image{};
-};
-
-#include <chrono>
-struct FrameContext {
-  Frame* CapturedFrame{};
-  std::int32_t LaneId{};
-  std::vector<Detection> Detections;
-  std::chrono::steady_clock::time_point Timestamp;
-  std::uint32_t VehicleCount{};
-  float Occupancy{};
-  float QueueLength{};
-  bool EmergencyDetected{};
+  Timeline timeline;
 };
 
 struct LaneConfig {
@@ -87,6 +111,12 @@ struct TrafficSnapshot {
   bool emergencySouth{false};
   bool emergencyEast{false};
   bool emergencyWest{false};
+};
+
+struct FrameContext {
+  Frame* frame;
+  Timeline timeline;
+  TrafficSnapshot snapshot;
 };
 
 #endif // TRAFFIC_PERCEPTION_CORE_TYPES_H_

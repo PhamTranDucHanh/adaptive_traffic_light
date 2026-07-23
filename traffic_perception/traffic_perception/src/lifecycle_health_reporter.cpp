@@ -11,9 +11,9 @@ namespace {
 using namespace std::chrono_literals;
 
 constexpr auto kPerceptionDeadlineMin = 0ms;
-constexpr auto kPerceptionDeadlineMax = 3000ms;
+constexpr auto kPerceptionDeadlineMax = 20000ms;
 constexpr auto kHeartbeatMin = 2500ms;
-constexpr auto kHeartbeatMax = 3500ms;
+constexpr auto kHeartbeatMax = 25000ms;
 constexpr auto kInternalProcessingCycle = 100ms;
 constexpr auto kSupervisorApiCycle = 500ms;
 

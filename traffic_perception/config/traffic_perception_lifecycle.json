@@ -78,7 +78,11 @@
             "deployment_config": {
                 "environmental_variables": {
                     "PROCESSIDENTIFIER": "traffic_perception",
-                    "IDENTIFIER": "traffic_perception"
+                    "IDENTIFIER": "traffic_perception",
+                    "LD_LIBRARY_PATH": "/tmp/traffic_perception/lib",
+                    "DISPLAY": ":0",
+                    "WAYLAND_DISPLAY": "wayland-0",
+                    "XDG_RUNTIME_DIR": "/run/user/1000/"
                 },
                 "sandbox": {
                     "scheduling_policy": "SCHED_FIFO",

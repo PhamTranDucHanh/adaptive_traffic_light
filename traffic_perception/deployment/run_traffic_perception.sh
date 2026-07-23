@@ -56,7 +56,7 @@ if ! type rlocation >/dev/null 2>&1; then
 fi
 # --- end runfiles.bash initialization v3 ---
 
-if [[ $# -ne 8 ]]; then
+if [[ $# -ne 15 ]]; then
   echo "ERROR: deployment target received an invalid runfiles layout" >&2
   exit 1
 fi
@@ -69,14 +69,23 @@ generated_config="$(rlocation "$5")"
 ecu_logging_config="$(rlocation "$6")"
 hm_logging_config="$(rlocation "$7")"
 lm_logging_config="$(rlocation "$8")"
+onnxruntime_so="$(rlocation "$9")"
+traffic_perception_config="$(rlocation "${10}")"
+yolov8m_oiv7_onnx="$(rlocation "${11}")"
+traffic_mp4="$(rlocation "${12}")"
+traffic2_mp4="$(rlocation "${13}")"
+traffic3_mp4="$(rlocation "${14}")"
+traffic4_mp4="$(rlocation "${15}")"
 
 runtime_root="${TRAFFIC_PERCEPTION_RUNTIME_DIR:-/tmp/traffic_perception}"
 runtime_bin="$runtime_root/bin"
 runtime_etc="$runtime_root/etc"
 runtime_logs="$runtime_root/logs"
 test_log="$runtime_logs/test.log"
+runtime_lib="$runtime_root/lib"
+runtime_models="$runtime_root/models"
 
-mkdir -p "$runtime_bin" "$runtime_etc" "$runtime_logs"
+mkdir -p "$runtime_bin" "$runtime_lib" "$runtime_etc" "$runtime_logs" "$runtime_models"
 : > "$test_log"
 
 # Keep the mirror alive during signal-driven Launch Manager shutdown so final
@@ -89,13 +98,23 @@ install -m 0755 "$launch_manager" "$runtime_bin/launch_manager"
 install -m 0755 "$control_daemon" "$runtime_bin/control_daemon"
 install -m 0755 "$lmcontrol" "$runtime_bin/lmcontrol"
 install -m 0755 "$traffic_perception" "$runtime_bin/traffic_perception"
+install -m 0755 \
+    "$onnxruntime_so" \
+    "$runtime_lib/libonnxruntime.so.1"
 
 cp -R --remove-destination "$generated_config"/. "$runtime_etc"/
 install -m 0644 "$ecu_logging_config" "$runtime_etc/ecu_logging_config.json"
 install -m 0644 "$hm_logging_config" "$runtime_etc/hm_logging.json"
 install -m 0644 "$lm_logging_config" "$runtime_etc/logging.json"
+install -m 0644 "$traffic_perception_config" "$runtime_etc/traffic_perception_config.json"
+install -m 0644 "$yolov8m_oiv7_onnx" "$runtime_models/yolov8m-oiv7.onnx"
+install -m 0644 "$traffic_mp4" "$runtime_etc/traffic.mp4"
+install -m 0644 "$traffic2_mp4" "$runtime_etc/traffic2.mp4"
+install -m 0644 "$traffic3_mp4" "$runtime_etc/traffic3.mp4"
+install -m 0644 "$traffic4_mp4" "$runtime_etc/traffic4.mp4"
 
 echo "[DEPLOYMENT][STAGE] runtime ready"
+export LD_LIBRARY_PATH="$runtime_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 echo "[LAUNCH_MANAGER][START] binary=$runtime_bin/launch_manager"
 launch_manager_pid=$$
 echo "[LAUNCH_MANAGER][START] pid=$launch_manager_pid"
@@ -108,4 +127,7 @@ setsid --fork "$0" --activate-running "$runtime_bin/lmcontrol" \
 # Launch Manager becomes the process owned by bazel run, so Ctrl-C/SIGTERM use
 # its official managed shutdown handler for every child process.
 cd "$runtime_root"
+export LD_LIBRARY_PATH="$runtime_root/lib:${LD_LIBRARY_PATH:-}"
+echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+ls -l "$runtime_lib"
 exec "$runtime_bin/launch_manager"

@@ -16,7 +16,7 @@ class SnapshotPublisher {
 
   // Publish a traffic snapshot to the downstream consumer.
   // Returns true on success, false otherwise.
-  bool broadcastSnapshot(const TrafficSnapshot& snapshot);
+  bool broadcastSnapshot(const FrameContext& ctx);
 
   // Dump stored logs
   void flush();

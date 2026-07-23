@@ -17,6 +17,7 @@
 #include "traffic_perception/pipeline/snapshot_publisher.h"
 #include "traffic_perception/io/snapshot_sender.h"
 #include "traffic_perception/viewer/opencv_lanes_viewer.h"
+#include "traffic_perception/core/runtime_paths.h"
 #include "traffic_perception/core/config_manager.h"
 
 namespace traffic_perception {

@@ -17,7 +17,13 @@ void PipelineManager::runOneCycle() {
 
   // Construct and publish snapshot
   TrafficSnapshot snapshot = analyzer_.buildTrafficSnapshot();
-  publisher_.broadcastSnapshot(snapshot);
+  
+  FrameContext ctx;
+  ctx.frame = analyzer_.latestFrame();
+  ctx.timeline = analyzer_.latestTimeline();
+  ctx.snapshot = snapshot;
+  
+  publisher_.broadcastSnapshot(ctx);
 }
 
 }  // namespace traffic_perception

@@ -12,7 +12,6 @@
 #include "traffic_perception/ingestion/stream_watchdog.h"
 #include "traffic_perception/ingestion/stream_worker.h"
 #include "traffic_perception/io/snapshot_sender.h"
-#include "traffic_perception/io/telemetry_manager.h"
 #include "traffic_perception/pipeline/pipeline_manager.h"
 
 namespace traffic_perception {
@@ -30,7 +29,6 @@ class PerceptionModule final {
   std::array<StreamWorker, 4U> workers_{};
   std::array<AtomicFrameBuffer, 4U> buffers_{};
   std::unique_ptr<PipelineManager> pipelineManager_;
-  TelemetryManager telemetry_{};
   MQSnapshotSender snapshotSender_{};
 
   std::int32_t nextFrameId_{0};

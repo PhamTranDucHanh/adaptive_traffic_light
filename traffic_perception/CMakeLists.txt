@@ -52,7 +52,6 @@ set(ALL_SOURCES
     # IO / Sinks Layer
     src/io/multi_lane_viewer.cpp
     src/io/snapshot_sender.cpp
-    src/io/telemetry_manager.cpp
 )
 
 target_sources(traffic_perception_lib PRIVATE ${ALL_SOURCES})
