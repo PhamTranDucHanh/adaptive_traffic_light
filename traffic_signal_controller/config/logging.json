@@ -7,6 +7,14 @@
   "logLevel": "kInfo",
   "contextConfigs": [
     {
+      "name": "APP",
+      "logLevel": "kInfo"
+    },
+    {
+      "name": "HLTH",
+      "logLevel": "kInfo"
+    },
+    {
       "name": "PLAN",
       "logLevel": "kInfo"
     },
@@ -24,6 +32,10 @@
     },
     {
       "name": "DEMO",
+      "logLevel": "kInfo"
+    },
+    {
+      "name": "ANLY",
       "logLevel": "kInfo"
     }
   ]

@@ -1,7 +1,6 @@
 #ifndef TRAFFIC_SIGNAL_CONTROLLER_SIGNAL_CONTROL_APP_H
 #define TRAFFIC_SIGNAL_CONTROLLER_SIGNAL_CONTROL_APP_H
 
-#include <cstdint>
 #include <atomic>
 #include <cstdint>
 #include <thread>
@@ -22,7 +21,7 @@ class SignalControlApplication final
  public:
   SignalControlApplication() = default;
 
-  ~SignalControlApplication() override = default;
+  ~SignalControlApplication() override;
 
   std::int32_t Initialize(
       const score::mw::lifecycle::ApplicationContext& context) override;
@@ -31,8 +30,16 @@ class SignalControlApplication final
       const score::cpp::stop_token& stopToken) override;
 
  private:
+  enum class DemoPlanReceiverState {
+    kWaitingForCongestionPlan,
+    kWaitingForEmergencyPlan,
+    kCompleted,
+  };
+
   void RunFsmWorker() noexcept;
   void StopFsmWorker() noexcept;
+  void RunPlanReceiverSimulation();
+  void WriteAnalyticsReport() const;
 
   TimingPlan CreateCongestionPlan() const;
   TimingPlan CreateEmergencyPlan() const;
@@ -51,12 +58,11 @@ class SignalControlApplication final
 
   std::uint64_t cycleCount_{0U};
 
-  bool congestionPlanSent_{false};
-  bool emergencyPlanSent_{false};
+  DemoPlanReceiverState demoPlanReceiverState_{
+      DemoPlanReceiverState::kWaitingForCongestionPlan};
   bool initialized_{false};
 };
 
 }  // namespace traffic_signal_controller
 
 #endif  // TRAFFIC_SIGNAL_CONTROLLER_SIGNAL_CONTROL_APP_H_
-

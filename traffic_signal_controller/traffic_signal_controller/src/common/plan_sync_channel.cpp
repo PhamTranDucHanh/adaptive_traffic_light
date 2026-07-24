@@ -2,8 +2,9 @@
 
 #include <cerrno>
 #include <stdexcept>
+
 #include "common/logging_contexts.h"
-#include "score/mw/log/logger.h" 
+#include "score/mw/log/logger.h"
 
 namespace {
 
@@ -14,7 +15,6 @@ score::mw::log::Logger& Logger() {
 }
 
 }  // namespace
-
 
 PlanSyncChannel::PlanSyncChannel() {
   const int mutexResult = pthread_mutex_init(&mutex_, nullptr);
@@ -77,7 +77,6 @@ void PlanSyncChannel::SetCurrentPhase(const PhaseId phaseId) {
   }
 
   pthread_mutex_unlock(&mutex_);
-
 }
 
 bool PlanSyncChannel::PublishPlan(const PlanData& plan) {
@@ -91,9 +90,10 @@ bool PlanSyncChannel::PublishPlan(const PlanData& plan) {
      * phải bị loại.
      */
     if (!IsGreenPhase(currentPhase_) || shutdownRequested_) {
-    Logger().LogWarn() << "event=EMERGENCY_DROPPED"
-                       << ", plan_id=" << plan.sourcePlanId 
-                       << ", reason=NOT_GREEN";
+      Logger().LogWarn() << "event=EMERGENCY_DROPPED"
+                         << ", plan_id=" << plan.sourcePlanId
+                         << ", reason=NOT_GREEN";
+      pthread_mutex_unlock(&mutex_);
       return false;
     }
 
@@ -102,7 +102,7 @@ bool PlanSyncChannel::PublishPlan(const PlanData& plan) {
      */
     pendingEmergencyPlan_ = plan;
     Logger().LogInfo() << "event=EMERGENCY_QUEUED"
-                    << ", plan_id=" << plan.sourcePlanId ;
+                       << ", plan_id=" << plan.sourcePlanId;
     hasPendingEmergency_ = true;
 
     /*
@@ -120,7 +120,7 @@ bool PlanSyncChannel::PublishPlan(const PlanData& plan) {
    */
   pendingNormalPlan_ = plan;
   Logger().LogInfo() << "event=PLAN_QUEUED"
-                     << ", plan_id=" << plan.sourcePlanId ;
+                     << ", plan_id=" << plan.sourcePlanId;
   hasPendingNormal_ = true;
 
   pthread_mutex_unlock(&mutex_);
@@ -157,14 +157,14 @@ PlanSyncChannel::WaitResult PlanSyncChannel::WaitForEmergencyUntil(
 
   outPlan = pendingEmergencyPlan_;
   Logger().LogInfo() << "event=EMERGENCY_CONSUMED"
-                     << ", plan_id=" << outPlan.sourcePlanId ;
+                     << ", plan_id=" << outPlan.sourcePlanId;
 
   pendingEmergencyPlan_ = PlanData{};
   hasPendingEmergency_ = false;
 
   pthread_mutex_unlock(&mutex_);
 
-  return WaitResult::EMERGENCY_AVAILABLE;                                                                                         
+  return WaitResult::EMERGENCY_AVAILABLE;
 }
 
 bool PlanSyncChannel::ConsumePendingPlan(PlanData& outPlan) {

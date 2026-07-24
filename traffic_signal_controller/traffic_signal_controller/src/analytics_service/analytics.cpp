@@ -393,7 +393,8 @@ std::string Analytics::ConvertDltRecordToTextMessage(const std::string& record,
                                                      std::string& contextId) {
   contextId.clear();
 
-  for (const auto& candidate : {"PLAN", "SYNC", "FSM", "OUT", "DEMO"}) {
+  for (const auto& candidate :
+       {"APP", "HLTH", "PLAN", "SYNC", "FSM", "OUT", "DEMO", "ANLY"}) {
     if (record.find(std::string{"CTRL"} + candidate) != std::string::npos) {
       contextId = candidate;
       break;
