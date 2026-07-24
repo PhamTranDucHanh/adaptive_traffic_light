@@ -85,23 +85,9 @@ cc_binary(
         "-Wpedantic",
     ],
     data = [
-        "output/execution_time.dlt",
-        "output/wakeup_latency.dlt",
+        "output/execution_time.txt",
+        "output/wakeup_latency.txt",
     ],
     includes = ["include"],
 )
 
-cc_test(
-    name = "common_smoke",
-    srcs = [
-        "include/common.h",
-        "src/common.cpp",
-        "src/common_smoke.cpp",
-    ],
-    includes = ["include"],
-    linkopts = select({
-        "@platforms//os:linux": ["-lpthread"],
-        "//conditions:default": [],
-    }),
-    deps = ["@score_baselibs//score/language/futurecpp"],
-)

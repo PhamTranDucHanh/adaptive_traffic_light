@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <limits>
 
-#if defined(DECISION_ENGINE_STAT) || defined(DECISION_STEPS)
+#ifdef DECISION_STEPS
 #include "application_logger.h"
 #endif
 #include "common.h"
@@ -140,7 +140,7 @@ TimingPlan DecisionEngine::processTrafficMetrics(
   emergencyActive = detectEmergency(snapshot);
   TimingPlan nextPlan{};
   if (emergencyActive) {
-#ifdef DECISION_ENGINE_STAT
+#ifdef DECISION_STEPS
     traffic_timing_decision::applicationLogger().LogWarn()
         << "[DECISION][EMERGENCY_OVERRIDE] frame_id=" << snapshot.frameId
         << "; action=keep_previous_green_and_forward_emergency_flags"

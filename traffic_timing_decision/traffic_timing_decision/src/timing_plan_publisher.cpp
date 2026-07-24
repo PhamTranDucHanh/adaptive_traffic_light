@@ -15,7 +15,7 @@ TimingPlanPublisher::TimingPlanPublisher()
 bool TimingPlanPublisher::initialize() {
   // signal_control_demo depends on timing_decision, so no downstream consumer
   // is active while this owned channel is reset during Lifecycle startup.
-  const auto status = queue_.open(true);
+  const traffic_ipc::QueueStatus status = queue_.open(true);
   if (status != traffic_ipc::QueueStatus::kSuccess) {
     traffic_timing_decision::applicationLogger().LogError()
         << "[IPC][PLAN][OPEN] status="
@@ -35,7 +35,7 @@ void TimingPlanPublisher::shutdown() { queue_.close(); }
 // Publish
 //
 bool TimingPlanPublisher::publishTimingPlan(const TimingPlan& plan) {
-  const auto status = queue_.publish(plan);
+  const traffic_ipc::QueueStatus status = queue_.publish(plan);
   if (status == traffic_ipc::QueueStatus::kSuccess) {
     lastPublishedPlan = plan;
     lastPublishTimestampNs = common::monotonicNanoseconds();

@@ -24,17 +24,17 @@ constexpr std::chrono::milliseconds toDuration(
   return std::chrono::milliseconds{static_cast<std::int64_t>(value)};
 }
 
-constexpr auto kDecisionDeadlineMin =
+constexpr std::chrono::milliseconds kDecisionDeadlineMin =
     toDuration(HealthIntervalMilliseconds::kDecisionDeadlineMinimum);
-constexpr auto kDecisionDeadlineMax =
+constexpr std::chrono::milliseconds kDecisionDeadlineMax =
     toDuration(HealthIntervalMilliseconds::kDecisionDeadlineMaximum);
-constexpr auto kHeartbeatMin =
+constexpr std::chrono::milliseconds kHeartbeatMin =
     toDuration(HealthIntervalMilliseconds::kHeartbeatMinimum);
-constexpr auto kHeartbeatMax =
+constexpr std::chrono::milliseconds kHeartbeatMax =
     toDuration(HealthIntervalMilliseconds::kHeartbeatMaximum);
-constexpr auto kInternalProcessingCycle =
+constexpr std::chrono::milliseconds kInternalProcessingCycle =
     toDuration(HealthIntervalMilliseconds::kInternalProcessingCycle);
-constexpr auto kSupervisorApiCycle =
+constexpr std::chrono::milliseconds kSupervisorApiCycle =
     toDuration(HealthIntervalMilliseconds::kSupervisorApiCycle);
 
 const score::mw::health::MonitorTag kDeadlineMonitorTag{
@@ -60,13 +60,16 @@ bool HealthReporter::initialize() {
   using score::mw::health::deadline::DeadlineMonitorBuilder;
   using score::mw::health::heartbeat::HeartbeatMonitorBuilder;
 
-  auto deadlineBuilder = DeadlineMonitorBuilder().add_deadline(
+  score::mw::health::deadline::DeadlineMonitorBuilder deadlineBuilder =
+      DeadlineMonitorBuilder().add_deadline(
       kDecisionCycleDeadlineTag,
       TimeRange{kDecisionDeadlineMin, kDecisionDeadlineMax});
-  auto heartbeatBuilder =
+  score::mw::health::heartbeat::HeartbeatMonitorBuilder heartbeatBuilder =
       HeartbeatMonitorBuilder(TimeRange{kHeartbeatMin, kHeartbeatMax});
 
-  auto healthMonitorResult =
+  score::cpp::expected<score::mw::health::HealthMonitor,
+                       score::mw::health::Error>
+      healthMonitorResult =
       HealthMonitorBuilder()
           .add_deadline_monitor(kDeadlineMonitorTag, std::move(deadlineBuilder))
           .add_heartbeat_monitor(kHeartbeatMonitorTag,
@@ -81,7 +84,9 @@ bool HealthReporter::initialize() {
   }
   healthMonitor_.emplace(std::move(healthMonitorResult.value()));
 
-  auto deadlineMonitorResult =
+  score::cpp::expected<score::mw::health::deadline::DeadlineMonitor,
+                       score::mw::health::Error>
+      deadlineMonitorResult =
       healthMonitor_->get_deadline_monitor(kDeadlineMonitorTag);
   if (!deadlineMonitorResult.has_value()) {
     traffic_timing_decision::applicationLogger().LogError()
@@ -91,7 +96,9 @@ bool HealthReporter::initialize() {
   }
   deadlineMonitor_.emplace(std::move(deadlineMonitorResult.value()));
 
-  auto heartbeatMonitorResult =
+  score::cpp::expected<score::mw::health::heartbeat::HeartbeatMonitor,
+                       score::mw::health::Error>
+      heartbeatMonitorResult =
       healthMonitor_->get_heartbeat_monitor(kHeartbeatMonitorTag);
   if (!heartbeatMonitorResult.has_value()) {
     traffic_timing_decision::applicationLogger().LogError()
@@ -101,7 +108,9 @@ bool HealthReporter::initialize() {
   }
   heartbeatMonitor_.emplace(std::move(heartbeatMonitorResult.value()));
 
-  auto deadlineResult =
+  score::cpp::expected<score::mw::health::deadline::Deadline,
+                       score::mw::health::Error>
+      deadlineResult =
       deadlineMonitor_->get_deadline(kDecisionCycleDeadlineTag);
   if (!deadlineResult.has_value()) {
     traffic_timing_decision::applicationLogger().LogError()
@@ -177,7 +186,9 @@ bool HealthReporter::startDecisionCycle() {
 
   // The deadline covers only the useful decision pipeline, not its periodic
   // wait between releases.
-  auto deadlineResult = cycleDeadline_->start();
+  score::cpp::expected<score::mw::health::deadline::DeadlineHandle,
+                       score::mw::health::Error>
+      deadlineResult = cycleDeadline_->start();
   if (!deadlineResult.has_value()) {
     traffic_timing_decision::applicationLogger().LogError()
         << "[HEALTH] could not start cycle deadline";
@@ -199,8 +210,9 @@ void HealthReporter::finishDecisionCycle() {
   deadlineGuard_.reset();
 
 #ifdef LOG_HEALTH_MONITOR
-  const auto elapsed = std::chrono::steady_clock::now() - cycleStartedAt_;
-  const auto elapsedMicroseconds =
+  const std::chrono::steady_clock::duration elapsed =
+      std::chrono::steady_clock::now() - cycleStartedAt_;
+  const std::int64_t elapsedMicroseconds =
       std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
   const bool withinConfiguredDeadline = elapsed <= kDecisionDeadlineMax;
   traffic_timing_decision::applicationLogger().LogDebug()

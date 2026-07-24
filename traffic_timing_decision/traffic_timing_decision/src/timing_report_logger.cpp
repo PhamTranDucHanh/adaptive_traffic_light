@@ -51,7 +51,8 @@ std::unique_ptr<score::mw::log::Recorder> createFileRecorder(
   configuration.SetLogFilePath(outputDirectory);
   configuration.SetDefaultLogLevel(score::mw::log::LogLevel::kDebug);
 
-  auto* const memoryResource = score::cpp::pmr::get_default_resource();
+  score::cpp::pmr::memory_resource* const memoryResource =
+      score::cpp::pmr::get_default_resource();
   score::mw::log::detail::FileRecorderFactory factory{
       score::os::Fcntl::Default(memoryResource)};
   return factory.CreateLogRecorder(configuration, memoryResource);
@@ -87,13 +88,14 @@ bool TimingReportLogger::logWakeup(const WakeupTimingRecord& record) noexcept {
     return false;
   }
 
-  auto slot = wakeupRecorder_->StartRecord(kWakeupContextId,
-                                           score::mw::log::LogLevel::kInfo);
+  score::cpp::optional<score::mw::log::SlotHandle> slot =
+      wakeupRecorder_->StartRecord(kWakeupContextId,
+                                   score::mw::log::LogLevel::kInfo);
   if (!slot.has_value()) {
     return false;
   }
 
-  const auto& handle = slot.value();
+  const score::mw::log::SlotHandle& handle = slot.value();
   wakeupRecorder_->Log(handle, std::string_view{"cycle_id="});
   wakeupRecorder_->Log(handle, record.cycleId);
   wakeupRecorder_->Log(handle, std::string_view{"; scheduled_release_ns="});
@@ -118,12 +120,13 @@ bool TimingReportLogger::logExecution(
   const score::mw::log::LogLevel level = record.cycleDeadlineMiss
                                              ? score::mw::log::LogLevel::kWarn
                                              : score::mw::log::LogLevel::kInfo;
-  auto slot = executionRecorder_->StartRecord(kExecutionContextId, level);
+  score::cpp::optional<score::mw::log::SlotHandle> slot =
+      executionRecorder_->StartRecord(kExecutionContextId, level);
   if (!slot.has_value()) {
     return false;
   }
 
-  const auto& handle = slot.value();
+  const score::mw::log::SlotHandle& handle = slot.value();
   executionRecorder_->Log(handle, std::string_view{"cycle_id="});
   executionRecorder_->Log(handle, record.cycleId);
   executionRecorder_->Log(handle, std::string_view{"; execution_start_ns="});

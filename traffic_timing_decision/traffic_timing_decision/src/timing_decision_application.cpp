@@ -139,7 +139,8 @@ namespace traffic_timing_decision {
 TimingDecisionApplication::~TimingDecisionApplication() { stopRtChildThread(); }
 
 void* TimingDecisionApplication::childThreadEntry(void* const application) {
-  auto* const self = static_cast<TimingDecisionApplication*>(application);
+  TimingDecisionApplication* const self =
+      static_cast<TimingDecisionApplication*>(application);
   self->runRtChildThread();
   return nullptr;
 }

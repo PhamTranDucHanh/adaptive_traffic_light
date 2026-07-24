@@ -9,7 +9,7 @@ namespace traffic_timing_decision {
 // Function-local initialization avoids cross-translation-unit initialization
 // ordering and the returned logger is reused for every subsequent log record.
 inline score::mw::log::Logger& applicationLogger() noexcept {
-  static auto& logger =
+  static score::mw::log::Logger& logger =
       score::mw::log::CreateLogger("DECI", "Traffic Timing Decision");
   return logger;
 }

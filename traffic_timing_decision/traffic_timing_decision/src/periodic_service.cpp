@@ -64,7 +64,7 @@ bool PeriodicService::runDecisionCycle() {
   TrafficSnapshot snapshot{};
   if (!trafficReceiver.requestSnapshot(snapshot)) {
     ++consecutiveSnapshotMisses_;
-    const auto status = trafficReceiver.lastQueueStatus();
+    const traffic_ipc::QueueStatus status = trafficReceiver.lastQueueStatus();
     if (status == traffic_ipc::QueueStatus::kEmpty ||
         status == traffic_ipc::QueueStatus::kBusy) {
       traffic_timing_decision::applicationLogger().LogWarn()

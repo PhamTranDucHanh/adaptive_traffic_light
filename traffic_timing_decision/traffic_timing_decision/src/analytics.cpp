@@ -1,16 +1,9 @@
 #include "analytics.h"
 
-#include <fcntl.h>
-#include <spawn.h>
-#include <sys/wait.h>
-#include <unistd.h>
-
 #include <algorithm>
-#include <array>
 #include <cerrno>
 #include <charconv>
 #include <cstddef>
-#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iomanip>
@@ -18,15 +11,12 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <tuple>
 #include <vector>
-
-extern char** environ;
 
 namespace {
 
-constexpr std::string_view kWakeupDltFileName{"wakeup_latency.dlt"};
-constexpr std::string_view kExecutionDltFileName{"execution_time.dlt"};
+constexpr std::string_view kWakeupTextFileName{"wakeup_latency.txt"};
+constexpr std::string_view kExecutionTextFileName{"execution_time.txt"};
 constexpr std::string_view kWakeupLatencyField{"wakeup_latency_us="};
 constexpr std::string_view kExecutionTimeField{"execution_time_us="};
 constexpr std::string_view kDeadlineField{"deadline_ms="};
@@ -35,10 +25,6 @@ constexpr std::string_view kExecutionDeadlineMissField{
 constexpr std::string_view kCycleDeadlineMissField{"cycle_deadline_miss="};
 constexpr std::string_view kTrueValue{"true"};
 constexpr std::string_view kFalseValue{"false"};
-constexpr std::string_view kDltViewerExecutable{"dlt-viewer"};
-constexpr std::string_view kQtPlatformVariable{"QT_QPA_PLATFORM"};
-constexpr std::string_view kQtOffscreenPlatform{"offscreen"};
-constexpr std::string_view kNullDevice{"/dev/null"};
 constexpr std::string_view kWorkspaceEnvironment{"BUILD_WORKSPACE_DIRECTORY"};
 constexpr std::string_view kDefaultOutputDirectory{
     "traffic_timing_decision/output"};
@@ -48,7 +34,7 @@ constexpr std::string_view kNestedOutputDirectory{
 enum class ExitCode : std::int32_t {
   kSuccess = 0,
   kFailure = 1,
-  kInvalidArguments = 2,
+  kInvalidArguments = 2
 };
 
 enum class CommandLineArgument : std::int32_t {
@@ -72,14 +58,6 @@ enum class OutputFormat : std::int32_t {
   kAveragePrecision = 2,
 };
 
-enum class EnvironmentOverwrite : std::int32_t {
-  kEnabled = 1,
-};
-
-enum class ConverterArgument : std::uint32_t {
-  kCount = 7U,
-};
-
 constexpr std::int32_t toValue(const ExitCode value) noexcept {
   return static_cast<std::int32_t>(value);
 }
@@ -98,14 +76,6 @@ constexpr std::uint64_t toValue(const PercentageScale value) noexcept {
 
 constexpr std::int32_t toValue(const OutputFormat value) noexcept {
   return static_cast<std::int32_t>(value);
-}
-
-constexpr std::int32_t toValue(const EnvironmentOverwrite value) noexcept {
-  return static_cast<std::int32_t>(value);
-}
-
-constexpr std::size_t toSize(const ConverterArgument value) noexcept {
-  return static_cast<std::size_t>(value);
 }
 
 template <typename Integer>
@@ -150,6 +120,14 @@ bool extractBoolean(const std::string_view line, const std::string_view field,
     value = false;
     return true;
   }
+  if (!remaining.empty() && remaining.front() == '0') {
+    value = false;
+    return true;
+  }
+  if (!remaining.empty() && remaining.front() == '1') {
+    value = true;
+    return true;
+  }
   return false;
 }
 
@@ -183,125 +161,19 @@ bool calculateStatistics(std::vector<Integer> values, Statistics& statistics,
   }
 
   std::sort(values.begin(), values.end());
-  long double total{};
+  std::int64_t total{};
   for (const Integer value : values) {
-    total += static_cast<long double>(value);
+    total += static_cast<std::int64_t>(value);
   }
 
   statistics.sampleCount = static_cast<std::uint64_t>(values.size());
   statistics.minimum = values.front();
-  statistics.average = static_cast<double>(
-      total / static_cast<long double>(statistics.sampleCount));
+  statistics.average =
+      static_cast<double>(total) / static_cast<double>(statistics.sampleCount);
   statistics.maximum = values.back();
   statistics.p50 = nearestRankPercentile(values, Percentile::kP50);
   statistics.p90 = nearestRankPercentile(values, Percentile::kP90);
   statistics.p99 = nearestRankPercentile(values, Percentile::kP99);
-  return true;
-}
-
-bool convertDltToText(const std::filesystem::path& dltPath,
-                      const std::filesystem::path& textPath,
-                      std::string& error) {
-  const std::filesystem::path absoluteDltPath =
-      std::filesystem::absolute(dltPath);
-  const std::filesystem::path absoluteTextPath =
-      std::filesystem::absolute(textPath);
-  if (!std::filesystem::exists(absoluteDltPath)) {
-    error = "DLT input does not exist: " + absoluteDltPath.string();
-    return false;
-  }
-
-  const std::int32_t environmentResult =
-      ::setenv(kQtPlatformVariable.data(), kQtOffscreenPlatform.data(),
-               toValue(EnvironmentOverwrite::kEnabled));
-  if (environmentResult != std::int32_t{}) {
-    error = "could not configure the headless DLT converter: ";
-    error += std::strerror(errno);
-    return false;
-  }
-
-  posix_spawn_file_actions_t fileActions{};
-  const std::int32_t actionsInitResult =
-      ::posix_spawn_file_actions_init(&fileActions);
-  if (actionsInitResult != std::int32_t{}) {
-    error = "could not initialize DLT converter file actions: ";
-    error += std::strerror(actionsInitResult);
-    return false;
-  }
-
-  const std::int32_t stdoutRedirectResult = ::posix_spawn_file_actions_addopen(
-      &fileActions, STDOUT_FILENO, kNullDevice.data(), O_WRONLY,
-      static_cast<mode_t>(std::uint32_t{}));
-  const std::int32_t stderrRedirectResult = ::posix_spawn_file_actions_addopen(
-      &fileActions, STDERR_FILENO, kNullDevice.data(), O_WRONLY,
-      static_cast<mode_t>(std::uint32_t{}));
-  const std::filesystem::path converterWorkingDirectory =
-      std::filesystem::temp_directory_path();
-  const std::int32_t workingDirectoryResult =
-      ::posix_spawn_file_actions_addchdir_np(&fileActions,
-                                             converterWorkingDirectory.c_str());
-  if (stdoutRedirectResult != std::int32_t{} ||
-      stderrRedirectResult != std::int32_t{} ||
-      workingDirectoryResult != std::int32_t{}) {
-    std::int32_t processSetupError = stdoutRedirectResult;
-    if (processSetupError == std::int32_t{}) {
-      processSetupError = stderrRedirectResult;
-    }
-    if (processSetupError == std::int32_t{}) {
-      processSetupError = workingDirectoryResult;
-    }
-    std::ignore = ::posix_spawn_file_actions_destroy(&fileActions);
-    error = "could not prepare the DLT converter process: ";
-    error += std::strerror(processSetupError);
-    return false;
-  }
-
-  std::string executable{kDltViewerExecutable};
-  std::string silentOption{"-s"};
-  std::string utf8Option{"-u"};
-  std::string convertOption{"-c"};
-  std::string inputArgument{absoluteDltPath.string()};
-  std::string outputArgument{absoluteTextPath.string()};
-  std::array<char*, toSize(ConverterArgument::kCount)> arguments{
-      executable.data(),
-      silentOption.data(),
-      utf8Option.data(),
-      convertOption.data(),
-      inputArgument.data(),
-      outputArgument.data(),
-      nullptr};
-
-  pid_t childProcess{};
-  const std::int32_t spawnResult =
-      ::posix_spawnp(&childProcess, executable.c_str(), &fileActions, nullptr,
-                     arguments.data(), environ);
-  std::ignore = ::posix_spawn_file_actions_destroy(&fileActions);
-  if (spawnResult != std::int32_t{}) {
-    error = "could not start dlt-viewer: ";
-    error += std::strerror(spawnResult);
-    return false;
-  }
-
-  std::int32_t childStatus{};
-  pid_t waitResult{};
-  do {
-    waitResult = ::waitpid(childProcess, &childStatus, std::int32_t{});
-  } while (waitResult == static_cast<pid_t>(-1) && errno == EINTR);
-
-  if (waitResult != childProcess) {
-    error = "could not wait for dlt-viewer: ";
-    error += std::strerror(errno);
-    return false;
-  }
-  if (!WIFEXITED(childStatus) ||
-      WEXITSTATUS(childStatus) != toValue(ExitCode::kSuccess)) {
-    error = "dlt-viewer failed while converting " + absoluteDltPath.string();
-    return false;
-  }
-  if (!std::filesystem::exists(absoluteTextPath)) {
-    error = "dlt-viewer did not create: " + absoluteTextPath.string();
-    return false;
-  }
   return true;
 }
 
@@ -448,8 +320,8 @@ std::filesystem::path defaultOutputDirectory() {
       std::filesystem::current_path();
   const std::filesystem::path directCandidate =
       workingDirectory / kDefaultOutputDirectory;
-  if (std::filesystem::exists(directCandidate / kWakeupDltFileName) &&
-      std::filesystem::exists(directCandidate / kExecutionDltFileName)) {
+  if (std::filesystem::exists(directCandidate / kWakeupTextFileName) &&
+      std::filesystem::exists(directCandidate / kExecutionTextFileName)) {
     return directCandidate;
   }
   return workingDirectory / kNestedOutputDirectory;
@@ -462,15 +334,18 @@ namespace traffic_timing_decision::analytics {
 std::int32_t Run(const std::filesystem::path& wakeupDltPath,
                  const std::filesystem::path& executionDltPath,
                  std::ostream& output, std::ostream& errorOutput) {
-  std::filesystem::path wakeupTextPath{wakeupDltPath};
-  wakeupTextPath.replace_extension(".txt");
-  std::filesystem::path executionTextPath{executionDltPath};
-  executionTextPath.replace_extension(".txt");
+  const std::filesystem::path wakeupTextPath{wakeupDltPath};
+  const std::filesystem::path executionTextPath{executionDltPath};
 
   std::string error{};
-  if (!convertDltToText(wakeupDltPath, wakeupTextPath, error) ||
-      !convertDltToText(executionDltPath, executionTextPath, error)) {
-    errorOutput << "[ANALYTICS][ERROR] " << error << '\n';
+  if (!std::filesystem::exists(wakeupTextPath)) {
+    errorOutput << "[ANALYTICS][ERROR] wake-up text file does not exist: "
+                << wakeupTextPath << '\n';
+    return toValue(ExitCode::kFailure);
+  }
+  if (!std::filesystem::exists(executionTextPath)) {
+    errorOutput << "[ANALYTICS][ERROR] execution text file does not exist: "
+                << executionTextPath << '\n';
     return toValue(ExitCode::kFailure);
   }
 
@@ -494,20 +369,24 @@ std::int32_t Run(const std::filesystem::path& wakeupDltPath,
 
 }  // namespace traffic_timing_decision::analytics
 
+// Entry point for the analytics component. This is a standalone program that
+// can be run after the traffic application has been executed to completion. It
+// reads the decoded wake-up and execution timing text files and calculates the
+// necessary statistics.
 std::int32_t main(const std::int32_t argumentCount,
                   const char* const arguments[]) {
   std::filesystem::path wakeupDltPath{};
   std::filesystem::path executionDltPath{};
   if (argumentCount == toValue(CommandLineArgument::kProgramOnlyCount)) {
     const std::filesystem::path outputDirectory = defaultOutputDirectory();
-    wakeupDltPath = outputDirectory / kWakeupDltFileName;
-    executionDltPath = outputDirectory / kExecutionDltFileName;
+    wakeupDltPath = outputDirectory / kWakeupTextFileName;
+    executionDltPath = outputDirectory / kExecutionTextFileName;
   } else if (argumentCount == toValue(CommandLineArgument::kCustomPathsCount)) {
     wakeupDltPath = arguments[toValue(CommandLineArgument::kWakeupPathIndex)];
     executionDltPath =
         arguments[toValue(CommandLineArgument::kExecutionPathIndex)];
   } else {
-    std::cerr << "Usage: analytics [wakeup_latency.dlt execution_time.dlt]\n";
+    std::cerr << "Usage: analytics [wakeup_latency.txt execution_time.txt]\n";
     return toValue(ExitCode::kInvalidArguments);
   }
 

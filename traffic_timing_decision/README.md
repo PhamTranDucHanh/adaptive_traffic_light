@@ -177,6 +177,17 @@ cd traffic_timing_decision/
 mkdir traffic_timing_decision/output/
 cp /tmp/linux_rt_application/logs/{timing_decision,wakeup_latency,execution_time}.dlt   output/
 ```
+
+For easier analytic, use linux tool to convert .dlt file to .txt file:
+
+```bash
+sudo apt install dlt-tools -y
+
+dlt-convert -a traffic_timing_decision/output/wakeup_latency.dlt > traffic_timing_decision/output/wakeup_latency.txt
+
+dlt-convert -a traffic_timing_decision/output/execution_time.dlt > traffic_timing_decision/output/execution_time.txt
+```
+
 After that, the analytic module is ready, run to see statistics from ```wakeup_latency.dlt``` and ```execution_time.dlt``` :
 
 ```bash

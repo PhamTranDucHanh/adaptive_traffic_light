@@ -150,7 +150,7 @@ bool hasGreenTimes(const TimingPlan& plan, const std::uint32_t northSouthMs,
 
 }  // namespace
 
-int main() {
+int32_t main() {
   DecisionEngine engine{};
   std::uint64_t nextFrameId{toFrameIdentifier(DemoFrameIdentifier::kFirst)};
 
