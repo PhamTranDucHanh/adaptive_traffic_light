@@ -89,7 +89,7 @@ InferenceResult YoloV8OIV7Backend::infer(const Frame& frame) {
 
     postprocess(frame.Image, output_tensors, result);
   } catch (const std::exception& e) {
-    std::cerr << "Inference failed: " << e.what() << std::endl;
+    score::mw::log::LogDebug() << "Inference failed: " << e.what() << "\n";
     return InferenceResult();
   }
 

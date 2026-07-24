@@ -80,12 +80,28 @@ struct LaneConfig {
 
 constexpr std::size_t NUM_LANES = 4;
 
+struct ThreadConfig {
+  std::string Policy{"SCHED_FIFO"};
+  std::int32_t Priority{0};
+};
+
+struct ThreadingConfig {
+  ThreadConfig Stream;
+  ThreadConfig Pipeline;
+};
+
 struct AppConfig {
   std::array<LaneConfig, NUM_LANES> lanes{};
   std::string modelPath;
+
   std::chrono::milliseconds CapturePeriod{200};
-  std::chrono::milliseconds PipelinePeriod{100};
-  std::chrono::milliseconds ViewerPeriod{100};
+  std::chrono::milliseconds PipelinePeriod{3000};
+  std::chrono::milliseconds ViewerPeriod{3000};
+  std::chrono::milliseconds CapturePhase{0};
+  std::chrono::milliseconds PipelinePhase{50};
+  std::chrono::milliseconds ViewerPhase{260};
+
+  ThreadingConfig Threading;
 };
 
 struct TrafficSnapshot {

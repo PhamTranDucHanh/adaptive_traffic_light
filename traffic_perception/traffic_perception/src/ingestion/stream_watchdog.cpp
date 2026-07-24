@@ -14,7 +14,6 @@ void StreamWatchdog::monitorHealth(const StreamWorker &worker) {
 
 void StreamWatchdog::recoverStream(StreamWorker &worker) {
   score::mw::log::LogDebug() << "[StreamWatchdog] recoverStream() called\n";
-  worker.restart();
 }
 
 }  // namespace traffic_perception

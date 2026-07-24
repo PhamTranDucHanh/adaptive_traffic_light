@@ -14,13 +14,13 @@ namespace traffic_perception {
 class InferenceEngine {
  public:
   // Constructor Injection:
-  // - backend: AI model backend (owned)
+  // - backend: AI model backend (ref)
   // - buffer: source of frames (reference)
   // - pool: // Used only to release frames when ownership
             // cannot be transferred successfully.
   // - sink: consumer of inference results (reference)
   // - configManager: configuration access
-  InferenceEngine(std::unique_ptr<IModelBackend> backend,
+  InferenceEngine(IModelBackend& backend,
                   AtomicFrameBuffer& buffer,
                   FramePool& pool,
                   IInferenceSink& sink,
@@ -31,7 +31,7 @@ class InferenceEngine {
   void runOneCycle();
 
  private:
-  std::unique_ptr<IModelBackend> backend_;
+  IModelBackend& backend_;
   AtomicFrameBuffer& buffer_;
   FramePool& pool_;
   IInferenceSink& sink_;

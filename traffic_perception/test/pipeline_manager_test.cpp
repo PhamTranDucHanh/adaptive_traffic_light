@@ -1,114 +1,127 @@
-#include "traffic_perception/pipeline/pipeline_manager.h"
-
-#include <traffic_perception/inference/yolov8_backend.h>
-
-#include <chrono>
-#include <iostream>
 #include <memory>
 #include <opencv2/opencv.hpp>
+#include <string>
 #include <thread>
-#include <vector>
-
-#include "tools/cpp/runfiles/runfiles.h"
-#include "traffic_perception/core/config_manager.h"
-#include "traffic_perception/core/frame_pool.h"
-#include "traffic_perception/inference/yolov8_oiv7_backend.h"
-#include "traffic_perception/ingestion/atomic_frame_buffer.h"
-#include "traffic_perception/ingestion/stream_worker.h"
-#include "traffic_perception/io/snapshot_sender.h"
-#include "traffic_perception/pipeline/snapshot_publisher.h"
-#include "traffic_perception/viewer/opencv_lanes_viewer.h"
 
 #include "score/mw/log/logging.h"
+#include "tools/cpp/runfiles/runfiles.h"
+#include "traffic_perception/core/config_manager.h"
+#include "traffic_perception/perception_module.h"
+#include "traffic_perception/viewer/opencv_lanes_viewer.h"
 
-using namespace traffic_perception;
 using bazel::tools::cpp::runfiles::Runfiles;
+using namespace traffic_perception;
 
 int main(int argc, char* argv[]) {
-  // Bazel Runfiles setup
   std::string error;
   std::unique_ptr<Runfiles> runfiles(Runfiles::Create(argv[0], &error));
-  if (!runfiles) return 1;
 
-  // Resolve config path via Runfiles
+  if (!runfiles) {
+    return 1;
+  }
+
+  //---------------------------------------------------------------------------
+  // Load configuration
+  //---------------------------------------------------------------------------
+
   std::string configPath = runfiles->Rlocation(
       "traffic_perception/config/traffic_perception_config.json");
-  if (configPath.empty()) return 1;
 
-  // Load configuration
+  if (configPath.empty()) {
+    return 1;
+  }
+
   ConfigManager configManager(configPath);
-  configManager.loadConfig();
-  AppConfig& config = configManager.getConfig();
 
-  // Resolve paths post-load in-place
+  if (!configManager.loadConfig()) {
+    return 1;
+  }
+
+  AppConfig config = configManager.getConfig();
+
   config.modelPath = runfiles->Rlocation(config.modelPath);
-  for (size_t i = 0; i < NUM_LANES; ++i) {
+
+  for (std::size_t i = 0; i < NUM_LANES; ++i) {
     config.lanes[i].videoSource =
         runfiles->Rlocation(config.lanes[i].videoSource);
   }
 
-  std::array<Roi, NUM_LANES> laneRois;
-  for (size_t i = 0; i < NUM_LANES; ++i) {
-    laneRois[i] = config.lanes[i].roi;
+  //---------------------------------------------------------------------------
+  // Perception module
+  //---------------------------------------------------------------------------
+
+  PerceptionModule perception;
+
+  if (!perception.initModule(config)) {
+    score::mw::log::LogError() << "Failed to initialize perception module";
+    return 1;
   }
 
-  constexpr uint32_t kFramePoolSize = 20;
-
-  FramePool pool;
-  if (!pool.init(kFramePoolSize)) return 1;
-
-  AtomicFrameBuffer buffer;
-
-  // Setup 4 workers
-  std::vector<std::unique_ptr<StreamWorker>> workers;
-  for (uint32_t i = 0; i < 4; ++i) {
-    auto worker = std::make_unique<StreamWorker>();
-    worker->initStream(config.lanes[i].videoSource, i, &pool,
-                       config.CapturePeriod);
-    worker->start(buffer);
-    workers.push_back(std::move(worker));
+  if (!perception.startThreads()) {
+    score::mw::log::LogError() << "Failed to start perception threads";
+    return 1;
   }
 
-  // PipelineManager
-  auto backend = std::make_unique<YoloV8OIV7Backend>(config.modelPath);
-  YoloV8OIV7Backend* backendPtr = backend.get();
-  PipelineManager pipeline(std::move(backend), buffer, pool, laneRois);
-
-  // Snapshot Publisher Integration
-  auto sender = std::make_unique<MQSnapshotSender>();
-  if (!sender->open()) {
-    score::mw::log::LogDebug() << "Failed to open snapshot sender" << "\n";
-  } else {
-    pipeline.getPublisher().initSender(sender.get());
-  }
+  //---------------------------------------------------------------------------
+  // Viewer (main thread)
+  //---------------------------------------------------------------------------
 
   OpenCVLanesViewer viewer;
-  viewer.init(config, backendPtr);
+  viewer.init(config, perception.backend());
 
   bool running = true;
-  auto nextPipelineRun = std::chrono::steady_clock::now();
+
+  auto nextRelease = std::chrono::steady_clock::now() + std::chrono::milliseconds(config.ViewerPhase);
+  const auto period = std::chrono::milliseconds(config.ViewerPeriod);
 
   while (running) {
-    nextPipelineRun += config.PipelinePeriod;
+    // Scheduled release for this cycle.
+    const auto scheduledRelease = nextRelease;
 
-    // Pipeline executes one cycle
-    pipeline.runOneCycle();
+    std::this_thread::sleep_until(scheduledRelease);
 
-    // Visualize
-    viewer.render(pipeline.analyzer());
+    const auto wakeup = std::chrono::steady_clock::now();
 
-    // Handle UI
-    int key = cv::waitKey(30);
-    if (key == 'd') {
-      pipeline.getPublisher().flush();
+    const int64_t expectedWakeup =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            scheduledRelease.time_since_epoch())
+            .count();
+
+    const int64_t renderBegin =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            wakeup.time_since_epoch())
+            .count();
+
+    viewer.render(perception.analyzer(), expectedWakeup, renderBegin);
+
+    const int key = cv::waitKey(1);
+
+    switch (key) {
+      case 'q':
+      case 27:
+        running = false;
+        break;
+
+      default:
+        break;
     }
-    if (key == 'q' || key == 27) running = false;
 
-    std::this_thread::sleep_until(nextPipelineRun);
+    // If we missed more than one period, drop backlog and
+    // restart the schedule from the current instant.
+    if (wakeup > scheduledRelease + period) {
+      nextRelease = wakeup + period;
+    } else {
+      nextRelease = scheduledRelease + period;
+    }
   }
 
+  //---------------------------------------------------------------------------
+  // Shutdown
+  //---------------------------------------------------------------------------
+
   viewer.shutdown();
-  for (auto& worker : workers) worker->stop();
+
+  perception.stopThreads();
 
   return 0;
 }

@@ -1,68 +1,89 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
+#include <iostream>
 #include <string>
 #include <vector>
-#include <iostream>
+
+#include "traffic_perception/core/types.h"
 
 namespace traffic_perception {
 
-struct Timeline {
-    uint32_t frameId;
-    int64_t capture = -1;
-    int64_t inferenceBegin = -1;
-    int64_t inferenceEnd = -1;
-    int64_t analyzerBegin = -1;
-    int64_t analyzerEnd = -1;
-    int64_t publish = -1;
+struct TaskTimeline {
+  uint32_t sequence = 0;
+
+  int64_t expectedWakeup = -1;
+  int64_t begin = -1;
+  int64_t end = -1;
+};
+
+struct StreamTimeline {
+  uint32_t frameId = 0;
+  int32_t laneId = -1;
+
+  int64_t expectedWakeup = -1;
+  int64_t begin = -1;
+  int64_t end = -1;
 };
 
 struct Statistics {
-    int64_t min = 0;
-    int64_t max = 0;
-    double mean = 0.0;
-    int64_t median = 0;
-    int64_t p90 = 0;
-    int64_t p95 = 0;
-    int64_t p99 = 0;
-    size_t sampleCount = 0;
+  int64_t min = 0;
+  int64_t max = 0;
+  double mean = 0.0;
+  int64_t median = 0;
+  int64_t p90 = 0;
+  int64_t p95 = 0;
+  int64_t p99 = 0;
+  double stddev = 0.0;
+  size_t sampleCount = 0;
 };
 
 class TimelineAnalyzer {
-public:
-    // Load a log file. Returns false if the file cannot be opened.
-    bool load(const std::string& logPath);
+ public:
+  bool load(const std::string& logPath);
+  bool analyze();
+  void printReport(std::ostream& out = std::cout) const;
 
-    // Perform analysis on the loaded data.
-    void analyze();
+ private:
+  Statistics computeStats(const std::vector<int64_t>& samples) const;
+  void analyzeStreamLane(const std::vector<StreamTimeline>& timelines);
+  void analyzeTask(const std::vector<TaskTimeline>& timelines);
 
-    // Print report to the provided output stream (default std::cout).
-    void printReport(std::ostream& out = std::cout) const;
+ private:
+  std::string logPath_;
 
-private:
-    // Helper methods.
-    void parseTimelines();
-    Statistics computeStats(const std::vector<int64_t>& samples) const;
+  //----------------------------------------------------------------------
+  // Parsed timelines
+  //----------------------------------------------------------------------
 
-    // Raw data storage.
-    std::vector<Timeline> timelines_; // only fully valid frames are kept
-    std::string logPath_;
+  std::array<std::vector<StreamTimeline>, NUM_LANES> streamTimelines_;
+  std::vector<TaskTimeline> pipelineTimelines_;
+  std::vector<TaskTimeline> viewerTimelines_;
 
-    // Statistics containers.
-    std::vector<int64_t> captureSamples_;
-    std::vector<int64_t> inferenceBeginSamples_;
-    std::vector<int64_t> inferenceEndSamples_;
-    std::vector<int64_t> analyzerBeginSamples_;
-    std::vector<int64_t> analyzerEndSamples_;
-    std::vector<int64_t> publishSamples_;
+  //----------------------------------------------------------------------
+  // Stream statistics (per lane)
+  //----------------------------------------------------------------------
 
-    // Transition latency vectors.
-    std::vector<int64_t> capToInfBegin_;
-    std::vector<int64_t> infBeginToEnd_;
-    std::vector<int64_t> infEndToAnaBegin_;
-    std::vector<int64_t> anaBeginToEnd_;
-    std::vector<int64_t> anaEndToPub_;
-    std::vector<int64_t> capToPub_;
+  std::array<std::vector<int64_t>, NUM_LANES> streamWakeupLatency_;
+  std::array<std::vector<int64_t>, NUM_LANES> streamExecutionTime_;
+  std::array<std::vector<int64_t>, NUM_LANES> streamPeriod_;
+
+  //----------------------------------------------------------------------
+  // Pipeline statistics
+  //----------------------------------------------------------------------
+
+  std::vector<int64_t> pipelineWakeupLatency_;
+  std::vector<int64_t> pipelineExecutionTime_;
+  std::vector<int64_t> pipelinePeriod_;
+
+  //----------------------------------------------------------------------
+  // Viewer statistics
+  //----------------------------------------------------------------------
+
+  std::vector<int64_t> viewerWakeupLatency_;
+  std::vector<int64_t> viewerExecutionTime_;
+  std::vector<int64_t> viewerPeriod_;
 };
 
-} // namespace traffic_perception
+}  // namespace traffic_perception

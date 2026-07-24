@@ -3,25 +3,27 @@
 
 #include <array>
 #include <opencv2/opencv.hpp>
+
 #include "traffic_perception/core/types.h"
-#include "traffic_perception/pipeline/analyzer.h"
 #include "traffic_perception/inference/imodel_backend.h"
+#include "traffic_perception/pipeline/analyzer.h"
 
 namespace traffic_perception {
 
 class OpenCVLanesViewer {
-public:
-    bool init(const AppConfig& config, IModelBackend* backend);
+ public:
+  bool init(const AppConfig& config, IModelBackend* backend);
 
-    void render(Analyzer& analyzer);
+  void render(Analyzer& analyzer, int64_t expectedWakeupNs,
+              int64_t renderBeginNs);
 
-    void shutdown();
+  void shutdown();
 
-private:
-    AppConfig config_;
-    IModelBackend* backend_{nullptr};
-    std::string windowName_;
-    std::array<cv::Mat, 4> lastRenderedFrames_;
+ private:
+  AppConfig config_;
+  IModelBackend* backend_{nullptr};
+  std::string windowName_;
+  std::array<cv::Mat, 4> lastRenderedFrames_;
 };
 
 }  // namespace traffic_perception

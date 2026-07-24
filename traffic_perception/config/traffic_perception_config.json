@@ -1,8 +1,23 @@
 {
-  "target_fps": 30,
   "capture_period_ms": 200,
-  "pipeline_period_ms": 100,
-  "viewer_period_ms": 100,
+  "capture_phase_ms": 0,
+
+  "pipeline_period_ms": 3000,
+  "pipeline_phase_ms": 50,
+
+  "viewer_period_ms": 3000,
+  "viewer_phase_ms": 260,
+  "threading": {
+    "stream": {
+      "policy": "SCHED_FIFO",
+      "priority": 80
+    },
+    "pipeline": {
+      "policy": "SCHED_FIFO",
+      "priority": 70
+    }
+  },
+
   "model": "traffic_perception/test/data/yolov8m-oiv7.onnx",
   "lanes": [
     {

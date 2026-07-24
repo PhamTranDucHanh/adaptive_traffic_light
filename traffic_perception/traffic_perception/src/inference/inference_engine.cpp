@@ -6,11 +6,11 @@
 
 namespace traffic_perception {
 
-InferenceEngine::InferenceEngine(std::unique_ptr<IModelBackend> backend,
+InferenceEngine::InferenceEngine(IModelBackend& backend,
                                  AtomicFrameBuffer& buffer, FramePool& pool,
                                  IInferenceSink& sink,
                                  const std::array<Roi, NUM_LANES>& laneRois)
-    : backend_(std::move(backend)),
+    : backend_(backend),
       buffer_(buffer),
       pool_(pool),
       sink_(sink),
@@ -33,7 +33,7 @@ void InferenceEngine::runOneCycle() {
 
     // 3. Perform Inference
     frame->timeline.add(TimelineStage::InferenceBegin);
-    InferenceResult result = backend_->infer(*frame);
+    InferenceResult result = backend_.infer(*frame);
     frame->timeline.add(TimelineStage::InferenceEnd);
 
     // 4. Vehicle Filtering — only vehicle detections reach the Analyzer

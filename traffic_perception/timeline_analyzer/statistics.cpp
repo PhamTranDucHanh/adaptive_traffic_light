@@ -25,9 +25,23 @@ Statistics ComputeStatistics(const std::vector<int64_t>& samples) {
     stats.mean = sum / static_cast<double>(sortedSamples.size());
 
     auto getPercentile = [&sortedSamples](double percentile) -> int64_t {
-        size_t n = sortedSamples.size();
-        size_t index = static_cast<size_t>(std::floor(percentile * static_cast<double>(n - 1)));
-        return sortedSamples[index];
+        const size_t n = sortedSamples.size();
+        if (n == 1) {
+            return sortedSamples.front();
+        }
+
+        const double rank = percentile * static_cast<double>(n - 1);
+        const size_t lowIndex = static_cast<size_t>(std::floor(rank));
+        const size_t highIndex = static_cast<size_t>(std::ceil(rank));
+
+        if (lowIndex == highIndex) {
+            return sortedSamples[lowIndex];
+        }
+
+        const double fraction = rank - static_cast<double>(lowIndex);
+        const double lowValue = static_cast<double>(sortedSamples[lowIndex]);
+        const double highValue = static_cast<double>(sortedSamples[highIndex]);
+        return static_cast<int64_t>(std::llround(lowValue + (highValue - lowValue) * fraction));
     };
 
     stats.median = getPercentile(0.50);

@@ -3,42 +3,36 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
-#include <iostream>
+#include <thread>
 
 #include "score/mw/log/logger.h"
-#include "score/mw/log/logging.h"
 
 namespace {
-inline auto& getBenchmarkLogger() {
-    static auto& logger = score::mw::log::CreateLogger(
-        "STRM",
-        "Traffic Perception Stream");
-    return logger;
-}
+
+inline score::mw::log::Logger& getBenchmarkLogger() {
+  static score::mw::log::Logger& logger =
+      score::mw::log::CreateLogger("STRM", "Traffic Perception Stream");
+  return logger;
 }
 
+}  // namespace
 
 namespace traffic_perception {
 
-StreamWorker::~StreamWorker() { stop(); }
-
-bool StreamWorker::restart() {
-  if (Buffer == nullptr) return false;
-  stop();
-  start(*Buffer);
-  return true;
-}
-
 bool StreamWorker::initStream(std::string sourceUri, int32_t streamId,
                               FramePool* pool,
-                              std::chrono::milliseconds period) {
+                              std::chrono::milliseconds period,
+                              std::chrono::milliseconds phase) {
   SourceUri = std::move(sourceUri);
   LaneId = streamId;
   Pool = pool;
   AcquisitionPeriod = period;
-  score::mw::log::LogInfo()
-      << "[StreamWorker] initStream() for Lane " << LaneId << " with "
-      << SourceUri << " at period " << AcquisitionPeriod.count() << "ms\n";
+  phase_ = phase;
+
+  getBenchmarkLogger().LogDebug()
+      << "[StreamWorker] Init lane " << LaneId << " source=" << SourceUri
+      << " period=" << AcquisitionPeriod.count() << "ms";
+
   return true;
 }
 
@@ -55,95 +49,106 @@ InputSourceType StreamWorker::detectSourceType(const std::string& source) {
 }
 
 cv::VideoCapture StreamWorker::createCapture(const std::string& source) {
-  InputSourceType type = detectSourceType(source);
-
-  switch (type) {
+  switch (detectSourceType(source)) {
     case InputSourceType::RtspStream:
       return cv::VideoCapture(source, cv::CAP_GSTREAMER);
+
     case InputSourceType::Camera:
       return cv::VideoCapture(std::stoi(source), cv::CAP_ANY);
+
     case InputSourceType::LocalFile:
     default:
-      // Force FFMPEG backend for local files to avoid GStreamer pipeline issues
       return cv::VideoCapture(source, cv::CAP_FFMPEG);
   }
 }
-void StreamWorker::start(AtomicFrameBuffer& frameBuffer) {
-  Buffer = &frameBuffer;
-  Running = true;
-  WorkerThread =
-      std::thread(&StreamWorker::producerLoop, this, std::ref(frameBuffer));
-}
 
-void StreamWorker::stop() {
-  Running = false;
-  if (WorkerThread.joinable()) {
-    WorkerThread.join();
-  }
-}
+void StreamWorker::stop() { running_.store(false, std::memory_order_relaxed); }
 
-void StreamWorker::producerLoop(AtomicFrameBuffer& frameBuffer) {
-  InputSourceType type = detectSourceType(SourceUri);
-  score::mw::log::LogDebug()
-      << "[StreamWorker] Detected source type: " << static_cast<int>(type)
-      << " for " << SourceUri << '\n';
-
+void StreamWorker::run(AtomicFrameBuffer& frameBuffer) {
   cv::VideoCapture cap = createCapture(SourceUri);
 
   if (!cap.isOpened()) {
-    score::mw::log::LogDebug()
-        << "[StreamWorker] Failed to open " << SourceUri << '\n';
+    getBenchmarkLogger().LogError()
+        << "[StreamWorker] Failed to open source " << SourceUri;
     return;
   }
 
   int32_t localFrameCounter = 0;
-  auto nextRelease = std::chrono::steady_clock::now();
 
-  // The worker is periodic by design.
-  // The AcquisitionPeriod bounds CPU utilization and allows synchronization
-  // with the perception pipeline, independent of input video FPS.
-  while (Running) {
-    nextRelease += AcquisitionPeriod;
+  auto nextRelease =
+      std::chrono::steady_clock::now() + phase_;
 
-    Frame* frame = Pool->acquire();
-    if (frame != nullptr) {
-      if (cap.read(frame->Image)) {
-        // Benchmark timestamps (absolute nanoseconds)
-        int64_t capture_ts = std::chrono::steady_clock::now().time_since_epoch().count();
+  while (running_) {
+    // Scheduled release time for this cycle.
+    const auto scheduledRelease = nextRelease;
 
-        frame->FrameId = ++localFrameCounter;
-        frame->timeline.entries.clear();
-        frame->timeline.frameId = frame->FrameId;
-        frame->timeline.add(TimelineStage::Capture);
+    // Wait until the next activation.
+    std::this_thread::sleep_until(scheduledRelease);
 
-        // Human‑readable log
-        score::mw::log::LogInfo()
-            << "[StreamWorker] Published FrameId: " << frame->FrameId
-            << " Lane: " << LaneId << "\n";
+    // Actual wakeup timestamp.
+    const auto wakeupTime = std::chrono::steady_clock::now();
 
-        // Benchmark line emitted directly via LogInfo chaining
-        getBenchmarkLogger().LogInfo()
-            << "FrameId=" << frame->FrameId
-            << " Capture=" << capture_ts
-            << " Publish=" << std::chrono::steady_clock::now().time_since_epoch().count();
-        Frame* old = frameBuffer.exchange(LaneId, frame);
-        if (old != nullptr) {
-          Pool->release(old);
-        }
-      } else {
-        // Loop on EOF for files
-        if (detectSourceType(SourceUri) == InputSourceType::LocalFile) {
-          cap.set(cv::CAP_PROP_POS_FRAMES, 0);
-        }
-        Pool->release(frame);
-      }
+    const int64_t expectedWakeup =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            scheduledRelease.time_since_epoch())
+            .count();
+
+    // If we are more than one period late, drop backlog and
+    // restart the periodic schedule from now.
+    if (wakeupTime > scheduledRelease + AcquisitionPeriod) {
+      nextRelease = wakeupTime + AcquisitionPeriod;
+    } else {
+      nextRelease = scheduledRelease + AcquisitionPeriod;
     }
 
-    std::this_thread::sleep_until(nextRelease);
+    Frame* frame = Pool->acquire();
+    if (frame == nullptr) {
+      continue;
+    }
+
+    if (!cap.read(frame->Image)) {
+      if (detectSourceType(SourceUri) == InputSourceType::LocalFile) {
+        cap.set(cv::CAP_PROP_POS_FRAMES, 0);
+        Pool->release(frame);
+        continue;
+      }
+
+      getBenchmarkLogger().LogError()
+          << "[StreamWorker] Stream lost on lane " << LaneId;
+
+      Pool->release(frame);
+      break;
+    }
+
+    const int64_t captureBegin =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            wakeupTime.time_since_epoch())
+            .count();
+
+    frame->FrameId = ++localFrameCounter;
+    frame->timeline.entries.clear();
+    frame->timeline.frameId = frame->FrameId;
+    frame->timeline.add(TimelineStage::Capture);
+
+    Frame* old = frameBuffer.exchange(LaneId, frame);
+    if (old != nullptr) {
+      Pool->release(old);
+    }
+
+    const int64_t captureEnd =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+
+    getBenchmarkLogger().LogInfo()
+        << "LaneId=" << LaneId
+        << " FrameId=" << frame->FrameId
+        << " ExpectedWakeup=" << expectedWakeup
+        << " Begin=" << captureBegin
+        << " End=" << captureEnd;
   }
+
   cap.release();
 }
-
-int32_t StreamWorker::getHealthStatus() const { return Running ? 1 : 0; }
 
 }  // namespace traffic_perception
