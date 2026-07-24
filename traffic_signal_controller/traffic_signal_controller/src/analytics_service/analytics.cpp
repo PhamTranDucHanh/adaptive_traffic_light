@@ -436,7 +436,7 @@ std::string Analytics::ConvertDltRecordToTextMessage(const std::string& record,
        "EMERGENCY_CONSUMED", "EMERGENCY_ACCEPTED", "EMERGENCY_REJECTED",
        "EMERGENCY_APPLIED", "EMERGENCY_DROPPED", "PHASE_ENTER", "PHASE_EXIT",
        "ANALYTICS_FAILED", "ANALYTICS_REPORT_FAILED",
-       "ANALYTICS_REPORT_WRITTEN", "FSM_WAKEUP"});
+       "ANALYTICS_REPORT_WRITTEN", "FSM_WAKEUP", "FSM_EXECUTION"});
 
   if (eventName.empty()) {
     return {};
@@ -476,6 +476,11 @@ std::string Analytics::ConvertDltRecordToTextMessage(const std::string& record,
 
   if (record.find("latency_ns=") != std::string::npos) {
     message << ", latency_ns=" << ExtractDltUint32(record, "latency_ns");
+  }
+
+  if (record.find("execution_time_ns=") != std::string::npos) {
+    message << ", execution_time_ns="
+            << ExtractDltUint32(record, "execution_time_ns");
   }
 
   if (record.find("emergency_ns=") != std::string::npos) {
@@ -621,17 +626,18 @@ void Analytics::ComputePlanStatistics() {
         ++planStatistics_.consumed;
         break;
 
-      case EventType::PlanApplied: {
+      case EventType::PlanApplied:
         ++planStatistics_.applied;
         planStatistics_.appliedPlanIds.insert(entry.planId);
+        break;
 
+      case EventType::EmergencyApplied: {
         const auto receivedIterator = receivedTimestamps.find(entry.planId);
 
-        if (receivedIterator != receivedTimestamps.end()) {
+        if (receivedIterator != receivedTimestamps.end() &&
+            entry.timestampNs >= receivedIterator->second) {
           const auto latency = entry.timestampNs - receivedIterator->second;
-
           planStatistics_.totalReceiveToApplyLatencyNs += latency;
-
           ++planStatistics_.latencySampleCount;
         }
 
@@ -738,8 +744,11 @@ bool Analytics::WriteReport(const std::string& outputPath) const {
         static_cast<double>(planStatistics_.totalReceiveToApplyLatencyNs) /
         static_cast<double>(planStatistics_.latencySampleCount) / 1'000'000.0;
 
-    output << "Average receive-to-apply latency: " << std::fixed
+    output << "Average emergency receive-to-apply latency: " << std::fixed
            << std::setprecision(3) << averageLatencyMs << " ms\n";
+  } else {
+    output << "Average emergency receive-to-apply latency: unavailable "
+              "(no emergency plan was applied)\n";
   }
 
   output << "\nPLAN INVENTORY\n";
@@ -809,6 +818,67 @@ bool Analytics::WriteReport(const std::string& outputPath) const {
            << NanosecondsToMilliseconds(
                   Percentile(wakeupStatistics_.latencySamplesNs, 99.0))
            << " ms\n";
+  }
+
+  output << "\nFSM EXECUTION TIME\n";
+  output << "------------------\n";
+
+  std::vector<std::int64_t> executionSamplesNs;
+
+  for (const auto& entry : logEntries_) {
+    if (ExtractValue(entry.message, "event") != "FSM_EXECUTION") {
+      continue;
+    }
+
+    const std::string executionValue =
+        ExtractValue(entry.message, "execution_time_ns");
+    std::uint64_t executionTimeNs{};
+
+    if (!ParseUint64(executionValue, executionTimeNs)) {
+      continue;
+    }
+
+    if (executionTimeNs >
+        static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+      continue;
+    }
+
+    executionSamplesNs.push_back(
+        static_cast<std::int64_t>(executionTimeNs));
+  }
+
+  output << "Samples: " << executionSamplesNs.size() << '\n';
+
+  if (!executionSamplesNs.empty()) {
+    const auto [minimumIterator, maximumIterator] =
+        std::minmax_element(executionSamplesNs.begin(),
+                            executionSamplesNs.end());
+
+    std::int64_t totalExecutionTimeNs{};
+
+    for (const auto executionTimeNs : executionSamplesNs) {
+      totalExecutionTimeNs += executionTimeNs;
+    }
+
+    const double averageExecutionTimeNs =
+        static_cast<double>(totalExecutionTimeNs) /
+        static_cast<double>(executionSamplesNs.size());
+
+    output << std::fixed << std::setprecision(3);
+    output << "Min execution time: " << *minimumIterator << " ns ("
+           << static_cast<double>(*minimumIterator) / 1'000.0 << " us)\n";
+    output << "Max execution time: " << *maximumIterator << " ns ("
+           << static_cast<double>(*maximumIterator) / 1'000.0 << " us)\n";
+    output << "Average execution time: " << averageExecutionTimeNs << " ns ("
+           << averageExecutionTimeNs / 1'000.0 << " us)\n";
+    output << "P50 execution time: "
+           << Percentile(executionSamplesNs, 50.0) << " ns\n";
+    output << "P90 execution time: "
+           << Percentile(executionSamplesNs, 90.0) << " ns\n";
+    output << "P95 execution time: "
+           << Percentile(executionSamplesNs, 95.0) << " ns\n";
+    output << "P99 execution time: "
+           << Percentile(executionSamplesNs, 99.0) << " ns\n";
   }
 
   return true;

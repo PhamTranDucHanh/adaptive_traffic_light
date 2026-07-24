@@ -83,7 +83,7 @@
                 },
                 "sandbox": {
                     "scheduling_policy": "SCHED_FIFO",
-                    "scheduling_priority": 60
+                    "scheduling_priority": 80
                 }
             }
         }

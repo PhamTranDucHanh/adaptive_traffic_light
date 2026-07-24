@@ -5,7 +5,9 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 
+#include <array>
 #include <cerrno>
+#include <charconv>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -25,14 +27,36 @@ namespace {
 constexpr const char* kDefaultAnalyticsLogFile{"/tmp/CTRL.dlt"};
 constexpr const char* kDefaultAnalyticsReportFile{
     "/tmp/traffic_signal_controller/logs/analytics_report.txt"};
-constexpr int kDefaultLifecyclePriority{70};
-constexpr int kDefaultFsmPriority{85};
-constexpr std::size_t kPrefaultStackBytes{64U * 1024U};
-constexpr std::size_t kPageSize{4096U};
+constexpr const char* kRuntimeDirectory{"/tmp/traffic_signal_controller"};
+constexpr const char* kRuntimeLogDirectory{
+    "/tmp/traffic_signal_controller/logs"};
+
+constexpr std::int32_t kDefaultFsmPriority{85};
+constexpr std::int32_t kDecimalBase{10};
+
+constexpr std::size_t kBytesPerKibibyte{1024U};
+constexpr std::size_t kPrefaultStackSizeKibibytes{64U};
+constexpr std::size_t kPrefaultStackBytes{
+    kPrefaultStackSizeKibibytes * kBytesPerKibibyte};
+constexpr std::size_t kPageSizeBytes{4096U};
+
+constexpr mode_t kRuntimeDirectoryPermissions{0755};
+
+constexpr std::uint64_t kCongestionPlanTriggerCycle{5U};
+constexpr std::uint64_t kEmergencyPlanTriggerCycle{20U};
+constexpr std::uint64_t kControlPeriodMilliseconds{1000U};
+
+constexpr std::uint32_t kCongestionPlanId{1001U};
+constexpr std::uint32_t kEmergencyPlanId{2001U};
+constexpr std::uint32_t kShortGreenDurationMs{15'000U};
+constexpr std::uint32_t kLongGreenDurationMs{30'000U};
+constexpr std::uint32_t kYellowDurationMs{3'000U};
+constexpr std::uint32_t kAllRedDurationMs{1'000U};
+constexpr std::uint32_t kTransitionsPerCycle{2U};
 
 struct SchedulingResult {
   bool success;
-  int errorNumber;
+  std::int32_t errorNumber;
 };
 
 score::mw::log::Logger& AppLogger() {
@@ -53,108 +77,125 @@ const char* GetEnvOrDefault(const char* const name,
   return value != nullptr && value[0] != '\0' ? value : defaultValue;
 }
 
-int GetPriorityFromEnvOrDefault(const char* const name,
-                                const int defaultPriority) {
+std::int32_t GetPriorityFromEnvOrDefault(
+    const char* const name, const std::int32_t defaultPriority) {
   const char* const value = std::getenv(name);
 
   if (value == nullptr || value[0] == '\0') {
     return defaultPriority;
   }
 
-  char* end{};
-  errno = 0;
-  const long parsed = std::strtol(value, &end, 10);
+  std::int32_t parsedPriority{};
+  const char* const valueEnd = value + std::strlen(value);
+  const auto parseResult =
+      std::from_chars(value, valueEnd, parsedPriority, kDecimalBase);
 
-  if (errno != 0 || end == value || *end != '\0') {
+  if (parseResult.ec != std::errc{} || parseResult.ptr != valueEnd) {
     AppLogger().LogWarn() << "event=THREAD_PRIORITY_ENV_INVALID"
                           << ", variable=" << name << ", value=" << value
                           << ", fallback_priority=" << defaultPriority;
     return defaultPriority;
   }
 
-  const int minPriority = sched_get_priority_min(SCHED_FIFO);
-  const int maxPriority = sched_get_priority_max(SCHED_FIFO);
+  const std::int32_t minimumPriority = static_cast<std::int32_t>(
+      sched_get_priority_min(SCHED_FIFO));
+  const std::int32_t maximumPriority = static_cast<std::int32_t>(
+      sched_get_priority_max(SCHED_FIFO));
 
-  if (parsed < minPriority || parsed > maxPriority) {
+  if (parsedPriority < minimumPriority || parsedPriority > maximumPriority) {
     AppLogger().LogWarn() << "event=THREAD_PRIORITY_ENV_INVALID"
                           << ", variable=" << name << ", value=" << value
-                          << ", min_priority=" << minPriority
-                          << ", max_priority=" << maxPriority
+                          << ", min_priority=" << minimumPriority
+                          << ", max_priority=" << maximumPriority
                           << ", fallback_priority=" << defaultPriority;
     return defaultPriority;
   }
 
-  return static_cast<int>(parsed);
+  return parsedPriority;
 }
 
 SchedulingResult SetFifoScheduling(const pthread_t thread,
-                                   const int priority) noexcept {
+                                   const std::int32_t priority) noexcept {
   sched_param parameters{};
-  parameters.sched_priority = priority;
+  parameters.sched_priority = static_cast<int>(priority);
 
-  const int result = pthread_setschedparam(thread, SCHED_FIFO, &parameters);
-  return SchedulingResult{result == 0, result};
+  const std::int32_t result = static_cast<std::int32_t>(
+      pthread_setschedparam(thread, SCHED_FIFO, &parameters));
+  return SchedulingResult{result == EXIT_SUCCESS, result};
 }
 
-void LogSchedulingResult(const char* const threadName, const int priority,
+void LogSchedulingResult(const char* const threadName,
+                         const std::int32_t priority,
                          const SchedulingResult result) {
   if (result.success) {
     AppLogger().LogInfo() << "event=THREAD_SCHEDULING_CONFIGURED"
-                          << ", thread=" << threadName << ", policy=SCHED_FIFO"
+                          << ", thread=" << threadName
+                          << ", policy=SCHED_FIFO"
                           << ", priority=" << priority;
     return;
   }
 
-  AppLogger().LogWarn() << "event=THREAD_SCHEDULING_FAILED"
-                        << ", thread=" << threadName << ", policy=SCHED_FIFO"
-                        << ", priority=" << priority
-                        << ", error=" << result.errorNumber
-                        << ", reason=" << std::strerror(result.errorNumber);
+  AppLogger().LogWarn()
+      << "event=THREAD_SCHEDULING_FAILED"
+      << ", thread=" << threadName << ", policy=SCHED_FIFO"
+      << ", priority=" << priority << ", error=" << result.errorNumber
+      << ", reason=" << std::strerror(static_cast<int>(result.errorNumber));
 }
 
 void LockProcessMemory() {
-  if (::mlockall(MCL_CURRENT | MCL_FUTURE) == 0) {
+  if (::mlockall(MCL_CURRENT | MCL_FUTURE) == EXIT_SUCCESS) {
     AppLogger().LogInfo() << "event=PROCESS_MEMORY_LOCKED"
                           << ", flags=MCL_CURRENT|MCL_FUTURE";
     return;
   }
 
-  const int errorNumber = errno;
-  AppLogger().LogWarn() << "event=PROCESS_MEMORY_LOCK_FAILED"
-                        << ", flags=MCL_CURRENT|MCL_FUTURE"
-                        << ", error=" << errorNumber
-                        << ", reason=" << std::strerror(errorNumber);
+  const std::int32_t errorNumber = static_cast<std::int32_t>(errno);
+  AppLogger().LogWarn()
+      << "event=PROCESS_MEMORY_LOCK_FAILED"
+      << ", flags=MCL_CURRENT|MCL_FUTURE"
+      << ", error=" << errorNumber
+      << ", reason=" << std::strerror(static_cast<int>(errorNumber));
 }
 
 void PrefaultCurrentThreadStack(const char* const threadName) noexcept {
-  volatile std::uint8_t stackPages[kPrefaultStackBytes]{};
+  std::array<std::uint8_t, kPrefaultStackBytes> stackPages{};
+  volatile std::uint8_t* const writablePages = stackPages.data();
 
-  for (std::size_t offset{0U}; offset < kPrefaultStackBytes;
-       offset += kPageSize) {
-    stackPages[offset] = static_cast<std::uint8_t>(0U);
+  for (std::size_t offset{0U}; offset < stackPages.size();
+       offset += kPageSizeBytes) {
+    writablePages[offset] = std::uint8_t{0U};
   }
 
   AppLogger().LogInfo() << "event=THREAD_STACK_PREFAULTED"
                         << ", thread=" << threadName
-                        << ", bytes=" << kPrefaultStackBytes;
+                        << ", bytes=" << stackPages.size();
 }
 
 void EnsureRuntimeLogDirectoryExists() {
-  (void)mkdir("/tmp/traffic_signal_controller", 0755);
-  (void)mkdir("/tmp/traffic_signal_controller/logs", 0755);
+  (void)mkdir(kRuntimeDirectory, kRuntimeDirectoryPermissions);
+  (void)mkdir(kRuntimeLogDirectory, kRuntimeDirectoryPermissions);
+}
+
+std::uint32_t CalculateCycleLengthMs(const std::uint32_t northSouthGreenMs,
+                                     const std::uint32_t eastWestGreenMs,
+                                     const std::uint32_t yellowMs,
+                                     const std::uint32_t allRedMs) noexcept {
+  return northSouthGreenMs + eastWestGreenMs +
+         (kTransitionsPerCycle * yellowMs) +
+         (kTransitionsPerCycle * allRedMs);
 }
 
 }  // namespace
 
-SignalControlApplication::~SignalControlApplication() { StopFsmWorker(); }
+SignalControlApplication::~SignalControlApplication() {
+  StopFsmWorker();
+  outputSimulator_.stop();
+}
 
 std::int32_t SignalControlApplication::Initialize(
     const score::mw::lifecycle::ApplicationContext& context) {
   (void)context;
 
-  // The Lifecycle HealthMonitor implementation logs through the Rust logger.
-  // Initialize it before HealthReporter starts its background worker, following
-  // the lifecycle cpp_supervised_app example.
   score::mw::log::rust::StdoutLoggerBuilder loggerBuilder;
   loggerBuilder.Context("TSIG")
       .LogLevel(score::mw::log::rust::LogLevel::Verbose)
@@ -169,36 +210,43 @@ std::int32_t SignalControlApplication::Initialize(
     return EXIT_FAILURE;
   }
 
-  const int lifecyclePriority = GetPriorityFromEnvOrDefault(
-      "TRAFFIC_SIGNAL_CONTROLLER_LIFECYCLE_PRIORITY",
-      kDefaultLifecyclePriority);
-  LogSchedulingResult("lifecycle_main", lifecyclePriority,
-                      SetFifoScheduling(pthread_self(), lifecyclePriority));
+  // The Launch Manager owns the lifecycle/main-thread scheduling policy.
+  // This application configures only its internal realtime worker threads.
 
   cycleCount_ = 0U;
   demoPlanReceiverState_ = DemoPlanReceiverState::kWaitingForCongestionPlan;
-
   fsmFailed_.store(false, std::memory_order_release);
   fsmRunning_.store(true, std::memory_order_release);
 
   try {
+    outputSimulator_.start();
     fsmWorker_ = std::thread{&SignalControlApplication::RunFsmWorker, this};
-    const int fsmPriority = GetPriorityFromEnvOrDefault(
+
+    const std::int32_t fsmPriority = GetPriorityFromEnvOrDefault(
         "TRAFFIC_SIGNAL_CONTROLLER_FSM_PRIORITY", kDefaultFsmPriority);
+
     LogSchedulingResult(
         "fsm_worker", fsmPriority,
         SetFifoScheduling(fsmWorker_.native_handle(), fsmPriority));
   } catch (...) {
     fsmRunning_.store(false, std::memory_order_release);
+    planSyncChannel_.RequestShutdown();
+
+    if (fsmWorker_.joinable()) {
+      fsmWorker_.join();
+    }
+
+    outputSimulator_.stop();
     healthReporter_.shutdown();
+
     AppLogger().LogWarn() << "event=APP_INIT_FAILED"
-                          << ", reason=FSM_WORKER_START_FAILED";
+                          << ", reason=WORKER_START_FAILED";
     return EXIT_FAILURE;
   }
 
   initialized_ = true;
   AppLogger().LogInfo() << "event=APP_READY"
-                        << ", period_ms=1000";
+                        << ", period_ms=" << kControlPeriodMilliseconds;
   return EXIT_SUCCESS;
 }
 
@@ -208,15 +256,14 @@ std::int32_t SignalControlApplication::Run(
     return EXIT_FAILURE;
   }
 
-  using namespace std::chrono_literals;
-  constexpr auto kPeriod = 1s;
-  auto nextRelease = std::chrono::steady_clock::now() + kPeriod;
+  constexpr auto kControlPeriod =
+      std::chrono::milliseconds{kControlPeriodMilliseconds};
+  auto nextRelease = std::chrono::steady_clock::now() + kControlPeriod;
   std::int32_t exitCode{EXIT_SUCCESS};
 
   AppLogger().LogInfo() << "event=PERIODIC_LOOP_STARTED";
+
   while (!stopToken.stop_requested()) {
-    // Delay the first release by one complete period so the heartbeat monitor
-    // observes a real 1-second baseline. Absolute releases avoid timer drift.
     if (score::concurrency::wait_until(stopToken, nextRelease)) {
       break;
     }
@@ -240,34 +287,28 @@ std::int32_t SignalControlApplication::Run(
 
     ++cycleCount_;
     AppLogger().LogInfo() << "event=CONTROL_CYCLE_COMPLETED"
-                          << ", cycle=" << cycleCount_ << ", period_ms=1000";
+                          << ", cycle=" << cycleCount_
+                          << ", period_ms=" << kControlPeriodMilliseconds;
 
-    // Close the deadline after the useful control work. HealthMonitor combines
-    // this result with the heartbeat and reports Alive asynchronously.
     healthReporter_.finishControlCycle();
-
-    nextRelease += kPeriod;
+    nextRelease += kControlPeriod;
   }
 
   StopFsmWorker();
+  outputSimulator_.stop();
   WriteAnalyticsReport();
   healthReporter_.shutdown();
   initialized_ = false;
+
   AppLogger().LogInfo() << "event=APP_STOPPED"
                         << ", cycles_completed=" << cycleCount_;
   return exitCode;
 }
 
 void SignalControlApplication::RunPlanReceiverSimulation() {
-  /*
-   * Đây là chỗ giả lập input từ module plan receiver/communication.
-   * Sau này khi tích hợp thật, module khác chỉ cần gọi
-   * PlanReceiver::ReceivePlan() với TimingPlan nhận được từ IPC/network/config
-   * pipeline.
-   */
   switch (demoPlanReceiverState_) {
     case DemoPlanReceiverState::kWaitingForCongestionPlan: {
-      if (cycleCount_ < 5U) {
+      if (cycleCount_ < kCongestionPlanTriggerCycle) {
         return;
       }
 
@@ -276,7 +317,8 @@ void SignalControlApplication::RunPlanReceiverSimulation() {
 
       AppLogger().LogInfo()
           << "event=SIMULATED_PLAN_SUBMITTED"
-          << ", cycle=" << cycleCount_ << ", source=simulated_plan_receiver"
+          << ", cycle=" << cycleCount_
+          << ", source=simulated_plan_receiver"
           << ", plan_type=congestion"
           << ", result=" << (accepted ? "accepted" : "rejected");
 
@@ -288,7 +330,7 @@ void SignalControlApplication::RunPlanReceiverSimulation() {
     }
 
     case DemoPlanReceiverState::kWaitingForEmergencyPlan: {
-      if (cycleCount_ < 15U) {
+      if (cycleCount_ < kEmergencyPlanTriggerCycle) {
         return;
       }
 
@@ -297,7 +339,8 @@ void SignalControlApplication::RunPlanReceiverSimulation() {
 
       AppLogger().LogInfo()
           << "event=SIMULATED_PLAN_SUBMITTED"
-          << ", cycle=" << cycleCount_ << ", source=simulated_plan_receiver"
+          << ", cycle=" << cycleCount_
+          << ", source=simulated_plan_receiver"
           << ", plan_type=emergency"
           << ", result=" << (accepted ? "accepted" : "retry");
 
@@ -316,10 +359,11 @@ void SignalControlApplication::WriteAnalyticsReport() const {
   EnsureRuntimeLogDirectoryExists();
 
   const std::string logFilePath = GetEnvOrDefault(
-      "TRAFFIC_SIGNAL_CONTROLLER_ANALYTICS_LOG_FILE", kDefaultAnalyticsLogFile);
-  const std::string reportFilePath =
-      GetEnvOrDefault("TRAFFIC_SIGNAL_CONTROLLER_ANALYTICS_REPORT_FILE",
-                      kDefaultAnalyticsReportFile);
+      "TRAFFIC_SIGNAL_CONTROLLER_ANALYTICS_LOG_FILE",
+      kDefaultAnalyticsLogFile);
+  const std::string reportFilePath = GetEnvOrDefault(
+      "TRAFFIC_SIGNAL_CONTROLLER_ANALYTICS_REPORT_FILE",
+      kDefaultAnalyticsReportFile);
 
   Analytics analytics{logFilePath};
 
@@ -332,13 +376,15 @@ void SignalControlApplication::WriteAnalyticsReport() const {
   if (!analytics.WriteReport(reportFilePath)) {
     AnalyticsLogger().LogWarn()
         << "event=ANALYTICS_REPORT_FAILED"
-        << ", log_file=" << logFilePath << ", report_file=" << reportFilePath;
+        << ", log_file=" << logFilePath
+        << ", report_file=" << reportFilePath;
     return;
   }
 
   AnalyticsLogger().LogInfo()
       << "event=ANALYTICS_REPORT_WRITTEN"
-      << ", log_file=" << logFilePath << ", report_file=" << reportFilePath;
+      << ", log_file=" << logFilePath
+      << ", report_file=" << reportFilePath;
 }
 
 void SignalControlApplication::RunFsmWorker() noexcept {
@@ -352,7 +398,7 @@ void SignalControlApplication::RunFsmWorker() noexcept {
         break;
       }
 
-      outputSimulator_.publish(display);
+      outputSimulator_.submit(display);
     }
   } catch (...) {
     fsmFailed_.store(true, std::memory_order_release);
@@ -361,8 +407,6 @@ void SignalControlApplication::RunFsmWorker() noexcept {
 
 void SignalControlApplication::StopFsmWorker() noexcept {
   fsmRunning_.store(false, std::memory_order_release);
-
-  // Wake pthread_cond_timedwait() if the FSM is currently waiting in GREEN.
   planSyncChannel_.RequestShutdown();
 
   if (fsmWorker_.joinable()) {
@@ -373,37 +417,31 @@ void SignalControlApplication::StopFsmWorker() noexcept {
 
 TimingPlan SignalControlApplication::CreateCongestionPlan() const {
   TimingPlan plan{};
-
-  plan.planId = 1001U;
-  plan.greenNorthSouthMs = 15'000U;
-  plan.greenEastWestMs = 30'000U;
-  plan.yellowMs = 3'000U;
-  plan.allRedMs = 1'000U;
-
-  plan.cycleLengthMs = plan.greenNorthSouthMs + plan.greenEastWestMs +
-                       (2U * plan.yellowMs) + (2U * plan.allRedMs);
-
+  plan.planId = kCongestionPlanId;
+  plan.greenNorthSouthMs = kShortGreenDurationMs;
+  plan.greenEastWestMs = kLongGreenDurationMs;
+  plan.yellowMs = kYellowDurationMs;
+  plan.allRedMs = kAllRedDurationMs;
+  plan.cycleLengthMs = CalculateCycleLengthMs(
+      plan.greenNorthSouthMs, plan.greenEastWestMs, plan.yellowMs,
+      plan.allRedMs);
   plan.emergencyNorthSouth = false;
   plan.emergencyEastWest = false;
-
   return plan;
 }
 
 TimingPlan SignalControlApplication::CreateEmergencyPlan() const {
   TimingPlan plan{};
-
-  plan.planId = 2001U;
-  plan.greenNorthSouthMs = 30'000U;
-  plan.greenEastWestMs = 15'000U;
-  plan.yellowMs = 3'000U;
-  plan.allRedMs = 1'000U;
-
-  plan.cycleLengthMs = plan.greenNorthSouthMs + plan.greenEastWestMs +
-                       (2U * plan.yellowMs) + (2U * plan.allRedMs);
-
+  plan.planId = kEmergencyPlanId;
+  plan.greenNorthSouthMs = kLongGreenDurationMs;
+  plan.greenEastWestMs = kShortGreenDurationMs;
+  plan.yellowMs = kYellowDurationMs;
+  plan.allRedMs = kAllRedDurationMs;
+  plan.cycleLengthMs = CalculateCycleLengthMs(
+      plan.greenNorthSouthMs, plan.greenEastWestMs, plan.yellowMs,
+      plan.allRedMs);
   plan.emergencyNorthSouth = true;
   plan.emergencyEastWest = false;
-
   return plan;
 }
 

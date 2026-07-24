@@ -1,6 +1,7 @@
 #include "traffic_signal_controller/signal_fsm_engine.h"
 
 #include <cerrno>
+#include <chrono>
 #include <cstdint>
 #include <ctime>
 
@@ -22,6 +23,21 @@ score::mw::log::Logger& Logger() {
   static auto& logger =
       score::mw::log::CreateLogger(ctrl::logging::kCtxFsm, "FSM");
   return logger;
+}
+
+void logFsmExecutionTime(
+    const std::chrono::steady_clock::time_point executionStart) {
+  const auto executionEnd = std::chrono::steady_clock::now();
+  const auto measuredDuration =
+      std::chrono::duration_cast<std::chrono::nanoseconds>(executionEnd -
+                                                           executionStart);
+  const std::uint64_t executionTimeNs =
+      measuredDuration.count() > 0
+          ? static_cast<std::uint64_t>(measuredDuration.count())
+          : 0ULL;
+
+  Logger().LogInfo() << "event=FSM_EXECUTION"
+                     << ", execution_time_ns=" << executionTimeNs;
 }
 
 const char* phaseToString(const PhaseId phaseId) noexcept {
@@ -65,8 +81,6 @@ SignalDisplay SignalFSMEngine::processTick() {
     processGreenPhase(nextDeadline_);
   } else {
     processNonInterruptiblePhase(nextDeadline_);
-
-    decrementRemainingTime();
   }
 
   if (remainingTimeMs_ == 0U) {
@@ -197,6 +211,9 @@ void SignalFSMEngine::processGreenPhase(const timespec& absoluteDeadline) {
   const PlanSyncChannel::WaitResult result =
       syncChannel_.WaitForEmergencyUntil(absoluteDeadline, emergencyPlan);
 
+  // Bắt đầu đo sau khi hàm chờ trả về để không tính thời gian blocking.
+  const auto executionStart = std::chrono::steady_clock::now();
+
   switch (result) {
     case PlanSyncChannel::WaitResult::EMERGENCY_AVAILABLE: {
       const EmergencyEvaluationResult evaluationResult =
@@ -209,14 +226,6 @@ void SignalFSMEngine::processGreenPhase(const timespec& absoluteDeadline) {
                            << ", remaining_ms=" << remainingTimeMs_;
 
         applyEmergencyPlan(emergencyPlan);
-
-        /*
-         * Emergency có thể đánh thức FSM trước deadline.
-         * Chờ hết tick hiện tại để giữ chu kỳ output 1 giây.
-         */
-        if (remainingTimeMs_ > 0U) {
-          processGreenPhase(absoluteDeadline);
-        }
       } else {
         Logger().LogWarn() << "event=EMERGENCY_REJECTED"
                            << ", plan_id=" << emergencyPlan.sourcePlanId
@@ -225,14 +234,14 @@ void SignalFSMEngine::processGreenPhase(const timespec& absoluteDeadline) {
                            << ", reason="
                            << emergencyEvaluationResultToString(
                                   evaluationResult);
+      }
 
-        /*
-         * Request bị reject nhưng deadline của tick chưa hết.
-         * Tiếp tục chờ request khác hoặc chờ timeout.
-         */
-        if (remainingTimeMs_ > 0U) {
-          processGreenPhase(absoluteDeadline);
-        }
+      // Chốt sample trước khi quay lại WaitForEmergencyUntil(), tránh cộng
+      // thời gian chờ tiếp theo vào execution time hiện tại.
+      logFsmExecutionTime(executionStart);
+
+      if (remainingTimeMs_ > 0U) {
+        processGreenPhase(absoluteDeadline);
       }
 
       break;
@@ -241,12 +250,14 @@ void SignalFSMEngine::processGreenPhase(const timespec& absoluteDeadline) {
     case PlanSyncChannel::WaitResult::TIMEOUT:
       recordWakeupSample(absoluteDeadline);
       decrementRemainingTime();
+      logFsmExecutionTime(executionStart);
       break;
 
     case PlanSyncChannel::WaitResult::ERROR:
       Logger().LogWarn() << "event=EMERGENCY_WAIT_ERROR"
                          << ", phase=" << phaseToString(currentPhaseId())
                          << ", remaining_ms=" << remainingTimeMs_;
+      logFsmExecutionTime(executionStart);
       break;
   }
 }
@@ -260,12 +271,18 @@ void SignalFSMEngine::processNonInterruptiblePhase(
                              nullptr);
   } while (result == EINTR);
 
+  // Bắt đầu đo sau khi clock_nanosleep() trả về.
+  const auto executionStart = std::chrono::steady_clock::now();
+
   if (result == 0) {
     recordWakeupSample(absoluteDeadline);
+    decrementRemainingTime();
   } else {
     Logger().LogWarn() << "event=FSM_SLEEP_ERROR"
                        << ", error_code=" << result;
   }
+
+  logFsmExecutionTime(executionStart);
 }
 
 const char* SignalFSMEngine::emergencyEvaluationResultToString(
