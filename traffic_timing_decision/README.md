@@ -66,9 +66,15 @@ valid when the target binaries match the machine executing them:
 
 ```bash
 cd traffic_timing_decision/
-sudo prlimit --pid $$ --rtprio=99:99
+sudo prlimit --pid $$ --rtprio=99:99 --memlock=unlimited:unlimited
 bazel run --config=x86_64-linux //deployment:traffic_light_system
 ```
+
+Timing Decision intentionally fails initialization if
+`mlockall(MCL_CURRENT | MCL_FUTURE)` cannot lock the process mappings. The
+shell-level `RLIMIT_MEMLOCK` above is inherited by Launch Manager and then by
+the Timing Decision process. `CAP_IPC_LOCK` is an alternative, but raising the
+inherited limit is the reproducible development setup.
 
 `arm64-linux` is a cross-build configuration on the x86_64 development PC.
 `bazel run --config=arm64-linux` would build AArch64 executables and then try to
@@ -80,7 +86,7 @@ configuration (another terminal):
 
 ```bash
 cd traffic_timing_decision/
-sudo prlimit --pid $$ --rtprio=99:99
+sudo prlimit --pid $$ --rtprio=99:99 --memlock=unlimited:unlimited
 bazel run --config=x86_64-linux //control_daemon:lmcontrol -- Startup
 bazel run --config=x86_64-linux //control_daemon:lmcontrol -- Running
 bazel run --config=x86_64-linux //control_daemon:lmcontrol -- Stop

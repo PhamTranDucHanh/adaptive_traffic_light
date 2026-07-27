@@ -1,5 +1,9 @@
 #include "timing_decision_application.h"
 
+#include <sys/mman.h>
+
+#include <array>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <score/stop_token.hpp>
@@ -11,8 +15,6 @@
 #include <sched.h>
 #include <sys/syscall.h>
 #include <unistd.h>
-
-#include <cerrno>
 #endif
 
 #include "application_logger.h"
@@ -24,6 +26,11 @@ constexpr std::string_view kDefaultTimingReportDirectory{
     "/tmp/linux_rt_application/logs"};
 constexpr char kTimingReportDirectoryEnvironment[] = "TIMING_REPORT_LOG_DIR";
 
+enum class RealtimeMemoryConfiguration : std::uint32_t {
+  // A bounded reserve for the periodic thread's nested call stack.
+  kStackPrefaultBytes = 65536U,
+};
+
 enum class TimeConversion : std::uint64_t {
   kNanosecondsPerMillisecond = 1000000ULL,
   kNanosecondsPerSecond = 1000000000ULL,
@@ -33,23 +40,36 @@ constexpr std::uint64_t toNanoseconds(const TimeConversion value) noexcept {
   return static_cast<std::uint64_t>(value);
 }
 
-std::int64_t timestampNanoseconds(const timespec& timestamp) noexcept {
+constexpr std::uint32_t toBytes(
+    const RealtimeMemoryConfiguration value) noexcept {
+  return static_cast<std::uint32_t>(value);
+}
+
+
+void prefaultCurrentThreadStack() noexcept {
+  std::array<std::uint8_t,
+             toBytes(RealtimeMemoryConfiguration::kStackPrefaultBytes)>
+      stackReserve;
+
+  // Volatile writes force physical backing and resolve copy-on-write faults
+  // before the periodic time-critical section begins.
+  for (volatile std::uint8_t& stackByte : stackReserve) {
+    stackByte = std::uint8_t{};
+  }
+}
+
+std::uint64_t timestampNanoseconds(const timespec& timestamp) noexcept {
   return static_cast<std::int64_t>(timestamp.tv_sec) *
              static_cast<std::int64_t>(
                  toNanoseconds(TimeConversion::kNanosecondsPerSecond)) +
          static_cast<std::int64_t>(timestamp.tv_nsec);
 }
 
-std::int64_t signedDurationNanoseconds(const timespec& start,
-                                       const timespec& end) noexcept {
-  return timestampNanoseconds(end) - timestampNanoseconds(start);
-}
 
 std::uint64_t durationNanoseconds(const timespec& start,
                                   const timespec& end) noexcept {
-  const std::int64_t duration = signedDurationNanoseconds(start, end);
-  return duration > std::int64_t{} ? static_cast<std::uint64_t>(duration)
-                                   : std::uint64_t{};
+  const std::int64_t duration = timestampNanoseconds(end) - timestampNanoseconds(start);
+  return duration;
 }
 
 std::uint64_t periodNanoseconds(
@@ -135,9 +155,14 @@ std::int32_t create_rt_thread(pthread_t* const thread,
 
 namespace traffic_timing_decision {
 
+TimingDecisionApplication::~TimingDecisionApplication() {
 #ifdef RT_THREAD_CHECKING
-TimingDecisionApplication::~TimingDecisionApplication() { stopRtChildThread(); }
+  stopRtChildThread();
+#endif
+  unlockProcessMemory();
+}
 
+#ifdef RT_THREAD_CHECKING
 void* TimingDecisionApplication::childThreadEntry(void* const application) {
   TimingDecisionApplication* const self =
       static_cast<TimingDecisionApplication*>(application);
@@ -249,6 +274,43 @@ void TimingDecisionApplication::runRtChildThread() noexcept {
 }
 #endif
 
+bool TimingDecisionApplication::lockProcessMemory() noexcept {
+  if (memoryLocked_) {
+    return true;
+  }
+
+  if (mlockall(MCL_CURRENT | MCL_FUTURE) != 0) {
+    const std::int32_t lockError = errno;
+    applicationLogger().LogError()
+        << "[INIT][MEMORY_LOCK] mlockall(MCL_CURRENT|MCL_FUTURE) failed; "
+           "errno="
+        << lockError
+        << "; reason=" << std::string_view{std::strerror(lockError)}
+        << "; raise RLIMIT_MEMLOCK or grant CAP_IPC_LOCK";
+    return false;
+  }
+
+  memoryLocked_ = true;
+  applicationLogger().LogInfo() << "[INIT][MEMORY_LOCK] process memory locked; "
+                                   "flags=MCL_CURRENT|MCL_FUTURE";
+  return true;
+}
+
+void TimingDecisionApplication::unlockProcessMemory() noexcept {
+  if (!memoryLocked_) {
+    return;
+  }
+
+  if (munlockall() != 0) {
+    const std::int32_t unlockError = errno;
+    applicationLogger().LogError()
+        << "[STOP][MEMORY_LOCK] munlockall failed; errno=" << unlockError
+        << "; reason=" << std::string_view{std::strerror(unlockError)};
+    return;
+  }
+  memoryLocked_ = false;
+}
+
 std::int32_t TimingDecisionApplication::Initialize(
     const score::mw::lifecycle::ApplicationContext& context) {
   (void)context;
@@ -281,6 +343,16 @@ std::int32_t TimingDecisionApplication::Initialize(
   }
 #endif
 
+  if (!lockProcessMemory()) {
+#ifdef RT_THREAD_CHECKING
+    stopRtChildThread();
+#endif
+    service_.shutdown();
+    timingReportLogger_.shutdown();
+    initialized_ = false;
+    return EXIT_FAILURE;
+  }
+
   cycleCount_ = std::uint64_t{};
   deadlineMissCount_ = std::uint64_t{};
   applicationLogger().LogInfo()
@@ -295,6 +367,11 @@ std::int32_t TimingDecisionApplication::Run(
     return EXIT_FAILURE;
   }
 
+  prefaultCurrentThreadStack();
+  applicationLogger().LogInfo()
+      << "[RUN][MEMORY_LOCK] periodic thread stack prefaulted; reserve_bytes="
+      << toBytes(RealtimeMemoryConfiguration::kStackPrefaultBytes);
+
   std::int32_t exitCode{EXIT_SUCCESS};
   timespec nextRelease{};
   if (!common::monotonicNow(nextRelease)) {
@@ -305,6 +382,7 @@ std::int32_t TimingDecisionApplication::Run(
 #endif
     service_.shutdown();
     timingReportLogger_.shutdown();
+    unlockProcessMemory();
     initialized_ = false;
     return EXIT_FAILURE;
   }
@@ -315,9 +393,31 @@ std::int32_t TimingDecisionApplication::Run(
   applicationLogger().LogInfo()
       << "[RUN] periodic loop started; clock=CLOCK_MONOTONIC; "
          "wait=pthread_cond_timedwait; deadline=absolute";
+
+  std::uint64_t cycleId = 0;
+  std::int32_t sleepResult = 0;
+  bool wakeupTimestampValid = false;
+  timespec actualWakeup{};
+  timespec executionStart{};
+  timespec executionEnd{};
+  bool executionStartValid = false;
+  bool cycleSucceeded = false;
+  bool executionEndTimestampValid = false;
+  std::uint64_t deadlineNs = 0;
+  WakeupTimingRecord wakeupRecord = {};
+  std::uint64_t executionTimeNs = 0;
+  std::uint64_t responseTimeNs = 0;
+  std::uint64_t executionOverrunNs = 0;
+  std::uint64_t cycleOverrunNs = 0;
+  bool executionDeadlineMiss = false;
+  bool cycleDeadlineMiss = false;
+  ExecutionTimingRecord executionRecord = {};
+  timespec now{};
+  std::uint32_t skipped = 0;
+
   while (!stopToken.stop_requested()) {
-    const std::uint64_t cycleId = cycleCount_ + std::uint64_t{1U};
-    const std::int32_t sleepResult = periodicWait_.waitUntil(nextRelease);
+    cycleId = cycleCount_ + std::uint64_t{1U};
+    sleepResult = periodicWait_.waitUntil(nextRelease);
     if (sleepResult == ECANCELED || stopToken.stop_requested()) {
       break;
     }
@@ -328,24 +428,20 @@ std::int32_t TimingDecisionApplication::Run(
       exitCode = EXIT_FAILURE;
       break;
     }
-
     // Capture the actual wake-up before doing any logging or domain work.
-    timespec actualWakeup{};
-    const bool wakeupTimestampValid = common::monotonicNow(actualWakeup);
+    wakeupTimestampValid = common::monotonicNow(actualWakeup);
 
     // These two timestamps intentionally bracket only runDecisionCycle().
-    timespec executionStart{};
-    const bool executionStartValid = common::monotonicNow(executionStart);
-    const bool cycleSucceeded = service_.runDecisionCycle();
-    timespec executionEnd{};
-    const bool executionEndTimestampValid = common::monotonicNow(executionEnd);
+    executionStartValid = common::monotonicNow(executionStart);
+    cycleSucceeded = service_.runDecisionCycle();
+    executionEndTimestampValid = common::monotonicNow(executionEnd);
 
-    const std::uint64_t deadlineNs = periodNanoseconds(service_.periodMs());
+    deadlineNs = periodNanoseconds(service_.periodMs());
     if (wakeupTimestampValid) {
-      const WakeupTimingRecord wakeupRecord{
-          cycleId, timestampNanoseconds(nextRelease),
-          timestampNanoseconds(actualWakeup),
-          signedDurationNanoseconds(nextRelease, actualWakeup), deadlineNs};
+      wakeupRecord = WakeupTimingRecord {
+        cycleId, timestampNanoseconds(nextRelease),
+        timestampNanoseconds(actualWakeup),
+        durationNanoseconds(nextRelease, actualWakeup), deadlineNs};
       if (!timingReportLogger_.logWakeup(wakeupRecord)) {
         applicationLogger().LogWarn()
             << "[TIMING_REPORT][WAKEUP] record dropped; cycle=" << cycleId;
@@ -358,21 +454,17 @@ std::int32_t TimingDecisionApplication::Run(
     }
 
     if (executionStartValid && executionEndTimestampValid) {
-      const std::uint64_t executionTimeNs =
-          durationNanoseconds(executionStart, executionEnd);
-      const std::uint64_t responseTimeNs =
-          durationNanoseconds(nextRelease, executionEnd);
-      const std::uint64_t executionOverrunNs =
-          deadlineOverrunNanoseconds(executionTimeNs, deadlineNs);
-      const std::uint64_t cycleOverrunNs =
-          deadlineOverrunNanoseconds(responseTimeNs, deadlineNs);
-      const bool executionDeadlineMiss = executionOverrunNs != std::uint64_t{};
-      const bool cycleDeadlineMiss = cycleOverrunNs != std::uint64_t{};
+      executionTimeNs = durationNanoseconds(executionStart, executionEnd);
+      responseTimeNs = durationNanoseconds(nextRelease, executionEnd);
+      executionOverrunNs = deadlineOverrunNanoseconds(executionTimeNs, deadlineNs);
+      cycleOverrunNs = deadlineOverrunNanoseconds(responseTimeNs, deadlineNs);
+      executionDeadlineMiss = { executionOverrunNs != 0 };
+      cycleDeadlineMiss = { cycleOverrunNs != 0 };
       if (cycleDeadlineMiss) {
         ++deadlineMissCount_;
       }
 
-      const ExecutionTimingRecord executionRecord{
+      executionRecord = ExecutionTimingRecord {
           cycleId,
           timestampNanoseconds(executionStart),
           timestampNanoseconds(executionEnd),
@@ -409,11 +501,9 @@ std::int32_t TimingDecisionApplication::Run(
 #endif
 
     common::addMilliseconds(nextRelease, service_.periodMs());
-    timespec now{};
     if (common::monotonicNow(now)) {
-      const std::uint32_t skipped =
-          common::advancePastNow(nextRelease, service_.periodMs(), now);
-      if (skipped != std::uint32_t{}) {
+      skipped = common::advancePastNow(nextRelease, service_.periodMs(), now);
+      if (skipped != 0) {
         applicationLogger().LogWarn()
             << "[RUN][OVERRUN] skipped_releases=" << skipped;
       }
@@ -429,6 +519,7 @@ std::int32_t TimingDecisionApplication::Run(
   applicationLogger().LogInfo()
       << "[STOP] cycles_completed=" << cycleCount_
       << "; cycle_deadline_misses=" << deadlineMissCount_;
+  unlockProcessMemory();
   return exitCode;
 }
 

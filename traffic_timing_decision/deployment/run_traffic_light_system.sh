@@ -102,7 +102,7 @@ if [[ "$rtprio_limit" != "unlimited" ]] && \
     (( rtprio_limit < required_rt_priority )) && \
     (( has_cap_sys_nice == 0 )); then
   echo "[DEPLOYMENT][RT][ERROR] SCHED_FIFO priority=$required_rt_priority requires RLIMIT_RTPRIO >= $required_rt_priority or CAP_SYS_NICE; current_rtprio=$rtprio_limit" >&2
-  echo '[DEPLOYMENT][RT][HINT] current shell: sudo prlimit --pid $$ --rtprio=99:99' >&2
+  echo '[DEPLOYMENT][RT][HINT] current shell: sudo prlimit --pid $$ --rtprio=99:99 --memlock=unlimited:unlimited' >&2
   echo '[DEPLOYMENT][RT][HINT] then run: bazel shutdown; rerun the deployment' >&2
   exit 1
 fi

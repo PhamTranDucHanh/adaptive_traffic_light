@@ -23,15 +23,16 @@ namespace traffic_timing_decision {
 class TimingDecisionApplication final
     : public score::mw::lifecycle::Application {
  public:
-#ifdef RT_THREAD_CHECKING
   ~TimingDecisionApplication() override;
-#endif
 
   std::int32_t Initialize(
       const score::mw::lifecycle::ApplicationContext& context) override;
   std::int32_t Run(const score::cpp::stop_token& stopToken) override;
 
  private:
+  bool lockProcessMemory() noexcept;
+  void unlockProcessMemory() noexcept;
+
   PeriodicService service_;
   common::PeriodicWait periodicWait_;
   TimingReportLogger timingReportLogger_;
@@ -47,6 +48,7 @@ class TimingDecisionApplication final
 #endif
   std::uint64_t cycleCount_{};
   std::uint64_t deadlineMissCount_{};
+  bool memoryLocked_{false};
   bool initialized_{false};
 };
 

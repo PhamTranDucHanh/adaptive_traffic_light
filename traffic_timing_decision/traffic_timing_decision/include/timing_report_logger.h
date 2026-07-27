@@ -13,16 +13,16 @@ namespace traffic_timing_decision {
 
 struct WakeupTimingRecord final {
   std::uint64_t cycleId{};
-  std::int64_t scheduledReleaseNs{};
-  std::int64_t actualWakeupNs{};
-  std::int64_t wakeupLatencyNs{};
+  std::uint64_t scheduledReleaseNs{};
+  std::uint64_t actualWakeupNs{};
+  std::uint64_t wakeupLatencyNs{};
   std::uint64_t periodNs{};
 };
 
 struct ExecutionTimingRecord final {
   std::uint64_t cycleId{};
-  std::int64_t executionStartNs{};
-  std::int64_t executionEndNs{};
+  std::uint64_t executionStartNs{};
+  std::uint64_t executionEndNs{};
   std::uint64_t executionTimeNs{};
   std::uint64_t responseTimeNs{};
   std::uint64_t deadlineNs{};
