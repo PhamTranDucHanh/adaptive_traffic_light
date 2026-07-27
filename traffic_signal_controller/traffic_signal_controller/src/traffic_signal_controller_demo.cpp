@@ -191,6 +191,10 @@ int main() {
 
   Logger().LogInfo() << "Traffic signal demonstration started";
 
+  // Start the OutputSimulator's internal non-realtime worker before any
+  // SignalDisplay values are submitted by the bridge thread.
+  output.start();
+
   std::thread outputThread{
       [&output, &outputQueue, &fsmFinished, &workersMayStart]() {
     using namespace std::chrono_literals;
@@ -205,7 +209,7 @@ int main() {
     while (!fsmFinished.load(std::memory_order_acquire) ||
            !outputQueue.Empty()) {
       if (outputQueue.TryPop(display)) {
-        output.publish(display);
+        output.submit(display);
         continue;
       }
 
@@ -301,7 +305,16 @@ int main() {
 
   // Main thread hiện đóng vai trò FSM thread.
   // Không gọi logger hoặc console output trực tiếp trong vòng lặp này.
+  // Dùng absolute sleep để mỗi tick xảy ra đúng chu kỳ 1 giây và tránh
+  // tích lũy drift từ execution time của tick trước.
+  using FsmClock = std::chrono::steady_clock;
+  constexpr auto kFsmPeriod = std::chrono::seconds{1};
+  auto nextTick = FsmClock::now();
+
   for (std::uint32_t tick{0U}; tick < kDemoTicks; ++tick) {
+    std::this_thread::sleep_until(nextTick);
+    nextTick += kFsmPeriod;
+
     const SignalDisplay display = fsm.processTick();
 
     if (!outputQueue.TryPush(display)) {
@@ -319,6 +332,10 @@ int main() {
   if (outputThread.joinable()) {
     outputThread.join();
   }
+
+  // All queued displays have now been forwarded through submit(). Stop the
+  // internal OutputSimulator worker only after the bridge thread is drained.
+  output.stop();
 
   LogSchedulingResult("FSM", kFsmPriority, fsmScheduling);
 
