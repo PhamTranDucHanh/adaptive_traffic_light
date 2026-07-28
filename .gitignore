@@ -40,3 +40,6 @@ MODULE.bazel.lock
 .cache/
 .bazel/
 
+*.dat
+*.txt 
+*.data 

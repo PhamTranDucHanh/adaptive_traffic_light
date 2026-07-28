@@ -112,10 +112,19 @@ void OutputSimulator::submit(const SignalDisplay& display) noexcept {
 }
 
 void OutputSimulator::run() noexcept {
+
+  const int nameResult =
+      pthread_setname_np(pthread_self(), "tsc_output");
+
+  if (nameResult != 0) {
+    Logger().LogWarn() << "event=THREAD_NAME_FAILED"
+                       << ", thread=tsc_output"
+                       << ", error=" << nameResult
+                       << ", reason=" << std::strerror(nameResult);
+  }
+
   ConfigureCurrentThreadAsNonRealtime();
 
-  // stdout may be connected to a pipe by Launch Manager instead of a TTY.
-  // Force each insertion sequence to be flushed immediately.
   std::cout.setf(std::ios::unitbuf);
 
   std::uint64_t lastSequence{0U};
