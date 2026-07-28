@@ -13,6 +13,7 @@ CTestTestfile.cmake
 cmake_install.cmake
 Makefile
 targets/
+etc/
 
 # ==============================================================================
 # 2. Compilation Database & LSP Configuration
@@ -29,3 +30,16 @@ targets/
 # Project Output
 **/output/
 .aider*
+
+# Bazel
+bazel-*
+.bazelrc.user
+MODULE.bazel.lock 
+
+# Bazel cache
+.cache/
+.bazel/
+
+*.dat
+*.txt 
+*.data 

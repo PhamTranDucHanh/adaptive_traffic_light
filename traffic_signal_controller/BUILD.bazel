@@ -1,0 +1,11 @@
+package(default_visibility = ["//visibility:public"])
+
+alias(
+    name = "signal_controller",
+    actual = "//traffic_signal_controller:traffic_signal_controller",
+)
+
+alias(
+    name = "traffic_signal_controller_system",
+    actual = "//deployment:traffic_signal_controller_system",
+)
