@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ "${1:-}" == "--activate-running" ]]; then
+  if [[ $# -ne 3 ]]; then
+    echo "[DEPLOYMENT][ERROR] invalid transition helper arguments" >&2
+    exit 1
+  fi
+
+  lmcontrol_binary="$2"
+  launch_manager_pid="$3"
+  request_output=""
+
+  for attempt in $(seq 1 50); do
+    if ! kill -0 "$launch_manager_pid" 2>/dev/null; then
+      echo "[LAUNCH_MANAGER][ERROR] exited during Startup" >&2
+      exit 1
+    fi
+
+    if request_output=$("$lmcontrol_binary" Running 2>&1); then
+      echo "$request_output"
+      echo "[DEPLOYMENT][TRANSITION] Running activated on attempt=$attempt"
+      echo "[DEPLOYMENT][RUN] requested run_target=Running"
+      echo "[DEPLOYMENT][RUN] stop with Ctrl-C or: bazel run --config=x86_64-linux //control_daemon:lmcontrol -- Stop"
+      exit 0
+    else
+      request_status=$?
+    fi
+    if [[ $request_status -eq 2 ]]; then
+      echo "$request_output" >&2
+      echo "[DEPLOYMENT][ERROR] Running activation failed" >&2
+      kill -TERM "$launch_manager_pid" 2>/dev/null || true
+      exit 1
+    fi
+    sleep 0.1
+  done
+
+  echo "[PERCEPTION_CONTROL_DAEMON][ERROR] did not consume request before timeout" >&2
+  kill -TERM "$launch_manager_pid" 2>/dev/null || true
+  exit 1
+fi
+
+# --- begin runfiles.bash initialization v3 ---
+set +e
+f=bazel_tools/tools/bash/runfiles/runfiles.bash
+source "${RUNFILES_DIR:-/dev/null}/$f" 2>/dev/null || \
+  source "$(grep -sm1 "^$f " "${RUNFILES_MANIFEST_FILE:-/dev/null}" | cut -d' ' -f2-)" 2>/dev/null || \
+  source "$0.runfiles/$f" 2>/dev/null || \
+  source "$(grep -sm1 "^$f " "$0.runfiles_manifest" | cut -d' ' -f2-)" 2>/dev/null || \
+  source "$(grep -sm1 "^$f " "$0.exe.runfiles_manifest" | cut -d' ' -f2-)" 2>/dev/null
+set -e
+if ! type rlocation >/dev/null 2>&1; then
+  echo "ERROR: cannot find Bazel runfiles library" >&2
+  exit 1
+fi
+# --- end runfiles.bash initialization v3 ---
+
+if [[ $# -ne 15 ]]; then
+  echo "ERROR: deployment target received an invalid runfiles layout" >&2
+  exit 1
+fi
+
+launch_manager="$(rlocation "$1")"
+control_daemon="$(rlocation "$2")"
+lmcontrol="$(rlocation "$3")"
+traffic_perception="$(rlocation "$4")"
+generated_config="$(rlocation "$5")"
+ecu_logging_config="$(rlocation "$6")"
+hm_logging_config="$(rlocation "$7")"
+lm_logging_config="$(rlocation "$8")"
+onnxruntime_so="$(rlocation "$9")"
+traffic_perception_config="$(rlocation "${10}")"
+yolov8m_oiv7_onnx="$(rlocation "${11}")"
+traffic_mp4="$(rlocation "${12}")"
+traffic2_mp4="$(rlocation "${13}")"
+traffic3_mp4="$(rlocation "${14}")"
+traffic4_mp4="$(rlocation "${15}")"
+
+runtime_root="${TRAFFIC_PERCEPTION_RUNTIME_DIR:-/tmp/traffic_perception}"
+runtime_bin="$runtime_root/bin"
+runtime_etc="$runtime_root/etc"
+runtime_logs="$runtime_root/logs"
+test_log="$runtime_logs/test.log"
+runtime_lib="$runtime_root/lib"
+runtime_models="$runtime_root/models"
+
+mkdir -p "$runtime_bin" "$runtime_lib" "$runtime_etc" "$runtime_logs" "$runtime_models"
+: > "$test_log"
+
+# Keep the mirror alive during signal-driven Launch Manager shutdown so final
+# process-stop messages are retained in the integration-test log.
+exec > >(setsid --fork tee -a "$test_log") 2>&1
+
+echo "[DEPLOYMENT][LOG] console output is mirrored to $test_log"
+echo "[DEPLOYMENT][STAGE] preparing runtime=$runtime_root"
+install -m 0755 "$launch_manager" "$runtime_bin/launch_manager"
+install -m 0755 "$control_daemon" "$runtime_bin/control_daemon"
+install -m 0755 "$lmcontrol" "$runtime_bin/lmcontrol"
+install -m 0755 "$traffic_perception" "$runtime_bin/traffic_perception"
+install -m 0755 \
+    "$onnxruntime_so" \
+    "$runtime_lib/libonnxruntime.so.1"
+
+cp -R --remove-destination "$generated_config"/. "$runtime_etc"/
+install -m 0644 "$ecu_logging_config" "$runtime_etc/ecu_logging_config.json"
+install -m 0644 "$hm_logging_config" "$runtime_etc/hm_logging.json"
+install -m 0644 "$lm_logging_config" "$runtime_etc/logging.json"
+install -m 0644 "$traffic_perception_config" "$runtime_etc/traffic_perception_config.json"
+install -m 0644 "$yolov8m_oiv7_onnx" "$runtime_models/yolov8m-oiv7.onnx"
+install -m 0644 "$traffic_mp4" "$runtime_etc/traffic.mp4"
+install -m 0644 "$traffic2_mp4" "$runtime_etc/traffic2.mp4"
+install -m 0644 "$traffic3_mp4" "$runtime_etc/traffic3.mp4"
+install -m 0644 "$traffic4_mp4" "$runtime_etc/traffic4.mp4"
+
+echo "[DEPLOYMENT][STAGE] runtime ready"
+export LD_LIBRARY_PATH="$runtime_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+echo "[LAUNCH_MANAGER][START] binary=$runtime_bin/launch_manager"
+launch_manager_pid=$$
+echo "[LAUNCH_MANAGER][START] pid=$launch_manager_pid"
+
+# Startup launches only the state manager. The detached helper requests
+# Running after its module-specific IPC endpoint becomes available.
+setsid --fork "$0" --activate-running "$runtime_bin/lmcontrol" \
+  "$launch_manager_pid"
+
+# Launch Manager becomes the process owned by bazel run, so Ctrl-C/SIGTERM use
+# its official managed shutdown handler for every child process.
+cd "$runtime_root"
+export LD_LIBRARY_PATH="$runtime_root/lib:${LD_LIBRARY_PATH:-}"
+echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+ls -l "$runtime_lib"
+exec "$runtime_bin/launch_manager"

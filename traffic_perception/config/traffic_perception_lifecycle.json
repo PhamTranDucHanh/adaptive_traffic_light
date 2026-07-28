@@ -1,0 +1,120 @@
+{
+    "schema_version": 1,
+    "defaults": {
+        "deployment_config": {
+            "bin_dir": "/tmp/traffic_perception/bin",
+            "ready_timeout": 30.0,
+            "shutdown_timeout": 5.0,
+            "ready_recovery_action": {
+                "restart": {
+                    "number_of_attempts": 1,
+                    "delay_before_restart": 0.1
+                }
+            },
+            "recovery_action": {
+                "switch_run_target": {
+                    "run_target": "fallback_run_target"
+                }
+            },
+            "sandbox": {
+                "scheduling_policy": "SCHED_OTHER",
+                "scheduling_priority": 0
+            }
+        },
+        "component_properties": {
+            "application_profile": {
+                "application_type": "Reporting",
+                "is_self_terminating": false
+            },
+            "ready_condition": {
+                "process_state": "Running"
+            }
+        },
+        "run_target": {
+            "transition_timeout": 5.0,
+            "recovery_action": {
+                "switch_run_target": {
+                    "run_target": "fallback_run_target"
+                }
+            }
+        }
+    },
+    "components": {
+        "control_daemon": {
+            "description": "State manager for traffic perception Run Target transitions",
+            "component_properties": {
+                "binary_name": "control_daemon",
+                "application_profile": {
+                    "application_type": "State_Manager",
+                    "alive_supervision": {
+                        "min_indications": 0
+                    }
+                }
+            },
+            "deployment_config": {
+                "sandbox": {
+                    "scheduling_policy": "SCHED_OTHER",
+                    "scheduling_priority": 0
+                },
+                "environmental_variables": {
+                    "PROCESSIDENTIFIER": "perception_control"
+                }
+            }
+        },
+        "traffic_perception": {
+            "description": "Managed traffic perception process",
+            "component_properties": {
+                "binary_name": "traffic_perception",
+                "application_profile": {
+                    "application_type": "Reporting_And_Supervised",
+                    "alive_supervision": {
+                        "reporting_cycle": 3.0,
+                        "min_indications": 1,
+                        "max_indications": 4,
+                        "failed_cycles_tolerance": 1
+                    }
+                }
+            },
+            "deployment_config": {
+                "environmental_variables": {
+                    "PROCESSIDENTIFIER": "traffic_perception",
+                    "IDENTIFIER": "traffic_perception",
+                    "LD_LIBRARY_PATH": "/tmp/traffic_perception/lib",
+                    "DISPLAY": ":0",
+                    "WAYLAND_DISPLAY": "wayland-0",
+                    "XDG_RUNTIME_DIR": "/run/user/1000/"
+                },
+                "sandbox": {
+                    "scheduling_policy": "SCHED_FIFO",
+                    "scheduling_priority": 0
+                }
+            }
+        }
+    },
+    "run_targets": {
+        "Startup": {
+            "description": "Only the perception state manager is active",
+            "depends_on": [
+                "control_daemon"
+            ]
+        },
+        "Running": {
+            "description": "Run the traffic perception process",
+            "depends_on": [
+                "control_daemon",
+                "traffic_perception"
+            ]
+        }
+    },
+    "initial_run_target": "Startup",
+    "alive_supervision": {
+        "evaluation_cycle": 0.1
+    },
+    "fallback_run_target": {
+        "description": "Keep control available after a perception failure",
+        "depends_on": [
+            "control_daemon"
+        ],
+        "transition_timeout": 5.0
+    }
+}

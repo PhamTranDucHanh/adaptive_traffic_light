@@ -1,0 +1,26 @@
+{
+    "ecuId": "TPER",
+    "appId": "TPER",
+    "appDesc": "Traffic Perception",
+    "logMode": "kFile|kConsole",
+    "logFilePath": "/tmp",
+    "logLevel": "kInfo",
+    "contextConfigs": [
+        {
+            "name": "TPER",
+            "logLevel": "kInfo"
+        },
+        {
+            "name": "TPER_TIMELINE",
+            "logLevel": "kInfo"
+        },
+        {
+            "name": "TPER_STREAM",
+            "logLevel": "kInfo"
+        },
+        {
+            "name": "TPER_VIEWER",
+            "logLevel": "kInfo"
+        }
+    ]
+}

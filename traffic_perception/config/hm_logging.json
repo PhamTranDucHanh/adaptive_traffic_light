@@ -1,0 +1,7 @@
+{
+    "ecuId": "TPER",
+    "appId": "HM",
+    "logMode": "kConsole",
+    "logLevel": "kDebug",
+    "logLevelThresholdConsole": "kDebug"
+}

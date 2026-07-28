@@ -46,13 +46,12 @@ set(ALL_SOURCES
     src/inference/model_backend.cpp
 
     # Pipeline Layer
-    src/pipeline/traffic_analyzer.cpp
     src/pipeline/snapshot_publisher.cpp
+    src/pipeline/pipeline_manager.cpp
 
     # IO / Sinks Layer
     src/io/multi_lane_viewer.cpp
     src/io/snapshot_sender.cpp
-    src/io/telemetry_manager.cpp
 )
 
 target_sources(traffic_perception_lib PRIVATE ${ALL_SOURCES})
