@@ -1,0 +1,160 @@
+{
+    "schema_version": 1,
+    "defaults": {
+        "deployment_config": {
+            "bin_dir": "/tmp/linux_rt_application/bin",
+            "ready_timeout": 3.0,
+            "shutdown_timeout": 5.0,
+            "ready_recovery_action": {
+                "restart": {
+                    "number_of_attempts": 1,
+                    "delay_before_restart": 0.1
+                }
+            },
+            "recovery_action": {
+                "switch_run_target": {
+                    "run_target": "fallback_run_target"
+                }
+            },
+            "sandbox": {
+                "scheduling_policy": "SCHED_FIFO",
+                "scheduling_priority": 50
+            }
+        },
+        "component_properties": {
+            "application_profile": {
+                "application_type": "Reporting",
+                "is_self_terminating": false
+            },
+            "ready_condition": {
+                "process_state": "Running"
+            }
+        },
+        "run_target": {
+            "transition_timeout": 5.0,
+            "recovery_action": {
+                "switch_run_target": {
+                    "run_target": "fallback_run_target"
+                }
+            }
+        }
+    },
+    "components": {
+        "control_daemon": {
+            "description": "State manager for traffic-light Run Target transitions",
+            "component_properties": {
+                "binary_name": "control_daemon",
+                "application_profile": {
+                    "application_type": "State_Manager",
+                    "alive_supervision": {
+                        "min_indications": 0
+                    }
+                }
+            },
+            "deployment_config": {
+                "environmental_variables": {
+                    "PROCESSIDENTIFIER": "control_daemon"
+                }
+            }
+        },
+        "perception_demo": {
+            "description": "Periodic TrafficSnapshot producer used by the integrated demo",
+            "component_properties": {
+                "binary_name": "perception_demo",
+                "application_profile": {
+                    "application_type": "Reporting"
+                }
+            },
+            "deployment_config": {
+                "sandbox": {
+                    "scheduling_policy": "SCHED_FIFO",
+                    "scheduling_priority": 70
+                },
+                "environmental_variables": {
+                    "PROCESSIDENTIFIER": "perception_demo",
+                    "MW_LOG_CONFIG_FILE": "/tmp/linux_rt_application/etc/perception_logging.json"
+                }
+            }
+        },
+        "timing_decision": {
+            "description": "Adaptive traffic timing decision process",
+            "component_properties": {
+                "binary_name": "traffic_timing_decision",
+                "depends_on": [
+                    "perception_demo"
+                ],
+                "application_profile": {
+                    "application_type": "Reporting_And_Supervised",
+                    "alive_supervision": {
+                        "reporting_cycle": 2.0,
+                        "min_indications": 2,
+                        "max_indications": 4,
+                        "failed_cycles_tolerance": 1
+                    }
+                }
+            },
+            "deployment_config": {
+                "sandbox": {
+                    "scheduling_policy": "SCHED_FIFO",
+                    "scheduling_priority": 60
+                },
+                "environmental_variables": {
+                    "PROCESSIDENTIFIER": "timing_decision",
+                    "IDENTIFIER": "timing_decision",
+                    "MW_LOG_CONFIG_FILE": "/tmp/linux_rt_application/etc/timing_decision_logging.json",
+                    "TIMING_REPORT_LOG_DIR": "/tmp/linux_rt_application/logs"
+                }
+            }
+        },
+        "signal_control_demo": {
+            "description": "Periodic TimingPlan consumer used as the signal-controller demo",
+            "component_properties": {
+                "binary_name": "signal_control_demo",
+                "depends_on": [
+                    "timing_decision"
+                ],
+                "application_profile": {
+                    "application_type": "Reporting"
+                }
+            },
+            "deployment_config": {
+                "sandbox": {
+                    "scheduling_policy": "SCHED_FIFO",
+                    "scheduling_priority": 80
+                },
+                "environmental_variables": {
+                    "PROCESSIDENTIFIER": "signal_control_demo",
+                    "MW_LOG_CONFIG_FILE": "/tmp/linux_rt_application/etc/signal_control_logging.json"
+                }
+            }
+        }
+    },
+    "run_targets": {
+        "Startup": {
+            "description": "Only the state manager is active",
+            "depends_on": [
+                "control_daemon"
+            ]
+        },
+        "Running": {
+            "description": "Run the ordered Perception -> Timing Decision -> Signal Control pipeline",
+            "depends_on": [
+                "control_daemon",
+                "perception_demo",
+                "timing_decision",
+                "signal_control_demo"
+            ]
+        }
+    },
+    "initial_run_target": "Startup",
+    "alive_supervision": {
+        "evaluation_cycle": 0.1
+    },
+    "fallback_run_target": {
+        "description": "Keep control available after an application failure",
+        "depends_on": [
+            "control_daemon"
+        ],
+        "transition_timeout": 5.0
+    }
+}
