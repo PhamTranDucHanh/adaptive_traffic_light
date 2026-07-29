@@ -33,8 +33,7 @@ constexpr const char* kRuntimeLogDirectory{
 
 constexpr std::int32_t kDefaultFsmPriority{80};
 constexpr std::int32_t kDefaultPlanReceiverPriority{70};
-constexpr std::int32_t kDefaultFsmCpu{0};
-constexpr std::int32_t kDefaultPlanReceiverCpu{1};
+constexpr std::int32_t kTrafficSignalControllerCpu{3};
 constexpr std::int32_t kDecimalBase{10};
 
 constexpr std::size_t kBytesPerKibibyte{1024U};
@@ -110,19 +109,26 @@ std::int32_t GetPriorityFromEnvOrDefault(const char* const name,
   return parsedPriority;
 }
 
-std::int32_t GetCpuFromEnvOrDefault(const char* const name,
-                                    const std::int32_t defaultCpu) {
-  const std::int32_t parsedCpu = GetIntegerFromEnvOrDefault(name, defaultCpu);
+bool PinCurrentThreadToCpu(const std::int32_t cpu,
+                           const char* const threadName) noexcept {
+  cpu_set_t cpuSet{};
+  CPU_ZERO(&cpuSet);
+  CPU_SET(cpu, &cpuSet);
 
-  if (parsedCpu < 0 || parsedCpu >= CPU_SETSIZE) {
-    AppLogger().LogWarn() << "event=THREAD_CPU_ENV_INVALID"
-                          << ", variable=" << name << ", value=" << parsedCpu
-                          << ", valid_range=0-" << (CPU_SETSIZE - 1)
-                          << ", fallback_cpu=" << defaultCpu;
-    return defaultCpu;
+  const std::int32_t result = static_cast<std::int32_t>(
+      pthread_setaffinity_np(pthread_self(), sizeof(cpuSet), &cpuSet));
+
+  if (result != EXIT_SUCCESS) {
+    AppLogger().LogWarn() << "event=THREAD_AFFINITY_FAILED"
+                          << ", thread=" << threadName << ", cpu=" << cpu
+                          << ", error=" << result
+                          << ", reason=" << std::strerror(result);
+    return false;
   }
 
-  return parsedCpu;
+  AppLogger().LogInfo() << "event=THREAD_AFFINITY_CONFIGURED"
+                        << ", thread=" << threadName << ", cpu=" << cpu;
+  return true;
 }
 
 bool ConfigureRealtimeThreadAttributes(pthread_attr_t& attributes,
@@ -231,6 +237,12 @@ std::int32_t SignalControlApplication::Initialize(
       .LogLevel(score::mw::log::rust::LogLevel::Verbose)
       .SetAsDefaultLogger();
 
+  // Pin lifecycle_main before starting any application-owned worker.
+  // Every worker created afterwards inherits this CPU3 affinity.
+  if (!PinCurrentThreadToCpu(kTrafficSignalControllerCpu, "lifecycle_main")) {
+    return EXIT_FAILURE;
+  }
+
   LockProcessMemory();
   PrefaultCurrentThreadStack("lifecycle_main");
 
@@ -286,6 +298,7 @@ std::int32_t SignalControlApplication::Initialize(
 
   AppLogger().LogInfo() << "event=APP_READY"
                         << ", application_threads=4"
+                        << ", cpu=" << kTrafficSignalControllerCpu
                         << ", period_ms=" << kControlPeriodMilliseconds;
   return EXIT_SUCCESS;
 }
@@ -383,8 +396,7 @@ void* SignalControlApplication::PlanReceiverWorkerEntry(
 bool SignalControlApplication::StartFsmWorker() noexcept {
   const std::int32_t priority = GetPriorityFromEnvOrDefault(
       "TRAFFIC_SIGNAL_CONTROLLER_FSM_PRIORITY", kDefaultFsmPriority);
-  const std::int32_t cpu = GetCpuFromEnvOrDefault(
-      "TRAFFIC_SIGNAL_CONTROLLER_FSM_CPU", kDefaultFsmCpu);
+  constexpr std::int32_t cpu{kTrafficSignalControllerCpu};
 
   pthread_attr_t attributes{};
   std::int32_t result = pthread_attr_init(&attributes);
@@ -419,8 +431,7 @@ bool SignalControlApplication::StartFsmWorker() noexcept {
 bool SignalControlApplication::StartPlanReceiverWorker() noexcept {
   const std::int32_t priority = GetPriorityFromEnvOrDefault(
       "TRAFFIC_SIGNAL_CONTROLLER_PLAN_PRIORITY", kDefaultPlanReceiverPriority);
-  const std::int32_t cpu = GetCpuFromEnvOrDefault(
-      "TRAFFIC_SIGNAL_CONTROLLER_PLAN_CPU", kDefaultPlanReceiverCpu);
+  constexpr std::int32_t cpu{kTrafficSignalControllerCpu};
 
   pthread_attr_t attributes{};
   std::int32_t result = pthread_attr_init(&attributes);
