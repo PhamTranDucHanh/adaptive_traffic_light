@@ -1,18 +1,27 @@
+#include <pthread.h>
+#include <sched.h>
+
 #include <memory>
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <thread>
 
+#include "rules_cc/cc/runfiles/runfiles.h"
 #include "score/mw/log/logging.h"
-#include "tools/cpp/runfiles/runfiles.h"
 #include "traffic_perception/core/config_manager.h"
 #include "traffic_perception/perception_module.h"
 #include "traffic_perception/viewer/opencv_lanes_viewer.h"
 
-using bazel::tools::cpp::runfiles::Runfiles;
+using rules_cc::cc::runfiles::Runfiles;
 using namespace traffic_perception;
 
 int main(int argc, char* argv[]) {
+  // Pin main thread/process to CPU Core 2
+  cpu_set_t cpuset;
+  CPU_ZERO(&cpuset);
+  CPU_SET(2, &cpuset);  // Core Index = 2
+  pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+
   std::string error;
   std::unique_ptr<Runfiles> runfiles(Runfiles::Create(argv[0], &error));
 
@@ -24,8 +33,8 @@ int main(int argc, char* argv[]) {
   // Load configuration
   //---------------------------------------------------------------------------
 
-  std::string configPath = runfiles->Rlocation(
-      "traffic_perception/config/traffic_perception_config.json");
+  std::string configPath =
+      runfiles->Rlocation("_main/config/traffic_perception_config.json");
 
   if (configPath.empty()) {
     return 1;
@@ -71,7 +80,8 @@ int main(int argc, char* argv[]) {
 
   bool running = true;
 
-  auto nextRelease = std::chrono::steady_clock::now() + std::chrono::milliseconds(config.ViewerPhase);
+  auto nextRelease = std::chrono::steady_clock::now() +
+                     std::chrono::milliseconds(config.ViewerPhase);
   const auto period = std::chrono::milliseconds(config.ViewerPeriod);
 
   while (running) {

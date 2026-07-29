@@ -456,7 +456,9 @@ bool TimelineAnalyzer::parseLine(const std::string& line,
     return false;
   }
 
-  ExtractInt64(line, "ExpectedWakeup=", outTimeline.expectedWakeup);
+  if (!ExtractInt64(line, "ExpectedWakeup=", outTimeline.expectedWakeup)) {
+    return false;
+  }
 
   if (outTimeline.type == TimelineType::Stream) {
     int64_t laneId = -1;

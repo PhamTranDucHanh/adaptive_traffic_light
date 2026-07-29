@@ -29,12 +29,19 @@ PipelineManager::PipelineManager(IModelBackend& backend,
       publisher_(),
       engine_(backend, buffer, pool, analyzer_, laneRois_) {}
 
-void PipelineManager::run() {
+void PipelineManager::run(std::chrono::steady_clock::time_point startTime) {
   running_ = true;
 
-  auto nextRelease = std::chrono::steady_clock::now() + phase_;
+  auto nextRelease = startTime + phase_;
 
   while (running_) {
+    // If we are more than one period late, drop backlog and
+    // restart the schedule from now.
+    const auto now = std::chrono::steady_clock::now();
+    if (now > nextRelease + period_) {
+      nextRelease = now + period_;
+    }
+
     // Scheduled release time for this cycle.
     const auto scheduledRelease = nextRelease;
 
@@ -56,13 +63,7 @@ void PipelineManager::run() {
 
     runOneCycle(expectedWakeup, pipelineBegin);
 
-    // If we are more than one period late, drop backlog and
-    // restart the schedule from now.
-    if (wakeup > scheduledRelease + period_) {
-      nextRelease = wakeup + period_;
-    } else {
-      nextRelease = scheduledRelease + period_;
-    }
+    nextRelease = scheduledRelease + period_;
   }
 }
 

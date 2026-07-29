@@ -2,7 +2,7 @@
   "capture_period_ms": 200,
   "capture_phase_ms": 0,
 
-  "pipeline_period_ms": 3000,
+  "pipeline_period_ms": 5000,
   "pipeline_phase_ms": 50,
 
   "viewer_period_ms": 3000,

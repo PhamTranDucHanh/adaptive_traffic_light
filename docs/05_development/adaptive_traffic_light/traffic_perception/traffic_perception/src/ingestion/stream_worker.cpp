@@ -5,6 +5,8 @@
 #include <chrono>
 #include <thread>
 
+#include <unistd.h>
+
 #include "score/mw/log/logger.h"
 
 namespace {
@@ -20,8 +22,7 @@ inline score::mw::log::Logger& getBenchmarkLogger() {
 namespace traffic_perception {
 
 bool StreamWorker::initStream(std::string sourceUri, int32_t streamId,
-                              FramePool* pool,
-                              std::chrono::milliseconds period,
+                              FramePool* pool, std::chrono::milliseconds period,
                               std::chrono::milliseconds phase) {
   SourceUri = std::move(sourceUri);
   LaneId = streamId;
@@ -64,7 +65,8 @@ cv::VideoCapture StreamWorker::createCapture(const std::string& source) {
 
 void StreamWorker::stop() { running_.store(false, std::memory_order_relaxed); }
 
-void StreamWorker::run(AtomicFrameBuffer& frameBuffer) {
+void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
+                       std::chrono::steady_clock::time_point startTime) {
   cv::VideoCapture cap = createCapture(SourceUri);
 
   if (!cap.isOpened()) {
@@ -75,10 +77,21 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer) {
 
   int32_t localFrameCounter = 0;
 
-  auto nextRelease =
-      std::chrono::steady_clock::now() + phase_;
+  const auto lanePhase =
+      AcquisitionPeriod * static_cast<std::int64_t>(LaneId) /
+      static_cast<std::int64_t>(NUM_LANES);
+
+  auto nextRelease = startTime + phase_ + lanePhase;
 
   while (running_) {
+    // Fast-forward past any missed releases before sleeping so the next
+    // sample reflects scheduler wake-up jitter, not backlog from an overrun
+    // cycle.
+    const auto now = std::chrono::steady_clock::now();
+    while (nextRelease + AcquisitionPeriod <= now) {
+      nextRelease += AcquisitionPeriod;
+    }
+
     // Scheduled release time for this cycle.
     const auto scheduledRelease = nextRelease;
 
@@ -93,20 +106,17 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer) {
             scheduledRelease.time_since_epoch())
             .count();
 
-    // If we are more than one period late, drop backlog and
-    // restart the periodic schedule from now.
-    if (wakeupTime > scheduledRelease + AcquisitionPeriod) {
-      nextRelease = wakeupTime + AcquisitionPeriod;
-    } else {
-      nextRelease = scheduledRelease + AcquisitionPeriod;
-    }
+    // Advance to the next nominal release time.
+    nextRelease = scheduledRelease + AcquisitionPeriod;
 
     Frame* frame = Pool->acquire();
     if (frame == nullptr) {
       continue;
     }
 
-    if (!cap.read(frame->Image)) {
+    const auto grabBegin = std::chrono::steady_clock::now();
+
+    if (!cap.grab()) {
       if (detectSourceType(SourceUri) == InputSourceType::LocalFile) {
         cap.set(cv::CAP_PROP_POS_FRAMES, 0);
         Pool->release(frame);
@@ -120,9 +130,40 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer) {
       break;
     }
 
+    const auto grabEnd = std::chrono::steady_clock::now();
+
+    const auto decodeBegin = std::chrono::steady_clock::now();
+
+    if (!cap.retrieve(frame->Image)) {
+      Pool->release(frame);
+      continue;
+    }
+
+    const auto decodeEnd = std::chrono::steady_clock::now();
+
     const int64_t captureBegin =
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             wakeupTime.time_since_epoch())
+            .count();
+
+    const int64_t grabBeginNs =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            grabBegin.time_since_epoch())
+            .count();
+
+    const int64_t grabEndNs =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            grabEnd.time_since_epoch())
+            .count();
+
+    const int64_t decodeBeginNs =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            decodeBegin.time_since_epoch())
+            .count();
+
+    const int64_t decodeEndNs =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            decodeEnd.time_since_epoch())
             .count();
 
     frame->FrameId = ++localFrameCounter;
@@ -141,14 +182,21 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer) {
             .count();
 
     getBenchmarkLogger().LogInfo()
-        << "LaneId=" << LaneId
-        << " FrameId=" << frame->FrameId
+        << "LaneId=" << LaneId << " FrameId=" << frame->FrameId
         << " ExpectedWakeup=" << expectedWakeup
         << " Begin=" << captureBegin
+        << " GrabBegin=" << grabBeginNs
+        << " GrabEnd=" << grabEndNs
+        << " DecodeBegin=" << decodeBeginNs
+        << " DecodeEnd=" << decodeEndNs
         << " End=" << captureEnd;
   }
 
   cap.release();
+}
+
+std::int32_t StreamWorker::getLaneId() const {
+  return LaneId;
 }
 
 }  // namespace traffic_perception
