@@ -1,0 +1,84 @@
+{%- if versions -%}
+  {#- ============================================================
+      1. Normalize each entry to {name, url}. sphinx-multiversion
+         may pass Version objects (.name/.url) or (name, url) tuples.
+     ============================================================ -#}
+  {%- set items = [] -%}
+  {%- for v in versions -%}
+    {%- if v.name is defined -%}
+      {%- set _ = items.append({'name': v.name, 'url': v.url}) -%}
+    {%- else -%}
+      {%- set _ = items.append({'name': v[0], 'url': v[1]}) -%}
+    {%- endif -%}
+  {%- endfor -%}
+
+  {#- ============================================================
+      2. Build a semver sort key with built-in filters only
+         (no regex, so conf.py needs no extra setup):
+         strip leading "v", keep digits/dots until a non-digit,
+         zero-pad each number to 6 chars.
+         v1.10.0 -> "000001.000010.000000"
+         v1.9.0  -> "000001.000009.000000"   (so v1.10.0 > v1.9.0)
+     ============================================================ -#}
+  {%- set keyed = [] -%}
+  {%- for v in items -%}
+    {%- set raw = v.name -%}
+    {%- if raw[0] in ['v', 'V'] -%}{%- set raw = raw[1:] -%}{%- endif -%}
+    {%- set ns = namespace(s='', stop=false) -%}
+    {%- for ch in raw -%}
+      {%- if not ns.stop -%}
+        {%- if ch in '0123456789.' -%}
+          {%- set ns.s = ns.s ~ ch -%}
+        {%- else -%}
+          {%- set ns.stop = true -%}
+        {%- endif -%}
+      {%- endif -%}
+    {%- endfor -%}
+    {%- set pad = [] -%}
+    {%- for p in ns.s.split('.') -%}
+      {%- if p and p.isdigit() -%}
+        {%- set _ = pad.append('%06d' % (p | int)) -%}
+      {%- endif -%}
+    {%- endfor -%}
+    {%- set _ = keyed.append({'name': v.name, 'url': v.url,
+                              'key': pad | join('.')}) -%}
+  {%- endfor -%}
+
+  {#- ============================================================
+      3. Sort descending: first item is the latest version.
+         Capture the latest version's NAME so the top button can
+         tell whether the page you're viewing is the newest one.
+     ============================================================ -#}
+  {%- set ordered = keyed | sort(attribute='key', reverse=true) -%}
+  {%- set latest_name = ordered[0].name if ordered else '' -%}
+
+  {#- Name of the version currently being viewed. -#}
+  {%- if current_version.name is defined -%}
+    {%- set current_name = current_version.name -%}
+  {%- else -%}
+    {%- set current_name = current_version | string -%}
+  {%- endif -%}
+
+  <div class="nav-versions">
+    <button type="button" aria-label="{{ _("Versions") }}">
+      <span class="md:hidden">{{ _("Versions") }}</span>
+      <span class="hidden md:inline">
+        {{ current_name }}
+        {%- if current_name == latest_name %} <span class="version-latest-badge">({{ _("latest") }})</span>{%- endif -%}
+      </span>
+      <i class="i-lucide chevron-down"></i>
+    </button>
+    <div class="nav-versions-choices">
+      <ul>
+        {%- for v in ordered -%}
+          <li>
+            <a href="{{ v.url }}">
+              {{ v.name }}
+              {%- if loop.first %} <span class="version-latest-badge">({{ _("latest") }})</span>{%- endif -%}
+            </a>
+          </li>
+        {%- endfor -%}
+      </ul>
+    </div>
+  </div>
+{%- endif -%}
