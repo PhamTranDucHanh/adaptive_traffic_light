@@ -1,5 +1,6 @@
 #include "timing_decision_application.h"
 
+#include <sched.h>
 #include <sys/mman.h>
 
 #include <array>
@@ -12,7 +13,6 @@
 #ifdef RT_THREAD_CHECKING
 #include <linux/sched.h>
 #include <pthread.h>
-#include <sched.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 #endif
@@ -25,6 +25,7 @@ namespace {
 constexpr std::string_view kDefaultTimingReportDirectory{
     "/tmp/linux_rt_application/logs"};
 constexpr char kTimingReportDirectoryEnvironment[] = "TIMING_REPORT_LOG_DIR";
+constexpr std::int32_t kTimingDecisionCpu{1};
 
 enum class RealtimeMemoryConfiguration : std::uint32_t {
   // A bounded reserve for the periodic thread's nested call stack.
@@ -314,6 +315,20 @@ void TimingDecisionApplication::unlockProcessMemory() noexcept {
 std::int32_t TimingDecisionApplication::Initialize(
     const score::mw::lifecycle::ApplicationContext& context) {
   (void)context;
+
+  cpu_set_t affinityMask;
+  CPU_ZERO(&affinityMask);
+  CPU_SET(kTimingDecisionCpu, &affinityMask);
+  if (sched_setaffinity(0, sizeof(affinityMask), &affinityMask) != 0) {
+    const std::int32_t affinityError = errno;
+    applicationLogger().LogError()
+        << "[INIT][CPU_AFFINITY] sched_setaffinity failed; cpu="
+        << kTimingDecisionCpu << "; errno=" << affinityError
+        << "; reason=" << std::string_view{std::strerror(affinityError)};
+    return EXIT_FAILURE;
+  }
+  applicationLogger().LogInfo()
+      << "[INIT][CPU_AFFINITY] process pinned; cpu=" << kTimingDecisionCpu;
 
   if (!periodicWait_.valid()) {
     applicationLogger().LogError()
