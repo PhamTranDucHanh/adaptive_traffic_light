@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <optional>
 
-#include <common/config.h>
 #include <score/mw/health/health_monitor.h>
 
 // Thin application adapter around Eclipse S-CORE's official HealthMonitor.
@@ -25,14 +24,7 @@ class HealthReporter {
   bool startControlCycle();
   void finishControlCycle();
 
-  // Existing domain-facing interface is intentionally preserved.
-  void requestHeartbeat();
-  void receiveHealthMetrics(const HealthStatus& metrics);
-  bool checkHealth();
-  HealthStatus createHealthStatus();
-
  private:
-  HealthStatus currentStatus;
   std::optional<score::mw::health::HealthMonitor> healthMonitor_;
   std::optional<score::mw::health::deadline::DeadlineMonitor>
       deadlineMonitor_;

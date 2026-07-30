@@ -26,7 +26,8 @@ std::string Trim(std::string value) {
 }
 
 bool ParseUint64(const std::string& value, std::uint64_t& result) noexcept {
-  if (value.empty()) {
+  if (value.empty() ||
+      value.find_first_not_of("0123456789") != std::string::npos) {
     return false;
   }
 
@@ -129,7 +130,6 @@ bool Analytics::LoadDltBinaryLog(const std::string& content) {
 
     if (!message.empty()) {
       LogEntry entry;
-      entry.applicationId = "CTRL";
       entry.contextId = contextId;
       entry.timestampNs = ExtractDltStorageTimestampNs(record);
 
@@ -157,26 +157,33 @@ bool Analytics::LoadDltBinaryLog(const std::string& content) {
 bool Analytics::ParseLogLine(const std::string& line, LogEntry& entry) const {
   std::istringstream stream(line);
 
+  std::string date;
+  std::string time;
   std::string dltTimestamp;
   std::string messageCounter;
   std::string messageType;
+  std::string ecuId;
+  std::string applicationId;
+  std::string logLevel;
   std::string verbose;
   std::string argumentCount;
 
-  if (!(stream >> entry.date >> entry.time >> dltTimestamp >> messageCounter >>
-        messageType >> entry.ecuId >> entry.applicationId >> entry.contextId >>
-        messageType >> entry.logLevel >> verbose >> argumentCount)) {
+  if (!(stream >> date >> time >> dltTimestamp >> messageCounter >>
+        messageType >> ecuId >> applicationId >> entry.contextId >>
+        messageType >> logLevel >> verbose >> argumentCount)) {
     return false;
   }
 
+  double dltTimestampSeconds{};
+
   try {
-    entry.dltTimestampSeconds = std::stod(dltTimestamp);
+    dltTimestampSeconds = std::stod(dltTimestamp);
   } catch (...) {
-    entry.dltTimestampSeconds = 0.0;
+    dltTimestampSeconds = 0.0;
   }
 
   entry.timestampNs =
-      static_cast<std::uint64_t>(entry.dltTimestampSeconds * 1'000'000'000.0);
+      static_cast<std::uint64_t>(dltTimestampSeconds * 1'000'000'000.0);
 
   std::getline(stream, entry.message);
   entry.message = Trim(entry.message);
@@ -202,12 +209,6 @@ void Analytics::ParseApplicationMessage(LogEntry& entry) const {
     // Các log lỗi/sự kiện khác của OUT vẫn được parse theo event= bên dưới.
     if (!phase.empty()) {
       entry.eventType = EventType::PhaseStatus;
-      entry.phase = phase;
-
-      const auto remainingSeconds =
-          ParseUint32(ExtractValue(entry.message, "remaining"));
-
-      entry.remainingTimeMs = remainingSeconds * 1000U;
       return;
     }
   }
@@ -216,26 +217,11 @@ void Analytics::ParseApplicationMessage(LogEntry& entry) const {
 
   entry.eventType = EventTypeFromString(eventName);
 
-  entry.planId = ParseUint32(ExtractValue(entry.message, "plan_id"));
-
-  entry.phase = ExtractValue(entry.message, "phase");
-
-  entry.remainingTimeMs =
-      ParseUint32(ExtractValue(entry.message, "remaining_ms"));
-
-  entry.durationMs = ParseUint32(ExtractValue(entry.message, "duration_ms"));
-
-  entry.oldRemainingTimeMs =
-      ParseUint32(ExtractValue(entry.message, "old_remaining_ms"));
-
-  entry.newRemainingTimeMs =
-      ParseUint32(ExtractValue(entry.message, "new_remaining_ms"));
+  entry.planId = ParseUint64OrZero(ExtractValue(entry.message, "plan_id"));
 
   entry.emergencyNs = ParseBool(ExtractValue(entry.message, "emergency_ns"));
 
   entry.emergencyEw = ParseBool(ExtractValue(entry.message, "emergency_ew"));
-
-  entry.result = ExtractValue(entry.message, "result");
 
   entry.rejectReason = ExtractValue(entry.message, "reason");
 }
@@ -290,19 +276,9 @@ std::string Analytics::ExtractValue(const std::string& message,
   return Trim(message.substr(valueStart, valueEnd - valueStart));
 }
 
-std::uint32_t Analytics::ParseUint32(const std::string& value) {
-  if (value.empty()) {
-    return 0U;
-  }
-
-  try {
-    std::size_t processedCharacters{};
-    const auto result = std::stoul(value, &processedCharacters);
-
-    return static_cast<std::uint32_t>(result);
-  } catch (...) {
-    return 0U;
-  }
+std::uint64_t Analytics::ParseUint64OrZero(const std::string& value) {
+  std::uint64_t result{};
+  return ParseUint64(value, result) ? result : 0U;
 }
 
 bool Analytics::ParseBool(const std::string& value) {
@@ -362,7 +338,7 @@ std::int64_t Analytics::Percentile(std::vector<std::int64_t> samples,
 }
 
 void Analytics::WritePlanIdSet(std::ostream& output, const std::string& label,
-                               const std::set<std::uint32_t>& planIds) {
+                               const std::set<std::uint64_t>& planIds) {
   output << label << ": ";
 
   if (planIds.empty()) {
@@ -418,7 +394,7 @@ std::string Analytics::ConvertDltRecordToTextMessage(const std::string& record,
   if (contextId == "OUT") {
     const std::string phase = ExtractKnownValue(
         record, {"NS_GREEN", "EW_GREEN", "YELLOW", "ALL_RED"});
-    const std::uint32_t remaining = ExtractDltUint32(record, "remaining");
+    const std::uint64_t remaining = ExtractDltUint64(record, "remaining");
 
     if (phase.empty()) {
       return {};
@@ -446,7 +422,7 @@ std::string Analytics::ConvertDltRecordToTextMessage(const std::string& record,
   message << "event=" << eventName;
 
   if (record.find("plan_id=") != std::string::npos) {
-    message << ", plan_id=" << ExtractDltUint32(record, "plan_id");
+    message << ", plan_id=" << ExtractDltUint64(record, "plan_id");
   }
 
   const std::string phase =
@@ -457,30 +433,30 @@ std::string Analytics::ConvertDltRecordToTextMessage(const std::string& record,
   }
 
   if (record.find("remaining_ms=") != std::string::npos) {
-    message << ", remaining_ms=" << ExtractDltUint32(record, "remaining_ms");
+    message << ", remaining_ms=" << ExtractDltUint64(record, "remaining_ms");
   }
 
   if (record.find("duration_ms=") != std::string::npos) {
-    message << ", duration_ms=" << ExtractDltUint32(record, "duration_ms");
+    message << ", duration_ms=" << ExtractDltUint64(record, "duration_ms");
   }
 
   if (record.find("old_remaining_ms=") != std::string::npos) {
     message << ", old_remaining_ms="
-            << ExtractDltUint32(record, "old_remaining_ms");
+            << ExtractDltUint64(record, "old_remaining_ms");
   }
 
   if (record.find("new_remaining_ms=") != std::string::npos) {
     message << ", new_remaining_ms="
-            << ExtractDltUint32(record, "new_remaining_ms");
+            << ExtractDltUint64(record, "new_remaining_ms");
   }
 
   if (record.find("latency_ns=") != std::string::npos) {
-    message << ", latency_ns=" << ExtractDltUint32(record, "latency_ns");
+    message << ", latency_ns=" << ExtractDltUint64(record, "latency_ns");
   }
 
   if (record.find("execution_time_ns=") != std::string::npos) {
     message << ", execution_time_ns="
-            << ExtractDltUint32(record, "execution_time_ns");
+            << ExtractDltUint64(record, "execution_time_ns");
   }
 
   if (record.find("emergency_ns=") != std::string::npos) {
@@ -511,7 +487,7 @@ std::string Analytics::ConvertDltRecordToTextMessage(const std::string& record,
   return message.str();
 }
 
-std::uint32_t Analytics::ExtractDltUint32(const std::string& record,
+std::uint64_t Analytics::ExtractDltUint64(const std::string& record,
                                           const std::string& key) {
   const std::string token = key + "=";
   const auto tokenPosition = record.find(token);
@@ -531,22 +507,22 @@ std::uint32_t Analytics::ExtractDltUint32(const std::string& record,
     }
 
     const std::size_t valuePosition = position + 4U;
+    const std::size_t valueSize = marker == 'D' ? 8U : 4U;
 
-    if (valuePosition + 4U > record.size()) {
+    if (valuePosition + valueSize > record.size()) {
       continue;
     }
 
-    return static_cast<std::uint32_t>(
-        static_cast<unsigned char>(record[valuePosition]) |
-        (static_cast<std::uint32_t>(
-             static_cast<unsigned char>(record[valuePosition + 1U]))
-         << 8U) |
-        (static_cast<std::uint32_t>(
-             static_cast<unsigned char>(record[valuePosition + 2U]))
-         << 16U) |
-        (static_cast<std::uint32_t>(
-             static_cast<unsigned char>(record[valuePosition + 3U]))
-         << 24U));
+    std::uint64_t value{};
+
+    for (std::size_t byteIndex{}; byteIndex < valueSize; ++byteIndex) {
+      value |= static_cast<std::uint64_t>(
+                   static_cast<unsigned char>(
+                       record[valuePosition + byteIndex]))
+               << (byteIndex * 8U);
+    }
+
+    return value;
   }
 
   return 0U;
@@ -589,7 +565,7 @@ std::string Analytics::ExtractKnownValue(
 }
 
 void Analytics::ComputePlanStatistics() {
-  std::unordered_map<std::uint32_t, std::uint64_t> receivedTimestamps;
+  std::unordered_map<std::uint64_t, std::uint64_t> receivedTimestamps;
 
   for (const auto& entry : logEntries_) {
     switch (entry.eventType) {
@@ -637,7 +613,8 @@ void Analytics::ComputePlanStatistics() {
         if (receivedIterator != receivedTimestamps.end() &&
             entry.timestampNs >= receivedIterator->second) {
           const auto latency = entry.timestampNs - receivedIterator->second;
-          planStatistics_.totalReceiveToApplyLatencyNs += latency;
+          planStatistics_.totalReceiveToApplyLatencyNs +=
+              static_cast<long double>(latency);
           ++planStatistics_.latencySampleCount;
         }
 
@@ -741,8 +718,10 @@ bool Analytics::WriteReport(const std::string& outputPath) const {
 
   if (planStatistics_.latencySampleCount > 0U) {
     const double averageLatencyMs =
-        static_cast<double>(planStatistics_.totalReceiveToApplyLatencyNs) /
-        static_cast<double>(planStatistics_.latencySampleCount) / 1'000'000.0;
+        static_cast<double>(
+            planStatistics_.totalReceiveToApplyLatencyNs /
+            static_cast<long double>(planStatistics_.latencySampleCount) /
+            1'000'000.0L);
 
     output << "Average emergency receive-to-apply latency: " << std::fixed
            << std::setprecision(3) << averageLatencyMs << " ms\n";
@@ -786,15 +765,16 @@ bool Analytics::WriteReport(const std::string& outputPath) const {
         std::minmax_element(wakeupStatistics_.latencySamplesNs.begin(),
                             wakeupStatistics_.latencySamplesNs.end());
 
-    std::int64_t totalLatencyNs{};
+    long double totalLatencyNs{};
 
     for (const auto latencyNs : wakeupStatistics_.latencySamplesNs) {
       totalLatencyNs += latencyNs;
     }
 
-    const double averageLatencyMs =
-        NanosecondsToMilliseconds(totalLatencyNs) /
-        static_cast<double>(wakeupStatistics_.latencySamplesNs.size());
+    const double averageLatencyMs = static_cast<double>(
+        totalLatencyNs /
+        static_cast<long double>(wakeupStatistics_.latencySamplesNs.size()) /
+        1'000'000.0L);
 
     output << std::fixed << std::setprecision(3);
     output << "Min latency: " << NanosecondsToMilliseconds(*minimumIterator)
@@ -854,15 +834,15 @@ bool Analytics::WriteReport(const std::string& outputPath) const {
         std::minmax_element(executionSamplesNs.begin(),
                             executionSamplesNs.end());
 
-    std::int64_t totalExecutionTimeNs{};
+    long double totalExecutionTimeNs{};
 
     for (const auto executionTimeNs : executionSamplesNs) {
       totalExecutionTimeNs += executionTimeNs;
     }
 
-    const double averageExecutionTimeNs =
-        static_cast<double>(totalExecutionTimeNs) /
-        static_cast<double>(executionSamplesNs.size());
+    const double averageExecutionTimeNs = static_cast<double>(
+        totalExecutionTimeNs /
+        static_cast<long double>(executionSamplesNs.size()));
 
     output << std::fixed << std::setprecision(3);
     output << "Min execution time: " << *minimumIterator << " ns ("

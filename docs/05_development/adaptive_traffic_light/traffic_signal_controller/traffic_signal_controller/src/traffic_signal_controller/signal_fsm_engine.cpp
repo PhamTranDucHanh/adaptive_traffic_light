@@ -109,29 +109,43 @@ void SignalFSMEngine::reset() noexcept {
   nextDeadline_ = timespec{};
   deadlineInitialized_ = false;
 
-  wakeupSampleCount_ = 0U;
-  droppedWakeupSampleCount_ = 0U;
+  wakeupWriteSequence_.store(0U, std::memory_order_relaxed);
+  wakeupReadSequence_.store(0U, std::memory_order_relaxed);
+  droppedWakeupSampleCount_.store(0U, std::memory_order_relaxed);
 
   syncChannel_.SetCurrentPhase(currentPhaseId());
 }
 
-void SignalFSMEngine::dumpWakeupSamplesToLog() {
-  for (std::size_t index = 0U; index < wakeupSampleCount_; ++index) {
+void SignalFSMEngine::flushWakeupSamplesToLog() {
+  std::uint64_t readSequence =
+      wakeupReadSequence_.load(std::memory_order_relaxed);
+  const std::uint64_t writeSequence =
+      wakeupWriteSequence_.load(std::memory_order_acquire);
+
+  while (readSequence < writeSequence) {
+    const std::size_t index = static_cast<std::size_t>(
+        readSequence % static_cast<std::uint64_t>(kWakeupSampleCapacity));
     const WakeupSample& sample = wakeupSamples_[index];
 
     Logger().LogInfo() << "event=FSM_WAKEUP"
                        << ", deadline_ns=" << sample.deadlineNs
                        << ", actual_wakeup_ns=" << sample.actualWakeupNs
                        << ", latency_ns=" << sample.latencyNs;
+    ++readSequence;
   }
 
-  if (droppedWakeupSampleCount_ > 0U) {
+  wakeupReadSequence_.store(readSequence, std::memory_order_release);
+
+  const std::uint64_t droppedSamples =
+      droppedWakeupSampleCount_.exchange(0U, std::memory_order_acq_rel);
+  if (droppedSamples > 0U) {
     Logger().LogWarn() << "event=FSM_WAKEUP_SAMPLES_DROPPED"
-                       << ", count=" << droppedWakeupSampleCount_;
+                       << ", count=" << droppedSamples;
   }
+}
 
-  wakeupSampleCount_ = 0U;
-  droppedWakeupSampleCount_ = 0U;
+void SignalFSMEngine::dumpWakeupSamplesToLog() {
+  flushWakeupSamplesToLog();
 }
 
 bool SignalFSMEngine::loadPendingPlan() {
@@ -257,7 +271,7 @@ void SignalFSMEngine::processGreenPhase(const timespec& absoluteDeadline) {
       Logger().LogWarn() << "event=EMERGENCY_WAIT_ERROR"
                          << ", phase=" << phaseToString(currentPhaseId())
                          << ", remaining_ms=" << remainingTimeMs_;
-      logFsmExecutionTime(executionStart);
+      // Shutdown/error wakeups are not completed FSM cycles.
       break;
   }
 }
@@ -277,12 +291,12 @@ void SignalFSMEngine::processNonInterruptiblePhase(
   if (result == 0) {
     recordWakeupSample(absoluteDeadline);
     decrementRemainingTime();
+    logFsmExecutionTime(executionStart);
   } else {
     Logger().LogWarn() << "event=FSM_SLEEP_ERROR"
                        << ", error_code=" << result;
+    // Do not count an interrupted/failed sleep as a completed FSM cycle.
   }
-
-  logFsmExecutionTime(executionStart);
 }
 
 const char* SignalFSMEngine::emergencyEvaluationResultToString(
@@ -404,7 +418,7 @@ void SignalFSMEngine::recordWakeupSample(
   timespec actualWakeupTime{};
 
   if (clock_gettime(CLOCK_MONOTONIC, &actualWakeupTime) != 0) {
-    ++droppedWakeupSampleCount_;
+    droppedWakeupSampleCount_.fetch_add(1U, std::memory_order_relaxed);
     return;
   }
 
@@ -415,14 +429,23 @@ void SignalFSMEngine::recordWakeupSample(
     return;
   }
 
-  if (wakeupSampleCount_ >= wakeupSamples_.size()) {
-    ++droppedWakeupSampleCount_;
+  const std::uint64_t writeSequence =
+      wakeupWriteSequence_.load(std::memory_order_relaxed);
+  const std::uint64_t readSequence =
+      wakeupReadSequence_.load(std::memory_order_acquire);
+
+  if ((writeSequence - readSequence) >=
+      static_cast<std::uint64_t>(kWakeupSampleCapacity)) {
+    droppedWakeupSampleCount_.fetch_add(1U, std::memory_order_relaxed);
     return;
   }
 
-  wakeupSamples_[wakeupSampleCount_] =
+  const std::size_t index = static_cast<std::size_t>(
+      writeSequence % static_cast<std::uint64_t>(kWakeupSampleCapacity));
+  wakeupSamples_[index] =
       WakeupSample{deadlineNs, actualWakeupNs, actualWakeupNs - deadlineNs};
-  ++wakeupSampleCount_;
+
+  wakeupWriteSequence_.store(writeSequence + 1U, std::memory_order_release);
 }
 
 void SignalFSMEngine::initializeDeadline() {

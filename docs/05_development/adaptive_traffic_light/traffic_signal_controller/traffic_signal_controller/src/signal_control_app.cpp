@@ -13,6 +13,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <iostream>
 #include <string>
 
 #include "analytics_service/analytics.h"
@@ -219,6 +221,35 @@ void EnsureRuntimeLogDirectoryExists() {
   (void)mkdir(kRuntimeLogDirectory, kRuntimeDirectoryPermissions);
 }
 
+bool TruncateFile(const std::string& path) {
+  std::ofstream output(path, std::ios::binary | std::ios::trunc);
+  return output.is_open();
+}
+
+void ResetAnalyticsOutputFiles() {
+  EnsureRuntimeLogDirectoryExists();
+
+  const std::string logFilePath = GetEnvOrDefault(
+      "TRAFFIC_SIGNAL_CONTROLLER_ANALYTICS_LOG_FILE", kDefaultAnalyticsLogFile);
+  const std::string reportFilePath =
+      GetEnvOrDefault("TRAFFIC_SIGNAL_CONTROLLER_ANALYTICS_REPORT_FILE",
+                      kDefaultAnalyticsReportFile);
+
+  if (!TruncateFile(logFilePath)) {
+    std::cerr << "Unable to reset analytics log file: " << logFilePath << '\n';
+  }
+
+  if (!TruncateFile(logFilePath + ".txt")) {
+    std::cerr << "Unable to reset converted analytics log file: "
+              << logFilePath << ".txt\n";
+  }
+
+  if (!TruncateFile(reportFilePath)) {
+    std::cerr << "Unable to reset analytics report file: " << reportFilePath
+              << '\n';
+  }
+}
+
 }  // namespace
 
 SignalControlApplication::~SignalControlApplication() {
@@ -231,6 +262,8 @@ SignalControlApplication::~SignalControlApplication() {
 std::int32_t SignalControlApplication::Initialize(
     const score::mw::lifecycle::ApplicationContext& context) {
   (void)context;
+
+  ResetAnalyticsOutputFiles();
 
   score::mw::log::rust::StdoutLoggerBuilder loggerBuilder;
   loggerBuilder.Context("TSIG")
@@ -348,6 +381,9 @@ std::int32_t SignalControlApplication::Run(
     AppLogger().LogInfo() << "event=CONTROL_CYCLE_COMPLETED"
                           << ", cycle=" << cycleCount_
                           << ", period_ms=" << kControlPeriodMilliseconds;
+
+    // Drain from the non-real-time lifecycle thread.
+    signalFsmEngine_.flushWakeupSamplesToLog();
 
     nextRelease += kControlPeriod;
   }

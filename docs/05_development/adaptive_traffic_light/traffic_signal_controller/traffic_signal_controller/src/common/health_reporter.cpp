@@ -2,14 +2,6 @@
 
 #include <chrono>
 #include <utility>
-#include <dirent.h>
-#include <pthread.h>
-#include <sched.h>
-#include <sys/types.h>
-
-#include <cerrno>
-#include <cstdlib>
-#include <cstring>
 
 #include "common/logging_contexts.h"
 #include <score/mw/health/common.h>
@@ -111,37 +103,6 @@ bool HealthReporter::initialize() {
   // Every configured local monitor must be obtained before the worker starts.
   // The worker emits Alive notifications only while local supervision passes.
   healthMonitor_->start();
-  DIR* taskDirectory = opendir("/proc/self/task");
-  if (taskDirectory != nullptr) {
-    while (const dirent* entry = readdir(taskDirectory)) {
-      char* endPointer = nullptr;
-      const long parsedTid = std::strtol(entry->d_name, &endPointer, 10);
-
-      if (endPointer == entry->d_name || *endPointer != '\0' || parsedTid <= 0) {
-        continue;
-      }
-
-      cpu_set_t cpuSet{};
-      CPU_ZERO(&cpuSet);
-      CPU_SET(3, &cpuSet);
-
-      const int affinityResult =
-          sched_setaffinity(static_cast<pid_t>(parsedTid),
-                            sizeof(cpuSet),
-                            &cpuSet);
-
-      if (affinityResult != 0) {
-        Logger().LogWarn()
-            << "event=HEALTH_THREAD_AFFINITY_FAILED"
-            << ", tid=" << parsedTid
-            << ", cpu=3"
-            << ", error=" << errno
-            << ", reason=" << std::strerror(errno);
-      }
-    }
-
-    closedir(taskDirectory);
-  }
   monitoredCycleCount_ = 0U;
   initialized_ = true;
 
@@ -228,11 +189,3 @@ void HealthReporter::finishControlCycle() {
                      << ", observed_status="
                      << (withinConfiguredDeadline ? "met" : "missed");
 }
-
-void HealthReporter::receiveHealthMetrics(const HealthStatus& metrics) {}
-
-void HealthReporter::requestHeartbeat() {}
-
-bool HealthReporter::checkHealth() { return true; }
-
-HealthStatus HealthReporter::createHealthStatus() { return {}; }

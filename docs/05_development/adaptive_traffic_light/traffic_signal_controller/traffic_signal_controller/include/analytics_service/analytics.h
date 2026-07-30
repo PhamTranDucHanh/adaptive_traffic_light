@@ -41,38 +41,18 @@ class Analytics {
   };
 
   struct LogEntry {
-    std::string date;
-    std::string time;
-
-    std::string ecuId;
-    std::string applicationId;
     std::string contextId;
-    std::string logLevel;
-
-    double dltTimestampSeconds{};
     std::uint64_t timestampNs{};
 
     std::string message;
     EventType eventType{EventType::Unknown};
 
-    std::uint32_t planId{};
-    std::string phase;
-
-    std::uint32_t remainingTimeMs{};
-    std::uint32_t durationMs{};
-    std::uint32_t oldRemainingTimeMs{};
-    std::uint32_t newRemainingTimeMs{};
+    std::uint64_t planId{};
 
     bool emergencyNs{};
     bool emergencyEw{};
 
-    std::string result;
     std::string rejectReason;
-  };
-
-  struct PhaseStatistics {
-    std::uint32_t entryCount{};
-    std::uint64_t totalConfiguredDurationMs{};
   };
 
   struct PlanStatistics {
@@ -84,15 +64,15 @@ class Analytics {
     std::uint32_t consumed{};
     std::uint32_t applied{};
 
-    std::uint64_t totalReceiveToApplyLatencyNs{};
+    long double totalReceiveToApplyLatencyNs{};
     std::uint32_t latencySampleCount{};
 
-    std::set<std::uint32_t> allPlanIds;
-    std::set<std::uint32_t> normalPlanIds;
-    std::set<std::uint32_t> emergencyPlanIds;
-    std::set<std::uint32_t> appliedPlanIds;
-    std::set<std::uint32_t> acceptedEmergencyPlanIds;
-    std::set<std::uint32_t> rejectedEmergencyPlanIds;
+    std::set<std::uint64_t> allPlanIds;
+    std::set<std::uint64_t> normalPlanIds;
+    std::set<std::uint64_t> emergencyPlanIds;
+    std::set<std::uint64_t> appliedPlanIds;
+    std::set<std::uint64_t> acceptedEmergencyPlanIds;
+    std::set<std::uint64_t> rejectedEmergencyPlanIds;
   };
 
   struct EmergencyStatistics {
@@ -114,7 +94,6 @@ class Analytics {
   bool ParseLogLine(const std::string& line, LogEntry& entry) const;
   void ParseApplicationMessage(LogEntry& entry) const;
 
-  void ComputePhaseStatistics();
   void ComputePlanStatistics();
   void ComputeEmergencyStatistics();
   void ComputeWakeupStatistics();
@@ -125,7 +104,7 @@ class Analytics {
       const std::string& message,
       const std::string& key);
 
-  static std::uint32_t ParseUint32(
+  static std::uint64_t ParseUint64OrZero(
       const std::string& value);
 
   static bool ParseBool(
@@ -140,13 +119,13 @@ class Analytics {
   static void WritePlanIdSet(
       std::ostream& output,
       const std::string& label,
-      const std::set<std::uint32_t>& planIds);
+      const std::set<std::uint64_t>& planIds);
 
   static bool LooksLikeDltBinary(const std::string& content);
   static std::string ConvertDltRecordToTextMessage(
       const std::string& record,
       std::string& contextId);
-  static std::uint32_t ExtractDltUint32(
+  static std::uint64_t ExtractDltUint64(
       const std::string& record,
       const std::string& key);
   static bool ExtractDltBool(
@@ -159,7 +138,6 @@ class Analytics {
   std::string logFilePath_;
   std::vector<LogEntry> logEntries_;
 
-  std::unordered_map<std::string, PhaseStatistics> phaseStatistics_;
   PlanStatistics planStatistics_;
   EmergencyStatistics emergencyStatistics_;
   WakeupStatistics wakeupStatistics_;
