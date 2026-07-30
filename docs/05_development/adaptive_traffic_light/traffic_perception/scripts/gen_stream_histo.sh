@@ -27,9 +27,9 @@ awk '
         wakeup_file = "'"$WAKEUP_BASE"'_lane" lane ".txt";
         exec_file = "'"$EXEC_BASE"'_lane" lane ".txt";
 
-        print lane, wakeup > wakeup_file;
+        print lane, wakeup >> wakeup_file;
         close(wakeup_file);
-        print lane, runtime > exec_file;
+        print lane, runtime >> exec_file;
         close(exec_file);
     }
 }
@@ -45,13 +45,6 @@ make_hist() {
     local xlabel="$5"
     local legend="$6"
     local outpng="$7"
-    local color="${LANE_COLORS[$lane]}"
-
-    if [[ ! -s "$infile" ]]; then
-        echo "Skip: $infile (empty)"
-        return
-    fi
-
     local bucket_width="${BUCKET_WIDTH_US:-1}"
 
     if ! command -v gnuplot >/dev/null 2>&1; then
@@ -64,53 +57,87 @@ make_hist() {
         exit 1
     fi
 
-    local values_file histogram_file
-    values_file="$(mktemp)"
-    histogram_file="$(mktemp)"
+    local total_samples=0
+    local global_min=""
+    local global_max=""
+    local plot_cmd=""
+    local cleanup_files=()
 
-    awk '{ print $2 }' "$infile" > "$values_file"
+    for l in 0 1 2 3; do
+        local current_infile="${infile}_lane${l}.txt"
+        local color="${LANE_COLORS[$l]}"
 
-    if [[ ! -s "$values_file" ]]; then
-        echo "Error: no samples found in $infile" >&2
-        rm -f "$values_file" "$histogram_file"
+        if [[ ! -s "$current_infile" ]]; then
+            echo "Skip: $current_infile (empty)"
+            continue
+        fi
+
+        local values_file histogram_file
+        values_file="$(mktemp)"
+        histogram_file="$(mktemp)"
+        cleanup_files+=("$values_file" "$histogram_file")
+
+        awk '{ print $2 }' "$current_infile" > "$values_file"
+
+        if [[ ! -s "$values_file" ]]; then
+            echo "Error: no samples found in $current_infile" >&2
+            continue
+        fi
+
+        local sample_count min_value max_value
+        read -r sample_count min_value max_value < <(
+          awk '
+            NR == 1 {
+              minimum = $1
+              maximum = $1
+            }
+            {
+              if ($1 < minimum) minimum = $1
+              if ($1 > maximum) maximum = $1
+            }
+            END {
+              print NR, minimum, maximum
+            }
+          ' "$values_file"
+        )
+
+        total_samples=$((total_samples + sample_count))
+        if [[ -z "$global_min" ]] || awk -v a="$min_value" -v b="$global_min" 'BEGIN { exit (a < b ? 0 : 1) }'; then global_min=$min_value; fi
+        if [[ -z "$global_max" ]] || awk -v a="$max_value" -v b="$global_max" 'BEGIN { exit (a > b ? 0 : 1) }'; then global_max=$max_value; fi
+
+        awk -v minimum="$min_value" -v width="$bucket_width" '
+          {
+            bucket = int(($1 - minimum) / width)
+            count[bucket]++
+          }
+          END {
+            for (bucket in count) {
+              print bucket, count[bucket]
+            }
+          }
+        ' "$values_file" | sort -n -k1,1 > "$histogram_file"
+
+        if [[ -n "$plot_cmd" ]]; then
+            plot_cmd+=", \\
+"
+        else
+            plot_cmd="plot \\
+"
+        fi
+        plot_cmd+="\"${histogram_file}\" using (${min_value} + (\$1 * ${bucket_width})):2 with impulses linewidth 1 linecolor rgb \"${color}\" title \"Lane ${l}\""
+    done
+
+    if [[ -z "$plot_cmd" ]]; then
+        echo "Error: no data to plot for $infile" >&2
         return 1
     fi
-
-    local sample_count min_value max_value
-    read -r sample_count min_value max_value < <(
-      awk '
-        NR == 1 {
-          minimum = $1
-          maximum = $1
-        }
-        {
-          if ($1 < minimum) minimum = $1
-          if ($1 > maximum) maximum = $1
-        }
-        END {
-          print NR, minimum, maximum
-        }
-      ' "$values_file"
-    )
-
-    awk -v minimum="$min_value" -v width="$bucket_width" '
-      {
-        bucket = int(($1 - minimum) / width)
-        count[bucket]++
-      }
-      END {
-        for (bucket in count) {
-          print bucket, count[bucket]
-        }
-      }
-    ' "$values_file" | sort -n -k1,1 > "$histogram_file"
 
     gnuplot <<EOF
 set terminal pngcairo size 1600,900 enhanced
 set output "${outpng}"
 
 set title "${title}"
-set xlabel "${xlabel} (us), Samples = ${sample_count}, Min = ${min_value} us, Max = ${max_value} us, Bucket = ${bucket_width} us"
+set xlabel "${xlabel} (us), Samples = ${total_samples}, Min = ${global_min} us, Max = ${global_max} us, Bucket = ${bucket_width} us"
 set ylabel "Number of Samples"
 
 set xrange [0:*]
@@ -121,42 +148,36 @@ set grid xtics ytics
 set border linewidth 1
 set key top right
 
-plot "${histogram_file}" using \
-(${min_value} + (\$1 * ${bucket_width})):2 \
-with impulses linewidth 1 linecolor rgb "${color}" \
-title "${legend}"
+${plot_cmd}
 EOF
 
-    echo "Lane     : $lane"
-    echo "Input    : $infile"
+    echo "Base Input: $infile"
     echo "Field    : $field_name"
-    echo "Samples  : $sample_count"
-    echo "Range    : ${min_value}..${max_value} us"
+    echo "Samples  : $total_samples"
+    echo "Range    : ${global_min}..${global_max} us"
     echo "Bucket   : ${bucket_width} us"
     echo "Generated: $outpng"
     echo
 
-    rm -f "$values_file" "$histogram_file"
+    rm -f "${cleanup_files[@]}"
 }
 
-for lane in 0 1 2 3; do
-    make_hist \
-        "$WAKEUP_BASE"_lane${lane}.txt \
-        "$lane" \
-        "wakeup_latency_us" \
-        "Stream Worker Wake-up Latency Histogram (Lane ${lane})" \
-        "Wake-up Latency" \
-        "Lane ${lane}" \
-        "$OUTDIR/plots/wakeup_latency_lane${lane}.png"
+make_hist \
+    "$WAKEUP_BASE" \
+    "all" \
+    "wakeup_latency_us" \
+    "Stream Worker Wake-up Latency Histogram" \
+    "Wake-up Latency" \
+    "All Lanes" \
+    "$OUTDIR/plots/wakeup_latency.png"
 
-    make_hist \
-        "$EXEC_BASE"_lane${lane}.txt \
-        "$lane" \
-        "execution_time_us" \
-        "Stream Worker Execution Time Histogram (Lane ${lane})" \
-        "Execution Time" \
-        "Lane ${lane}" \
-        "$OUTDIR/plots/execution_time_lane${lane}.png"
-done
+make_hist \
+    "$EXEC_BASE" \
+    "all" \
+    "execution_time_us" \
+    "Stream Worker Execution Time Histogram" \
+    "Execution Time" \
+    "All Lanes" \
+    "$OUTDIR/plots/execution_time.png"
 
 echo "Done."

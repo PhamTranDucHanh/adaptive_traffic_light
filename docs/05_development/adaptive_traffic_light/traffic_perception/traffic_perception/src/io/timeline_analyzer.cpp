@@ -22,6 +22,8 @@ constexpr double kNanoPerMicro = 1'000.0;
 constexpr double kNanoPerMilli = 1'000'000.0;
 constexpr double kNanoPerSecond = 1'000'000'000.0;
 
+constexpr uint32_t kWarmupFramesToSkip = 15;
+
 struct ScaleInfo {
   double factor;
   const char* unit;
@@ -279,47 +281,79 @@ bool TimelineAnalyzer::analyze() {
   for (const auto& tl : timelines_) {
     switch (tl.type) {
       case TimelineType::Stream:
+        if (tl.frameId <= kWarmupFramesToSkip) {
+          break;
+        }
+
         if (tl.laneId >= 0 && tl.laneId < NUM_LANES) {
           AnalysisData& data = streamData_[static_cast<size_t>(tl.laneId)];
           const size_t laneIndex = static_cast<size_t>(tl.laneId);
+
           if (tl.begin != 0 && tl.end != 0 && tl.end >= tl.begin) {
-            data.executionTime.push_back(tl.end - tl.begin);
-            if (tl.expectedWakeup != 0) {
-              data.wakeupLatency.push_back(tl.begin - tl.expectedWakeup);
-            }
-            if (lastStreamBegin[laneIndex] != 0 &&
-                tl.begin >= lastStreamBegin[laneIndex]) {
-              data.period.push_back(tl.begin - lastStreamBegin[laneIndex]);
-            }
-            lastStreamBegin[laneIndex] = tl.begin;
+              data.executionTime.push_back(tl.end - tl.begin);
+
+              if (tl.expectedWakeup != 0) {
+                  data.wakeupLatency.push_back(
+                      tl.begin - tl.expectedWakeup);
+              }
+
+              if (lastStreamBegin[laneIndex] != 0 &&
+                  tl.begin >= lastStreamBegin[laneIndex]) {
+                  data.period.push_back(
+                      tl.begin - lastStreamBegin[laneIndex]);
+              }
+
+              lastStreamBegin[laneIndex] = tl.begin;
           }
         }
         break;
 
       case TimelineType::Pipeline:
-        if (tl.begin != 0 && tl.end != 0 && tl.end >= tl.begin) {
-          pipelineData_.executionTime.push_back(tl.end - tl.begin);
-          if (tl.expectedWakeup != 0) {
-            pipelineData_.wakeupLatency.push_back(tl.begin - tl.expectedWakeup);
-          }
-          if (lastPipelineBegin != 0 && tl.begin >= lastPipelineBegin) {
-            pipelineData_.period.push_back(tl.begin - lastPipelineBegin);
-          }
-          lastPipelineBegin = tl.begin;
+        if (tl.cycleId != 0 && tl.cycleId <= kWarmupFramesToSkip) {
+          break;
         }
+
+        if (tl.begin != 0 && tl.end != 0 && tl.end >= tl.begin) {
+            pipelineData_.executionTime.push_back(tl.end - tl.begin);
+
+            if (tl.expectedWakeup != 0) {
+                pipelineData_.wakeupLatency.push_back(
+                    tl.begin - tl.expectedWakeup);
+            }
+
+            if (lastPipelineBegin != 0 &&
+                tl.begin >= lastPipelineBegin) {
+                pipelineData_.period.push_back(
+                    tl.begin - lastPipelineBegin);
+            }
+
+            lastPipelineBegin = tl.begin;
+        }
+
         break;
 
       case TimelineType::Viewer:
-        if (tl.begin != 0 && tl.end != 0 && tl.end >= tl.begin) {
-          viewerData_.executionTime.push_back(tl.end - tl.begin);
-          if (tl.expectedWakeup != 0) {
-            viewerData_.wakeupLatency.push_back(tl.begin - tl.expectedWakeup);
-          }
-          if (lastViewerBegin != 0 && tl.begin >= lastViewerBegin) {
-            viewerData_.period.push_back(tl.begin - lastViewerBegin);
-          }
-          lastViewerBegin = tl.begin;
+        if (tl.cycleId != 0 && tl.cycleId <= kWarmupFramesToSkip) {
+          break;
         }
+
+        if (tl.begin != 0 && tl.end != 0 && tl.end >= tl.begin) {
+            viewerData_.executionTime.push_back(tl.end - tl.begin);
+
+            if (tl.expectedWakeup != 0) {
+                viewerData_.wakeupLatency.push_back(
+                    tl.begin - tl.expectedWakeup);
+            }
+
+            if (lastViewerBegin != 0 &&
+                tl.begin >= lastViewerBegin) {
+                viewerData_.period.push_back(
+                    tl.begin - lastViewerBegin);
+            }
+
+            lastViewerBegin = tl.begin;
+        }
+
         break;
 
       case TimelineType::Unknown:
@@ -470,6 +504,11 @@ bool TimelineAnalyzer::parseLine(const std::string& line,
     if (!ExtractUInt32(line, "FrameId=", outTimeline.frameId)) {
       return false;
     }
+  }
+
+  if (outTimeline.type == TimelineType::Pipeline ||
+      outTimeline.type == TimelineType::Viewer) {
+    ExtractUInt32(line, "CycleId=", outTimeline.cycleId);
   }
 
   return true;

@@ -109,7 +109,12 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
     // Advance to the next nominal release time.
     nextRelease = scheduledRelease + AcquisitionPeriod;
 
+    const auto acquireBegin = std::chrono::steady_clock::now();
+
     Frame* frame = Pool->acquire();
+
+    const auto acquireEnd = std::chrono::steady_clock::now();
+
     if (frame == nullptr) {
       continue;
     }
@@ -144,6 +149,16 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
     const int64_t captureBegin =
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             wakeupTime.time_since_epoch())
+            .count();
+
+    const int64_t acquireBeginNs =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            acquireBegin.time_since_epoch())
+            .count();
+
+    const int64_t acquireEndNs =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            acquireEnd.time_since_epoch())
             .count();
 
     const int64_t grabBeginNs =
@@ -185,6 +200,8 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
         << "LaneId=" << LaneId << " FrameId=" << frame->FrameId
         << " ExpectedWakeup=" << expectedWakeup
         << " Begin=" << captureBegin
+        << " AcquireBegin=" << acquireBeginNs
+        << " AcquireEnd=" << acquireEndNs
         << " GrabBegin=" << grabBeginNs
         << " GrabEnd=" << grabEndNs
         << " DecodeBegin=" << decodeBeginNs

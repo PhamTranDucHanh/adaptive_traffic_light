@@ -44,6 +44,7 @@ class TimelineAnalyzer {
 
     int laneId = -1;
     uint32_t frameId = 0;
+    uint32_t cycleId = 0;
 
     int64_t expectedWakeup = 0;
     int64_t begin = 0;

@@ -10,6 +10,8 @@ pattern = re.compile(
     r"FrameId=\s*(\d+)\s+"
     r"ExpectedWakeup=\s*(\d+)\s+"
     r"Begin=\s*(\d+)\s+"
+    r"AcquireBegin=\s*(\d+)\s+"
+    r"AcquireEnd=\s*(\d+)\s+"
     r"GrabBegin=\s*(\d+)\s+"
     r"GrabEnd=\s*(\d+)\s+"
     r"DecodeBegin=\s*(\d+)\s+"
@@ -91,18 +93,21 @@ def main():
 
             expected = int(m.group(3))
             begin = int(m.group(4))
-            grab_begin = int(m.group(5))
-            grab_end = int(m.group(6))
-            decode_begin = int(m.group(7))
-            decode_end = int(m.group(8))
-            end = int(m.group(9))
+            acquire_begin = int(m.group(5))
+            acquire_end = int(m.group(6))
+            grab_begin = int(m.group(7))
+            grab_end = int(m.group(8))
+            decode_begin = int(m.group(9))
+            decode_end = int(m.group(10))
+            end = int(m.group(11))
 
             rows.append(
                 {
                     "LaneId": lane,
                     "FrameId": frame,
                     "WakeupLatency": (begin - expected) / NS_TO_MS,
-                    "WaitForDecode": (decode_begin - begin) / NS_TO_MS,
+                    "AcquireTime": (acquire_end - acquire_begin) / NS_TO_MS,
+                    "GrabTime": (grab_end - grab_begin) / NS_TO_MS,
                     "DecodeTime": (decode_end - decode_begin) / NS_TO_MS,
                     "PublishTime": (end - decode_end) / NS_TO_MS,
                     "Execution": (end - begin) / NS_TO_MS,
@@ -117,7 +122,8 @@ def main():
 
     for metric in [
         "WakeupLatency",
-        "WaitForDecode",
+        "AcquireTime",
+        "GrabTime",
         "DecodeTime",
         "PublishTime",
         "Execution",
@@ -136,10 +142,91 @@ def main():
     print("===================================================")
 
     print_table("Wakeup Latency (ms)", df, "WakeupLatency")
-    print_table("Wait Before Decode (ms)", df, "WaitForDecode")
+    print_table("Acquire Time (ms)", df, "AcquireTime")
+    print_table("Grab Time (ms)", df, "GrabTime")
     print_table("Decode Time (ms)", df, "DecodeTime")
     print_table("Publish Time (ms)", df, "PublishTime")
     print_table("Execution Time (ms)", df, "Execution")
+
+    print("\n===================================================")
+    print("Largest Execution")
+    print("===================================================")
+    print(
+        df.sort_values("Execution", ascending=False)[
+            [
+                "LaneId",
+                "FrameId",
+                "WakeupLatency",
+                "GrabTime",
+                "DecodeTime",
+                "Execution",
+            ]
+        ].head(20)
+    )
+
+    print("\n===================================================")
+    print("Largest Wakeup Latency")
+    print("===================================================")
+    print(
+        df.sort_values("WakeupLatency", ascending=False)[
+            [
+                "LaneId",
+                "FrameId",
+                "WakeupLatency",
+                "GrabTime",
+                "DecodeTime",
+                "Execution",
+            ]
+        ].head(20)
+    )
+
+    print("\n===================================================")
+    print("Largest Grab Time")
+    print("===================================================")
+    print(
+        df.sort_values("GrabTime", ascending=False)[
+            [
+                "LaneId",
+                "FrameId",
+                "WakeupLatency",
+                "GrabTime",
+                "DecodeTime",
+                "Execution",
+            ]
+        ].head(20)
+    )
+
+    print("\n===================================================")
+    print("Wakeup > 20 ms")
+    print("===================================================")
+    print(
+        df[df["WakeupLatency"] > 20][
+            [
+                "LaneId",
+                "FrameId",
+                "WakeupLatency",
+                "GrabTime",
+                "DecodeTime",
+                "Execution",
+            ]
+        ].sort_values("WakeupLatency", ascending=False)
+    )
+
+    print("\n===================================================")
+    print("Grab > 20 ms")
+    print("===================================================")
+    print(
+        df[df["GrabTime"] > 20][
+            [
+                "LaneId",
+                "FrameId",
+                "WakeupLatency",
+                "GrabTime",
+                "DecodeTime",
+                "Execution",
+            ]
+        ].sort_values("GrabTime", ascending=False)
+    )
 
 
 if __name__ == "__main__":
