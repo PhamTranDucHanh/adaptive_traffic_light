@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "score/mw/log/logger.h"
+#include "traffic_perception/core/time_utils.h"
 
 namespace {
 
@@ -84,30 +85,26 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
   auto nextRelease = startTime + phase_ + lanePhase;
 
   while (running_) {
-    // Fast-forward past any missed releases before sleeping so the next
-    // sample reflects scheduler wake-up jitter, not backlog from an overrun
-    // cycle.
-    const auto now = std::chrono::steady_clock::now();
-    while (nextRelease + AcquisitionPeriod <= now) {
-      nextRelease += AcquisitionPeriod;
+    const auto nowNs = GetMonotonicTimeNs();
+    const int64_t periodNs = AcquisitionPeriod.count() * 1000000LL;
+
+    int64_t nextReleaseNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                nextRelease.time_since_epoch()).count();
+
+    while (nextReleaseNs + periodNs <= nowNs) {
+      nextReleaseNs += periodNs;
     }
 
-    // Scheduled release time for this cycle.
-    const auto scheduledRelease = nextRelease;
+    const int64_t expectedWakeup = nextReleaseNs;
 
-    // Wait until the next activation.
-    std::this_thread::sleep_until(scheduledRelease);
+    SleepUntilNs(expectedWakeup);
 
-    // Actual wakeup timestamp.
-    const auto wakeupTime = std::chrono::steady_clock::now();
-
-    const int64_t expectedWakeup =
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            scheduledRelease.time_since_epoch())
-            .count();
+    const int64_t wakeupNs = GetMonotonicTimeNs();
+    const int64_t captureBegin = GetMonotonicTimeNs();
 
     // Advance to the next nominal release time.
-    nextRelease = scheduledRelease + AcquisitionPeriod;
+    nextRelease = std::chrono::steady_clock::time_point(
+        std::chrono::nanoseconds(nextReleaseNs)) + AcquisitionPeriod;
 
     const auto acquireBegin = std::chrono::steady_clock::now();
 
@@ -145,11 +142,6 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
     }
 
     const auto decodeEnd = std::chrono::steady_clock::now();
-
-    const int64_t captureBegin =
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            wakeupTime.time_since_epoch())
-            .count();
 
     const int64_t acquireBeginNs =
         std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -191,14 +183,12 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
       Pool->release(old);
     }
 
-    const int64_t captureEnd =
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now().time_since_epoch())
-            .count();
+    const int64_t captureEnd = GetMonotonicTimeNs();
 
     getBenchmarkLogger().LogInfo()
         << "LaneId=" << LaneId << " FrameId=" << frame->FrameId
         << " ExpectedWakeup=" << expectedWakeup
+        << " Wakeup=" << wakeupNs
         << " Begin=" << captureBegin
         << " AcquireBegin=" << acquireBeginNs
         << " AcquireEnd=" << acquireEndNs

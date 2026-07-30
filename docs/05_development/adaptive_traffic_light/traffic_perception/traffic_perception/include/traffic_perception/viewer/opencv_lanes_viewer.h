@@ -15,7 +15,7 @@ class OpenCVLanesViewer {
   bool init(const AppConfig& config, IModelBackend* backend);
 
   void render(Analyzer& analyzer, int64_t expectedWakeupNs,
-              int64_t renderBeginNs);
+              int64_t wakeupNs, int64_t renderBeginNs);
 
   void shutdown();
 

@@ -1,19 +1,34 @@
 #include <pthread.h>
 #include <sched.h>
 
+#include <filesystem>
 #include <memory>
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <thread>
 
-#include "rules_cc/cc/runfiles/runfiles.h"
 #include "score/mw/log/logging.h"
 #include "traffic_perception/core/config_manager.h"
 #include "traffic_perception/perception_module.h"
 #include "traffic_perception/viewer/opencv_lanes_viewer.h"
+#include "traffic_perception/core/time_utils.h"
 
-using rules_cc::cc::runfiles::Runfiles;
 using namespace traffic_perception;
+
+namespace {
+
+std::filesystem::path parseResourcePath(int argc, char* argv[]) {
+  for (int i = 1; i < argc - 1; ++i) {
+    if (std::string(argv[i]) == "--resource_path") {
+      return std::filesystem::path(argv[i + 1]);
+    }
+  }
+  // Default: current working directory
+  return std::filesystem::current_path();
+}
+
+}  // namespace
+
 
 int main(int argc, char* argv[]) {
   // Pin main thread/process to CPU Core 2
@@ -22,37 +37,31 @@ int main(int argc, char* argv[]) {
   CPU_SET(2, &cpuset);  // Core Index = 2
   pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 
-  std::string error;
-  std::unique_ptr<Runfiles> runfiles(Runfiles::Create(argv[0], &error));
-
-  if (!runfiles) {
-    return 1;
-  }
+  const std::filesystem::path resourcePath = parseResourcePath(argc, argv);
 
   //---------------------------------------------------------------------------
   // Load configuration
   //---------------------------------------------------------------------------
 
-  std::string configPath =
-      runfiles->Rlocation("_main/config/traffic_perception_config.json");
-
-  if (configPath.empty()) {
-    return 1;
-  }
+  const std::string configPath =
+      (resourcePath / "config" / "traffic_perception_config.json").string();
 
   ConfigManager configManager(configPath);
 
   if (!configManager.loadConfig()) {
+    score::mw::log::LogError() << "Failed to load config from: " << configPath;
     return 1;
   }
 
   AppConfig config = configManager.getConfig();
 
-  config.modelPath = runfiles->Rlocation(config.modelPath);
+  // Resolve model and video paths relative to resourcePath.
+  // Config stores relative paths like "test/data/model.onnx" — join directly.
+  config.modelPath = (resourcePath / config.modelPath).string();
 
   for (std::size_t i = 0; i < NUM_LANES; ++i) {
     config.lanes[i].videoSource =
-        runfiles->Rlocation(config.lanes[i].videoSource);
+        (resourcePath / config.lanes[i].videoSource).string();
   }
 
   //---------------------------------------------------------------------------
@@ -85,24 +94,24 @@ int main(int argc, char* argv[]) {
   const auto period = std::chrono::milliseconds(config.ViewerPeriod);
 
   while (running) {
-    // Scheduled release for this cycle.
-    const auto scheduledRelease = nextRelease;
+    const auto nowNs = GetMonotonicTimeNs();
+    const int64_t periodNs = period.count() * 1000000LL;
 
-    std::this_thread::sleep_until(scheduledRelease);
-
-    const auto wakeup = std::chrono::steady_clock::now();
-
-    const int64_t expectedWakeup =
+    int64_t nextReleaseNs =
         std::chrono::duration_cast<std::chrono::nanoseconds>(
-            scheduledRelease.time_since_epoch())
-            .count();
+            nextRelease.time_since_epoch()).count();
 
-    const int64_t renderBegin =
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            wakeup.time_since_epoch())
-            .count();
+    while (nextReleaseNs + periodNs <= nowNs) {
+      nextReleaseNs += periodNs;
+    }
 
-    viewer.render(perception.analyzer(), expectedWakeup, renderBegin);
+    const int64_t expectedWakeup = nextReleaseNs;
+    SleepUntilNs(expectedWakeup);
+
+    const int64_t wakeupNs = GetMonotonicTimeNs();
+    const int64_t renderBegin = GetMonotonicTimeNs();
+
+    viewer.render(perception.analyzer(), expectedWakeup, wakeupNs, renderBegin);
 
     const int key = cv::waitKey(1);
 
@@ -116,13 +125,8 @@ int main(int argc, char* argv[]) {
         break;
     }
 
-    // If we missed more than one period, drop backlog and
-    // restart the schedule from the current instant.
-    if (wakeup > scheduledRelease + period) {
-      nextRelease = wakeup + period;
-    } else {
-      nextRelease = scheduledRelease + period;
-    }
+    nextRelease = std::chrono::steady_clock::time_point(
+        std::chrono::nanoseconds(nextReleaseNs)) + period;
   }
 
   //---------------------------------------------------------------------------

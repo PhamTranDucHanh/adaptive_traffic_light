@@ -29,7 +29,7 @@ class PipelineManager {
   SnapshotPublisher& getPublisher() { return publisher_; }
 
  private:
-  void runOneCycle(int64_t expectedWakeup, int64_t pipelineBegin);
+  void runOneCycle(int64_t expectedWakeup, int64_t wakeupNs, int64_t pipelineBegin);
 
   std::atomic<bool> running_{false};
   std::chrono::milliseconds period_;

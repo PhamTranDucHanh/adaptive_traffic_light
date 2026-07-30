@@ -101,12 +101,6 @@ bool ExtractUInt32(const std::string& line,
   return true;
 }
 
-double MaxAbsMean(const timeline_analyzer::Statistics& s) {
-  return std::max(std::abs(s.mean),
-                  std::max(std::abs(static_cast<double>(s.min)),
-                           std::abs(static_cast<double>(s.max))));
-}
-
 double ComputeStdDevInternal(const std::vector<int64_t>& samples,
                              double mean) {
   if (samples.empty()) {
@@ -137,17 +131,18 @@ bool HasAnyData(const NamedDataset& datasets) {
   return false;
 }
 
-ScaleInfo DetermineScale(const NamedDataset& datasets) {
-  double maxAbs = 0.0;
-  for (const auto& dataset : datasets) {
-    if (dataset.values == nullptr || dataset.values->empty()) {
-      continue;
-    }
+std::string FormatLinuxTime(double valueNs) {
+  ScaleInfo scale = GetBestScale(valueNs);
+  double scaled = valueNs / scale.factor;
 
-    const auto stats = timeline_analyzer::ComputeStatistics(*dataset.values);
-    maxAbs = std::max(maxAbs, MaxAbsMean(stats));
+  std::ostringstream oss;
+  if (std::abs(scaled) < 10.0) {
+    oss << std::fixed << std::setprecision(1);
+  } else {
+    oss << std::fixed << std::setprecision(0);
   }
-  return GetBestScale(maxAbs);
+  oss << scaled << scale.unit;
+  return oss.str();
 }
 
 void PrintHeader(std::ostream& out) {
@@ -162,23 +157,20 @@ void PrintHeader(std::ostream& out) {
 void PrintRow(std::ostream& out,
               const std::string& name,
               const timeline_analyzer::Statistics& s,
-              double stddev,
-              const ScaleInfo& scale) {
+              double stddev) {
   if (s.sampleCount == 0) {
     return;
   }
 
-  const auto format = [&](double value) { return value / scale.factor; };
-
   out << std::setw(24) << std::left << name << std::setw(10) << s.sampleCount
-      << std::fixed << std::setprecision(3) << std::setw(14)
-      << format(static_cast<double>(s.min)) << std::setw(14) << format(s.mean)
-      << std::setw(14) << format(static_cast<double>(s.median))
-      << std::setw(14) << format(static_cast<double>(s.p90)) << std::setw(14)
-      << format(static_cast<double>(s.p95)) << std::setw(14)
-      << format(static_cast<double>(s.p99)) << std::setw(14)
-      << format(static_cast<double>(s.max)) << std::setw(14)
-      << format(stddev) << "\n";
+      << std::setw(14) << FormatLinuxTime(static_cast<double>(s.min))
+      << std::setw(14) << FormatLinuxTime(s.mean)
+      << std::setw(14) << FormatLinuxTime(static_cast<double>(s.median))
+      << std::setw(14) << FormatLinuxTime(static_cast<double>(s.p90))
+      << std::setw(14) << FormatLinuxTime(static_cast<double>(s.p95))
+      << std::setw(14) << FormatLinuxTime(static_cast<double>(s.p99))
+      << std::setw(14) << FormatLinuxTime(static_cast<double>(s.max))
+      << std::setw(14) << FormatLinuxTime(stddev) << "\n";
 }
 
 void PrintSection(std::ostream& out,
@@ -188,9 +180,7 @@ void PrintSection(std::ostream& out,
     return;
   }
 
-  const ScaleInfo scale = DetermineScale(datasets);
-
-  out << title << " (" << scale.unit << ")\n";
+  out << title << "\n";
   PrintHeader(out);
 
   for (const auto& dataset : datasets) {
@@ -200,7 +190,7 @@ void PrintSection(std::ostream& out,
 
     const auto stats = timeline_analyzer::ComputeStatistics(*dataset.values);
     const double stddev = ComputeStdDevInternal(*dataset.values, stats.mean);
-    PrintRow(out, dataset.name, stats, stddev, scale);
+    PrintRow(out, dataset.name, stats, stddev);
   }
 
   out << "\n";
@@ -259,16 +249,22 @@ bool TimelineAnalyzer::load() {
 
 bool TimelineAnalyzer::analyze() {
   for (auto& data : streamData_) {
-    data.wakeupLatency.clear();
+    data.schedulerLatency.clear();
+    data.dispatchLatency.clear();
     data.executionTime.clear();
     data.period.clear();
+    data.deadlineMiss.clear();
   }
-  pipelineData_.wakeupLatency.clear();
+  pipelineData_.schedulerLatency.clear();
+  pipelineData_.dispatchLatency.clear();
   pipelineData_.executionTime.clear();
   pipelineData_.period.clear();
-  viewerData_.wakeupLatency.clear();
+  pipelineData_.deadlineMiss.clear();
+  viewerData_.schedulerLatency.clear();
+  viewerData_.dispatchLatency.clear();
   viewerData_.executionTime.clear();
   viewerData_.period.clear();
+  viewerData_.deadlineMiss.clear();
 
   if (timelines_.empty()) {
     return false;
@@ -292,9 +288,10 @@ bool TimelineAnalyzer::analyze() {
           if (tl.begin != 0 && tl.end != 0 && tl.end >= tl.begin) {
               data.executionTime.push_back(tl.end - tl.begin);
 
-              if (tl.expectedWakeup != 0) {
-                  data.wakeupLatency.push_back(
-                      tl.begin - tl.expectedWakeup);
+              if (tl.expectedWakeup != 0 && tl.wakeup != 0) {
+                  data.schedulerLatency.push_back(tl.wakeup - tl.expectedWakeup);
+                  data.dispatchLatency.push_back(tl.begin - tl.wakeup);
+                  data.deadlineMiss.push_back(tl.end - tl.expectedWakeup);
               }
 
               if (lastStreamBegin[laneIndex] != 0 &&
@@ -316,9 +313,10 @@ bool TimelineAnalyzer::analyze() {
         if (tl.begin != 0 && tl.end != 0 && tl.end >= tl.begin) {
             pipelineData_.executionTime.push_back(tl.end - tl.begin);
 
-            if (tl.expectedWakeup != 0) {
-                pipelineData_.wakeupLatency.push_back(
-                    tl.begin - tl.expectedWakeup);
+            if (tl.expectedWakeup != 0 && tl.wakeup != 0) {
+                pipelineData_.schedulerLatency.push_back(tl.wakeup - tl.expectedWakeup);
+                pipelineData_.dispatchLatency.push_back(tl.begin - tl.wakeup);
+                pipelineData_.deadlineMiss.push_back(tl.end - tl.expectedWakeup);
             }
 
             if (lastPipelineBegin != 0 &&
@@ -340,9 +338,10 @@ bool TimelineAnalyzer::analyze() {
         if (tl.begin != 0 && tl.end != 0 && tl.end >= tl.begin) {
             viewerData_.executionTime.push_back(tl.end - tl.begin);
 
-            if (tl.expectedWakeup != 0) {
-                viewerData_.wakeupLatency.push_back(
-                    tl.begin - tl.expectedWakeup);
+            if (tl.expectedWakeup != 0 && tl.wakeup != 0) {
+                viewerData_.schedulerLatency.push_back(tl.wakeup - tl.expectedWakeup);
+                viewerData_.dispatchLatency.push_back(tl.begin - tl.wakeup);
+                viewerData_.deadlineMiss.push_back(tl.end - tl.expectedWakeup);
             }
 
             if (lastViewerBegin != 0 &&
@@ -368,9 +367,15 @@ bool TimelineAnalyzer::analyze() {
 void TimelineAnalyzer::printReport(std::ostream& out) const {
   AnalysisData streamAll;
   for (const auto& laneData : streamData_) {
-    streamAll.wakeupLatency.insert(streamAll.wakeupLatency.end(),
-                                   laneData.wakeupLatency.begin(),
-                                   laneData.wakeupLatency.end());
+    streamAll.schedulerLatency.insert(streamAll.schedulerLatency.end(),
+                                      laneData.schedulerLatency.begin(),
+                                      laneData.schedulerLatency.end());
+    streamAll.dispatchLatency.insert(streamAll.dispatchLatency.end(),
+                                     laneData.dispatchLatency.begin(),
+                                     laneData.dispatchLatency.end());
+    streamAll.deadlineMiss.insert(streamAll.deadlineMiss.end(),
+                                  laneData.deadlineMiss.begin(),
+                                  laneData.deadlineMiss.end());
     streamAll.executionTime.insert(streamAll.executionTime.end(),
                                    laneData.executionTime.begin(),
                                    laneData.executionTime.end());
@@ -385,11 +390,27 @@ void TimelineAnalyzer::printReport(std::ostream& out) const {
   ss << "Total records: " << timelines_.size() << "\n\n";
 
   PrintSection(ss,
-               "Wake-up Latency",
+               "Scheduler Wake-up Latency",
                {
-                   {"Stream Worker", &streamAll.wakeupLatency},
-                   {"Pipeline", &pipelineData_.wakeupLatency},
-                   {"Viewer", &viewerData_.wakeupLatency},
+                   {"Stream Worker", &streamAll.schedulerLatency},
+                   {"Pipeline", &pipelineData_.schedulerLatency},
+                   {"Viewer", &viewerData_.schedulerLatency},
+               });
+
+  PrintSection(ss,
+               "Dispatch Latency",
+               {
+                   {"Stream Worker", &streamAll.dispatchLatency},
+                   {"Pipeline", &pipelineData_.dispatchLatency},
+                   {"Viewer", &viewerData_.dispatchLatency},
+               });
+
+  PrintSection(ss,
+               "Deadline Miss",
+               {
+                   {"Stream Worker", &streamAll.deadlineMiss},
+                   {"Pipeline", &pipelineData_.deadlineMiss},
+                   {"Viewer", &viewerData_.deadlineMiss},
                });
 
   PrintSection(ss,
@@ -447,17 +468,22 @@ void TimelineAnalyzer::analyzeLane(int laneId) const {
   }
 
   const AnalysisData& data = streamData_[static_cast<size_t>(laneId)];
-  if (data.executionTime.empty() && data.wakeupLatency.empty() &&
-      data.period.empty()) {
+  if (data.executionTime.empty() && data.schedulerLatency.empty() &&
+      data.deadlineMiss.empty() && data.period.empty()) {
     std::cout << "No data for lane " << laneId << "\n";
     return;
   }
 
   std::cout << "=== Lane " << laneId << " Statistics ===\n";
   PrintSection(std::cout,
-               "Wake-up Latency",
+               "Scheduler Wake-up Latency",
                {
-                   {"Stream Lane " + std::to_string(laneId), &data.wakeupLatency},
+                   {"Stream Lane " + std::to_string(laneId), &data.schedulerLatency},
+               });
+  PrintSection(std::cout,
+               "Deadline Miss",
+               {
+                   {"Stream Lane " + std::to_string(laneId), &data.deadlineMiss},
                });
   PrintSection(std::cout,
                "Execution Time",
@@ -493,6 +519,8 @@ bool TimelineAnalyzer::parseLine(const std::string& line,
   if (!ExtractInt64(line, "ExpectedWakeup=", outTimeline.expectedWakeup)) {
     return false;
   }
+
+  ExtractInt64(line, "Wakeup=", outTimeline.wakeup);
 
   if (outTimeline.type == TimelineType::Stream) {
     int64_t laneId = -1;
