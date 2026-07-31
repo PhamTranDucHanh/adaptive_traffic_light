@@ -2,7 +2,7 @@
     "ecuId": "TPER",
     "appId": "TPER",
     "appDesc": "Traffic Perception",
-    "logMode": "kFile|kConsole",
+    "logMode": "kFile",
     "logFilePath": "/tmp",
     "logLevel": "kInfo",
     "contextConfigs": [
