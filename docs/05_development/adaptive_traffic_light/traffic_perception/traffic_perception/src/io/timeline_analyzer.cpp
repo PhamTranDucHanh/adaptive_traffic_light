@@ -288,9 +288,8 @@ bool TimelineAnalyzer::analyze() {
           if (tl.begin != 0 && tl.end != 0 && tl.end >= tl.begin) {
               data.executionTime.push_back(tl.end - tl.begin);
 
-              if (tl.expectedWakeup != 0 && tl.wakeup != 0) {
-                  data.schedulerLatency.push_back(tl.wakeup - tl.expectedWakeup);
-                  data.dispatchLatency.push_back(tl.begin - tl.wakeup);
+              if (tl.expectedWakeup != 0) {
+                  data.schedulerLatency.push_back(tl.begin - tl.expectedWakeup);
                   data.deadlineMiss.push_back(tl.end - tl.expectedWakeup);
               }
 
@@ -313,9 +312,8 @@ bool TimelineAnalyzer::analyze() {
         if (tl.begin != 0 && tl.end != 0 && tl.end >= tl.begin) {
             pipelineData_.executionTime.push_back(tl.end - tl.begin);
 
-            if (tl.expectedWakeup != 0 && tl.wakeup != 0) {
-                pipelineData_.schedulerLatency.push_back(tl.wakeup - tl.expectedWakeup);
-                pipelineData_.dispatchLatency.push_back(tl.begin - tl.wakeup);
+            if (tl.expectedWakeup != 0) {
+                pipelineData_.schedulerLatency.push_back(tl.begin - tl.expectedWakeup);
                 pipelineData_.deadlineMiss.push_back(tl.end - tl.expectedWakeup);
             }
 
@@ -338,9 +336,8 @@ bool TimelineAnalyzer::analyze() {
         if (tl.begin != 0 && tl.end != 0 && tl.end >= tl.begin) {
             viewerData_.executionTime.push_back(tl.end - tl.begin);
 
-            if (tl.expectedWakeup != 0 && tl.wakeup != 0) {
-                viewerData_.schedulerLatency.push_back(tl.wakeup - tl.expectedWakeup);
-                viewerData_.dispatchLatency.push_back(tl.begin - tl.wakeup);
+            if (tl.expectedWakeup != 0) {
+                viewerData_.schedulerLatency.push_back(tl.begin - tl.expectedWakeup);
                 viewerData_.deadlineMiss.push_back(tl.end - tl.expectedWakeup);
             }
 

@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <iostream>
+#include <string_view>
 #include <utility>
 
 #include "score/mw/log/logging.h"
@@ -12,12 +13,17 @@ namespace {
 
 using namespace std::chrono_literals;
 
+// Local perception/viewer health gets a deliberately broad 10-second window.
+// This is independent from the faster domain capture/pipeline periods.
 constexpr auto kPerceptionDeadlineMin = 0ms;
-constexpr auto kPerceptionDeadlineMax = 20000ms;
-constexpr auto kHeartbeatMin = 2500ms;
-constexpr auto kHeartbeatMax = 25000ms;
+constexpr auto kPerceptionDeadlineMax = 10000ms;
+constexpr auto kHeartbeatMin = 100ms;
+constexpr auto kHeartbeatMax = 10000ms;
 constexpr auto kInternalProcessingCycle = 100ms;
-constexpr auto kSupervisorApiCycle = 500ms;
+// Emit several Alive indications inside each 10-second Launch Manager
+// reporting window. A single notification exactly on a 10-second boundary is
+// vulnerable to scheduler jitter and can land in the adjacent window.
+constexpr auto kSupervisorApiCycle = 2000ms;
 
 const score::mw::health::MonitorTag kDeadlineMonitorTag{
     "perception_deadline_monitor"};
@@ -109,7 +115,9 @@ bool LifecycleHealthReporter::initialize() {
       << "[TRAFFIC_PERCEPTION][HEALTH][ALIVE] "
          "notifications=enabled; producer=health_monitor_worker; "
          "delivery=asynchronous; configured_min_interval_ms="
-      << kSupervisorApiCycle.count() << "; receiver=launch_manager_phm\n";
+      << kSupervisorApiCycle.count()
+      << "; launch_manager_reporting_window_ms=10000; "
+         "receiver=launch_manager_phm\n";
   return true;
 }
 
@@ -132,7 +140,8 @@ bool LifecycleHealthReporter::startPerceptionCycle() {
       << "; expected_interval_ms=" << kHeartbeatMin.count() << ".."
       << kHeartbeatMax.count() << '\n';
 
-  // The deadline covers useful perception work, not the periodic wait.
+  // The deadline covers useful viewer work, not the periodic wait or the
+  // independently scheduled capture/inference threads.
   auto result = cycleDeadline_->start();
   if (!result.has_value()) {
     std::cerr << "[TRAFFIC_PERCEPTION][HEALTH][ERROR] could not start "
@@ -162,7 +171,9 @@ void LifecycleHealthReporter::finishPerceptionCycle() {
          "local_window=closed; cycle="
       << monitoredCycleCount_ << "; elapsed_us=" << elapsedMicroseconds
       << "; max_ms=" << kPerceptionDeadlineMax.count()
-      << "; observed_status=" << (withinConfiguredDeadline ? "met" : "missed")
+      << "; observed_status="
+      << (withinConfiguredDeadline ? std::string_view{"met"}
+                                   : std::string_view{"missed"})
       << '\n';
 }
 

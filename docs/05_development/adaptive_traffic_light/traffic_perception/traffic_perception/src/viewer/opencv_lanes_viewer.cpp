@@ -32,7 +32,6 @@ bool OpenCVLanesViewer::init(const AppConfig& config, IModelBackend* backend) {
 }
 
 void OpenCVLanesViewer::render(Analyzer& analyzer, int64_t expectedWakeupNs,
-                               int64_t wakeupNs,
                                int64_t renderBeginNs) {
   auto frames = analyzer.takeRenderFrames();
 
@@ -84,7 +83,7 @@ void OpenCVLanesViewer::render(Analyzer& analyzer, int64_t expectedWakeupNs,
   const int64_t renderEnd = GetMonotonicTimeNs();
 
   getViewerBenchmarkLogger().LogInfo()
-      << "ExpectedWakeup=" << expectedWakeupNs << " Wakeup=" << wakeupNs
+      << "ExpectedWakeup=" << expectedWakeupNs
       << " Begin=" << renderBeginNs << " End=" << renderEnd;
 }
 

@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstdlib>
+#include <functional>
 #include <thread>
+#include <pthread.h>
 
 #include <unistd.h>
 
@@ -68,7 +71,35 @@ void StreamWorker::stop() { running_.store(false, std::memory_order_relaxed); }
 
 void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
                        std::chrono::steady_clock::time_point startTime) {
-  cv::VideoCapture cap = createCapture(SourceUri);
+  cv::VideoCapture cap;
+  
+  struct ThreadTask {
+    std::function<void()> func;
+  };
+  
+  ThreadTask task;
+  task.func = [&]() {
+    setenv("OPENCV_FFMPEG_THREADS", "1", 1);
+    cap = createCapture(SourceUri);
+  };
+
+  pthread_attr_t attr;
+  pthread_attr_init(&attr);
+  pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
+  pthread_attr_setschedpolicy(&attr, SCHED_OTHER);
+  struct sched_param param;
+  param.sched_priority = 0;
+  pthread_attr_setschedparam(&attr, &param);
+
+  pthread_t tid;
+  pthread_create(&tid, &attr, [](void* arg) -> void* {
+    auto* t = static_cast<ThreadTask*>(arg);
+    t->func();
+    return nullptr;
+  }, &task);
+
+  pthread_join(tid, nullptr);
+  pthread_attr_destroy(&attr);
 
   if (!cap.isOpened()) {
     getBenchmarkLogger().LogError()
@@ -99,7 +130,6 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
 
     SleepUntilNs(expectedWakeup);
 
-    const int64_t wakeupNs = GetMonotonicTimeNs();
     const int64_t captureBegin = GetMonotonicTimeNs();
 
     // Advance to the next nominal release time.
@@ -188,7 +218,6 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
     getBenchmarkLogger().LogInfo()
         << "LaneId=" << LaneId << " FrameId=" << frame->FrameId
         << " ExpectedWakeup=" << expectedWakeup
-        << " Wakeup=" << wakeupNs
         << " Begin=" << captureBegin
         << " AcquireBegin=" << acquireBeginNs
         << " AcquireEnd=" << acquireEndNs

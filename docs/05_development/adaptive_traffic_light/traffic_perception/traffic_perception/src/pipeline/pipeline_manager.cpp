@@ -50,10 +50,9 @@ void PipelineManager::run(std::chrono::steady_clock::time_point startTime) {
 
     SleepUntilNs(expectedWakeup);
 
-    const int64_t wakeupNs = GetMonotonicTimeNs();
     const int64_t pipelineBegin = GetMonotonicTimeNs();
 
-    runOneCycle(expectedWakeup, wakeupNs, pipelineBegin);
+    runOneCycle(expectedWakeup, pipelineBegin);
 
     nextRelease = std::chrono::steady_clock::time_point(
         std::chrono::nanoseconds(nextReleaseNs)) + period_;
@@ -63,14 +62,13 @@ void PipelineManager::run(std::chrono::steady_clock::time_point startTime) {
 void PipelineManager::stop() { running_ = false; }
 
 void PipelineManager::runOneCycle(int64_t expectedWakeup,
-                                  int64_t wakeupNs,
                                   int64_t pipelineBegin) {
   engine_.runOneCycle();
 
   const int64_t pipelineEnd = GetMonotonicTimeNs();
 
   getPipelineBenchmarkLogger().LogInfo()
-      << "ExpectedWakeup=" << expectedWakeup << " Wakeup=" << wakeupNs
+      << "ExpectedWakeup=" << expectedWakeup
       << " Begin=" << pipelineBegin << " End=" << pipelineEnd;
 
   TrafficSnapshot snapshot = analyzer_.buildTrafficSnapshot();

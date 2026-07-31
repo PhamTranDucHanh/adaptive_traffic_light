@@ -108,10 +108,9 @@ int main(int argc, char* argv[]) {
     const int64_t expectedWakeup = nextReleaseNs;
     SleepUntilNs(expectedWakeup);
 
-    const int64_t wakeupNs = GetMonotonicTimeNs();
     const int64_t renderBegin = GetMonotonicTimeNs();
 
-    viewer.render(perception.analyzer(), expectedWakeup, wakeupNs, renderBegin);
+    viewer.render(perception.analyzer(), expectedWakeup, renderBegin);
 
     const int key = cv::waitKey(1);
 
