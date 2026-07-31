@@ -1,6 +1,12 @@
 #include "analytics_service/analytics.h"
 
+#include <sys/stat.h>
+
 #include <algorithm>
+#include <cerrno>
+#include <cstdio>
+#include <cstring>
+#include <dirent.h>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -46,6 +52,90 @@ bool ParseUint64(const std::string& value, std::uint64_t& result) noexcept {
   }
 }
 
+bool FileExistsAndIsNotEmpty(const std::string& path) {
+  struct stat fileStatus {};
+
+  return ::stat(path.c_str(), &fileStatus) == 0 && fileStatus.st_size > 0;
+}
+
+bool EnsureDirectoryExists(const std::string& path) {
+  if (path.empty()) {
+    return false;
+  }
+
+  std::string currentPath;
+
+  for (const char character : path) {
+    currentPath.push_back(character);
+
+    if (character != '/') {
+      continue;
+    }
+
+    if (currentPath.size() == 1U) {
+      continue;
+    }
+
+    if (::mkdir(currentPath.c_str(), 0755) != 0 && errno != EEXIST) {
+      std::cerr << "Unable to create output directory: " << currentPath
+                << ", reason=" << std::strerror(errno) << '\n';
+      return false;
+    }
+  }
+
+  if (::mkdir(path.c_str(), 0755) != 0 && errno != EEXIST) {
+    std::cerr << "Unable to create output directory: " << path
+              << ", reason=" << std::strerror(errno) << '\n';
+    return false;
+  }
+
+  return true;
+}
+
+bool CopyFile(const std::string& sourcePath,
+              const std::string& destinationPath) {
+  std::ifstream source(sourcePath, std::ios::binary);
+
+  if (!source.is_open()) {
+    std::cerr << "Unable to open archive source file: " << sourcePath << '\n';
+    return false;
+  }
+
+  std::ofstream destination(destinationPath,
+                            std::ios::binary | std::ios::trunc);
+
+  if (!destination.is_open()) {
+    std::cerr << "Unable to open archive destination file: "
+              << destinationPath << '\n';
+    return false;
+  }
+
+  destination << source.rdbuf();
+  return destination.good();
+}
+
+std::uint32_t NextArchiveNumber(const std::string& outputDirectory) {
+  std::uint32_t nextArchiveNumber{1U};
+  DIR* directory = ::opendir(outputDirectory.c_str());
+
+  if (directory == nullptr) {
+    return nextArchiveNumber;
+  }
+
+  while (const dirent* entry = ::readdir(directory)) {
+    unsigned int archiveNumber{};
+
+    if (std::strstr(entry->d_name, "_analytics_input.txt") != nullptr &&
+        std::sscanf(entry->d_name, "%3u_", &archiveNumber) == 1 &&
+        archiveNumber >= nextArchiveNumber) {
+      nextArchiveNumber = archiveNumber + 1U;
+    }
+  }
+
+  ::closedir(directory);
+  return nextArchiveNumber;
+}
+
 }  // namespace
 
 Analytics::Analytics(std::string logFilePath)
@@ -59,7 +149,7 @@ bool Analytics::Analyze() {
 
   if (!LoadLog()) {
     return false;
-  }
+  }     
 
   ComputePlanStatistics();
   ComputeEmergencyStatistics();
@@ -690,6 +780,37 @@ void Analytics::ComputeWakeupStatistics() {
     wakeupStatistics_.latencySamplesNs.push_back(
         static_cast<std::int64_t>(latencyNs));
   }
+}
+
+bool Analytics::ArchiveInputData(const std::string& outputDirectory,
+                                 std::string& archivedInputPath) const {
+  if (!EnsureDirectoryExists(outputDirectory)) {
+    return false;
+  }
+
+  const std::string convertedLogPath = logFilePath_ + ".txt";
+  const std::string sourcePath =
+      FileExistsAndIsNotEmpty(convertedLogPath) ? convertedLogPath
+                                                : logFilePath_;
+
+  if (!FileExistsAndIsNotEmpty(sourcePath)) {
+    std::cerr << "Unable to archive analytics input; file not found: "
+              << sourcePath << '\n';
+    return false;
+  }
+
+  const std::uint32_t archiveNumber = NextArchiveNumber(outputDirectory);
+  const bool sourceIsDlt =
+      sourcePath.size() >= 4U &&
+      sourcePath.compare(sourcePath.size() - 4U, 4U, ".dlt") == 0;
+
+  std::ostringstream archiveName;
+  archiveName << std::setw(3) << std::setfill('0') << archiveNumber
+              << "_analytics_input" << (sourceIsDlt ? ".dlt" : ".txt");
+
+  archivedInputPath = outputDirectory + "/" + archiveName.str();
+
+  return CopyFile(sourcePath, archivedInputPath);
 }
 
 bool Analytics::WriteReport(const std::string& outputPath) const {

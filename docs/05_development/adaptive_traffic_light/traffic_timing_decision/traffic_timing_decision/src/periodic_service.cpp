@@ -60,7 +60,7 @@ bool PeriodicService::runDecisionCycle() {
     return false;
   }
 
-  bool cycleSuccessful{true};
+  bool cycleSuccessful{timingPublisher.retryPending()};
   TrafficSnapshot snapshot{};
   if (!trafficReceiver.requestSnapshot(snapshot)) {
     ++consecutiveSnapshotMisses_;
@@ -88,8 +88,9 @@ bool PeriodicService::runDecisionCycle() {
   } else {
     consecutiveSnapshotMisses_ = std::uint32_t{};
     const TimingPlan plan = decisionEngine.processTrafficMetrics(snapshot);
-    cycleSuccessful = timingPublisher.publishTimingPlan(plan);
-    if (cycleSuccessful) {
+    const bool publishSuccessful = timingPublisher.publishTimingPlan(plan);
+    cycleSuccessful = cycleSuccessful && publishSuccessful;
+    if (publishSuccessful) {
       traffic_timing_decision::applicationLogger().LogInfo()
           << "[DECISION][PUBLISHED] frame_id=" << snapshot.frameId
           << "; plan_id=" << plan.planId

@@ -23,11 +23,9 @@ int main() {
       unlinkQueue(traffic_ipc::kTimingPlanQueueName);
   const bool snapshotLockRemoved =
       unlinkSemaphore(traffic_ipc::kTrafficSnapshotLockName);
-  const bool timingPlanLockRemoved =
-      unlinkSemaphore(traffic_ipc::kTimingPlanLockName);
 
   return snapshotQueueRemoved && timingPlanQueueRemoved &&
-                 snapshotLockRemoved && timingPlanLockRemoved
+                 snapshotLockRemoved
              ? 0
              : 1;
 }

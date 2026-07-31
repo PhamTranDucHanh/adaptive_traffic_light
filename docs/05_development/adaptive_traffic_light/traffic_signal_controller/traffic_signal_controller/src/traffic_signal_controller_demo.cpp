@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <thread>
 
 #include "analytics_service/analytics.h"
@@ -144,6 +145,8 @@ void RunAnalytics() {
   constexpr const char* kLogFilePath{"/tmp/CTRL.dlt"};
   constexpr const char* kReportFilePath{
       "/tmp/traffic_signal_analytics_report.txt"};
+  constexpr const char* kAnalyticsOutputDirectory{
+      "/tmp/traffic_signal_controller/logs/output"};
 
   Analytics analytics{kLogFilePath};
 
@@ -151,6 +154,18 @@ void RunAnalytics() {
     Logger().LogWarn() << "event=ANALYTICS_FAILED"
                        << ", log_file=" << kLogFilePath;
     return;
+  }
+
+  std::string archivedInputPath;
+  if (!analytics.ArchiveInputData(kAnalyticsOutputDirectory,
+                                  archivedInputPath)) {
+    Logger().LogWarn() << "event=ANALYTICS_INPUT_ARCHIVE_FAILED"
+                       << ", log_file=" << kLogFilePath
+                       << ", output_directory=" << kAnalyticsOutputDirectory;
+  } else {
+    Logger().LogInfo() << "event=ANALYTICS_INPUT_ARCHIVED"
+                       << ", log_file=" << kLogFilePath
+                       << ", archived_input=" << archivedInputPath;
   }
 
   if (!analytics.WriteReport(kReportFilePath)) {

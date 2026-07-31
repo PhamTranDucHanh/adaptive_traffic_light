@@ -32,6 +32,8 @@ constexpr const char* kDefaultAnalyticsReportFile{
 constexpr const char* kRuntimeDirectory{"/tmp/traffic_signal_controller"};
 constexpr const char* kRuntimeLogDirectory{
     "/tmp/traffic_signal_controller/logs"};
+constexpr const char* kRuntimeAnalyticsOutputDirectory{
+    "/tmp/traffic_signal_controller/logs/output"};
 
 constexpr std::int32_t kDefaultFsmPriority{80};
 constexpr std::int32_t kDefaultPlanReceiverPriority{70};
@@ -253,7 +255,6 @@ void ResetAnalyticsOutputFiles() {
 }  // namespace
 
 SignalControlApplication::~SignalControlApplication() {
-  acceptingPlans_.store(false, std::memory_order_release);
   StopPlanReceiverWorker();
   StopFsmWorker();
   outputSimulator_.stop();
@@ -290,8 +291,6 @@ std::int32_t SignalControlApplication::Initialize(
   planReceiverFailed_.store(false, std::memory_order_release);
   fsmRunning_.store(true, std::memory_order_release);
   planReceiverRunning_.store(true, std::memory_order_release);
-  acceptingPlans_.store(false, std::memory_order_release);
-  ResetPlanQueue();
 
   try {
     outputSimulator_.start();
@@ -316,7 +315,6 @@ std::int32_t SignalControlApplication::Initialize(
 
   if (!StartFsmWorker()) {
     fsmRunning_.store(false, std::memory_order_release);
-    acceptingPlans_.store(false, std::memory_order_release);
     StopPlanReceiverWorker();
     planSyncChannel_.RequestShutdown();
     outputSimulator_.stop();
@@ -327,7 +325,6 @@ std::int32_t SignalControlApplication::Initialize(
   }
 
   initialized_ = true;
-  acceptingPlans_.store(true, std::memory_order_release);
 
   AppLogger().LogInfo() << "event=APP_READY"
                         << ", application_threads=4"
@@ -388,7 +385,6 @@ std::int32_t SignalControlApplication::Run(
     nextRelease += kControlPeriod;
   }
 
-  acceptingPlans_.store(false, std::memory_order_release);
   StopPlanReceiverWorker();
   StopFsmWorker();
   outputSimulator_.stop();
@@ -399,15 +395,6 @@ std::int32_t SignalControlApplication::Run(
   AppLogger().LogInfo() << "event=APP_STOPPED"
                         << ", cycles_completed=" << cycleCount_;
   return exitCode;
-}
-
-bool SignalControlApplication::ReceiveTimingPlan(
-    const TimingPlan& plan) noexcept {
-  if (!acceptingPlans_.load(std::memory_order_acquire)) {
-    return false;
-  }
-
-  return TryPushTimingPlan(plan);
 }
 
 void* SignalControlApplication::FsmWorkerEntry(void* const argument) noexcept {
@@ -430,8 +417,16 @@ void* SignalControlApplication::PlanReceiverWorkerEntry(
 }
 
 bool SignalControlApplication::StartFsmWorker() noexcept {
-  const std::int32_t priority = GetPriorityFromEnvOrDefault(
+  std::int32_t priority = GetPriorityFromEnvOrDefault(
       "TRAFFIC_SIGNAL_CONTROLLER_FSM_PRIORITY", kDefaultFsmPriority);
+  if (priority <= kDefaultPlanReceiverPriority) {
+    AppLogger().LogWarn() << "event=FSM_PRIORITY_INVALID"
+                          << ", configured_priority=" << priority
+                          << ", receiver_priority="
+                          << kDefaultPlanReceiverPriority
+                          << ", fallback_priority=" << kDefaultFsmPriority;
+    priority = kDefaultFsmPriority;
+  }
   constexpr std::int32_t cpu{kTrafficSignalControllerCpu};
 
   pthread_attr_t attributes{};
@@ -465,8 +460,7 @@ bool SignalControlApplication::StartFsmWorker() noexcept {
 }
 
 bool SignalControlApplication::StartPlanReceiverWorker() noexcept {
-  const std::int32_t priority = GetPriorityFromEnvOrDefault(
-      "TRAFFIC_SIGNAL_CONTROLLER_PLAN_PRIORITY", kDefaultPlanReceiverPriority);
+  constexpr std::int32_t priority{kDefaultPlanReceiverPriority};
   constexpr std::int32_t cpu{kTrafficSignalControllerCpu};
 
   pthread_attr_t attributes{};
@@ -523,15 +517,8 @@ void SignalControlApplication::RunPlanReceiverWorker() noexcept {
   try {
     (void)pthread_setname_np(pthread_self(), "tsc_plan_rx");
     PrefaultCurrentThreadStack("plan_receiver");
-
-    TimingPlan plan{};
-    while (WaitAndPopTimingPlan(plan)) {
-      const bool accepted = planReceiver_.ReceivePlan(plan);
-
-      AppLogger().LogInfo()
-          << "event=TIMING_PLAN_PROCESSED"
-          << ", plan_id=" << plan.planId
-          << ", result=" << (accepted ? "accepted" : "rejected");
+    if (!mqTimingPlanReceiverWorker_.Run(planReceiverRunning_)) {
+      planReceiverFailed_.store(true, std::memory_order_release);
     }
   } catch (...) {
     planReceiverFailed_.store(true, std::memory_order_release);
@@ -540,7 +527,6 @@ void SignalControlApplication::RunPlanReceiverWorker() noexcept {
 
 void SignalControlApplication::StopPlanReceiverWorker() noexcept {
   planReceiverRunning_.store(false, std::memory_order_release);
-  planQueueCondition_.notify_all();
 
   if (!planReceiverWorkerCreated_) {
     return;
@@ -577,51 +563,6 @@ void SignalControlApplication::StopFsmWorker() noexcept {
   signalFsmEngine_.dumpWakeupSamplesToLog();
 }
 
-void SignalControlApplication::ResetPlanQueue() noexcept {
-  std::lock_guard<std::mutex> lock{planQueueMutex_};
-  planQueueReadIndex_ = 0U;
-  planQueueWriteIndex_ = 0U;
-  planQueueSize_ = 0U;
-}
-
-bool SignalControlApplication::TryPushTimingPlan(
-    const TimingPlan& plan) noexcept {
-  {
-    std::lock_guard<std::mutex> lock{planQueueMutex_};
-
-    if (!planReceiverRunning_.load(std::memory_order_acquire) ||
-        planQueueSize_ >= kPlanQueueCapacity) {
-      return false;
-    }
-
-    planQueue_[planQueueWriteIndex_] = plan;
-    planQueueWriteIndex_ = (planQueueWriteIndex_ + 1U) % kPlanQueueCapacity;
-    ++planQueueSize_;
-  }
-
-  planQueueCondition_.notify_one();
-  return true;
-}
-
-bool SignalControlApplication::WaitAndPopTimingPlan(TimingPlan& plan) noexcept {
-  std::unique_lock<std::mutex> lock{planQueueMutex_};
-
-  planQueueCondition_.wait(lock, [this]() {
-    return planQueueSize_ > 0U ||
-           !planReceiverRunning_.load(std::memory_order_acquire);
-  });
-
-  if (planQueueSize_ == 0U &&
-      !planReceiverRunning_.load(std::memory_order_acquire)) {
-    return false;
-  }
-
-  plan = planQueue_[planQueueReadIndex_];
-  planQueueReadIndex_ = (planQueueReadIndex_ + 1U) % kPlanQueueCapacity;
-  --planQueueSize_;
-  return true;
-}
-
 void SignalControlApplication::WriteAnalyticsReport() const {
   EnsureRuntimeLogDirectoryExists();
 
@@ -637,6 +578,20 @@ void SignalControlApplication::WriteAnalyticsReport() const {
     AnalyticsLogger().LogWarn() << "event=ANALYTICS_FAILED"
                                 << ", log_file=" << logFilePath;
     return;
+  }
+
+  std::string archivedInputPath;
+  if (!analytics.ArchiveInputData(kRuntimeAnalyticsOutputDirectory,
+                                  archivedInputPath)) {
+    AnalyticsLogger().LogWarn()
+        << "event=ANALYTICS_INPUT_ARCHIVE_FAILED"
+        << ", log_file=" << logFilePath
+        << ", output_directory=" << kRuntimeAnalyticsOutputDirectory;
+  } else {
+    AnalyticsLogger().LogInfo()
+        << "event=ANALYTICS_INPUT_ARCHIVED"
+        << ", log_file=" << logFilePath
+        << ", archived_input=" << archivedInputPath;
   }
 
   if (!analytics.WriteReport(reportFilePath)) {

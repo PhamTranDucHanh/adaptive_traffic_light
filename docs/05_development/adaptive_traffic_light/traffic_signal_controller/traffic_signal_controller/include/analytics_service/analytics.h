@@ -13,6 +13,9 @@ class Analytics {
 
   bool Analyze();
   bool WriteReport(const std::string& outputPath) const;
+  bool ArchiveInputData(
+      const std::string& outputDirectory,
+      std::string& archivedInputPath) const;
 
  private:
   enum class EventType {

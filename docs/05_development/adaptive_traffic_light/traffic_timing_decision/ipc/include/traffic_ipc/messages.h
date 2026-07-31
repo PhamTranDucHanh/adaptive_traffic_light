@@ -4,14 +4,13 @@
 #include <cstdint>
 #include <type_traits>
 
+#include "traffic_ipc/timing_plan_message_v1.h"
+
 namespace traffic_ipc {
 
 inline constexpr char kTrafficSnapshotQueueName[] = "/traffic_snapshot_v1";
 inline constexpr char kTrafficSnapshotLockName[] =
     "/traffic_snapshot_lock_v1";
-inline constexpr char kTimingPlanQueueName[] = "/timing_plan_v1";
-inline constexpr char kTimingPlanLockName[] = "/timing_plan_lock_v1";
-
 struct TrafficSnapshot {
   std::uint64_t frameId{0U};
   std::uint64_t timestampUs{0U};
@@ -53,8 +52,6 @@ struct TimingPlan {
 
 static_assert(std::is_trivially_copyable<TrafficSnapshot>::value,
               "TrafficSnapshot must be transferable as POSIX MQ bytes");
-static_assert(std::is_trivially_copyable<TimingPlan>::value,
-              "TimingPlan must be transferable as POSIX MQ bytes");
 
 }  // namespace traffic_ipc
 

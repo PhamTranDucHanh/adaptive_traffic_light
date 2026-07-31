@@ -8,6 +8,12 @@ bazel_dep(name = "rules_cc", version = "0.2.17")
 bazel_dep(name = "rules_python", version = "1.8.5")
 bazel_dep(name = "score_baselibs", version = "0.2.9")
 bazel_dep(name = "score_logging",  version = "0.2.2")
+bazel_dep(name = "traffic_ipc_contract", version = "0.1.0")
+
+local_path_override(
+    module_name = "traffic_ipc_contract",
+    path = "../traffic_ipc_contract",
+)
 
 # Lifecycle's architecture configurations depend on these repositories, but
 # upstream declares them as development dependencies. A consuming application
