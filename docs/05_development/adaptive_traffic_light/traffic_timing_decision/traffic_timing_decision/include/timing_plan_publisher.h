@@ -1,8 +1,9 @@
 #ifndef TIMING_PLAN_PUBLISHER_H
 #define TIMING_PLAN_PUBLISHER_H
 
-#include <cstdint>
 #include <mqueue.h>
+
+#include <cstdint>
 #include <optional>
 
 #include "decision_types.h"
@@ -11,28 +12,35 @@
 class TimingPlanPublisher {
  public:
   TimingPlanPublisher();
-  ~TimingPlanPublisher() = default;
+  ~TimingPlanPublisher();
+
+  TimingPlanPublisher(const TimingPlanPublisher&) = delete;
+  TimingPlanPublisher& operator=(const TimingPlanPublisher&) = delete;
+
   bool initialize();
   void shutdown();
   //----------------------------------------
   // publish
   //----------------------------------------
   bool publishTimingPlan(const TimingPlan& plan);
+  bool retryPendingTimingPlan();
   bool publishPreviousTimingPlan();
-  bool retryPending();
 
  private:
-  bool trySendPending();
-  static std::uint64_t createPublisherInstanceId() noexcept;
-  traffic_ipc::TimingPlanMessageV1 makeMessage(const TimingPlan& plan) noexcept;
+  bool validateQueueContract() noexcept;
+  traffic_ipc::TimingPlanMessageV1 makeMessage(
+      const TimingPlan& plan) noexcept;
+  bool trySendPending() noexcept;
+  std::uint64_t nextSequenceNumber() noexcept;
 
-  mqd_t queueDescriptor_{static_cast<mqd_t>(-1)};
-  std::optional<traffic_ipc::TimingPlanMessageV1> pendingMessage_{};
-  std::uint64_t publisherInstanceId_{0U};
-  std::uint64_t nextSequenceNumber_{1U};
-  TimingPlan lastPublishedPlan;
-  std::uint64_t lastPublishTimestampNs{};
-  int lastError_{0};
+  mqd_t descriptor_{static_cast<mqd_t>(-1)};
+  std::optional<traffic_ipc::TimingPlanMessageV1> pendingLatest_{};
+  std::optional<TimingPlan> pendingLatestPlan_{};
+  TimingPlan lastPublishedPlan_{};
+  std::uint64_t publisherInstanceId_{};
+  std::uint64_t sequenceNumber_{};
+  std::uint64_t lastPublishTimestampNs_{};
+  std::int32_t lastError_{};
 };
 
 #endif  // !TIMING_PLAN_PUBLISHER_H

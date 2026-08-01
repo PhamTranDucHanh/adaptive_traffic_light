@@ -1,10 +1,7 @@
 #include "signal_control_application.h"
 
-#include <cerrno>
 #include <cstdlib>
 #include <cstring>
-#include <fcntl.h>
-#include <mqueue.h>
 #include <score/stop_token.hpp>
 #include <string_view>
 
@@ -19,12 +16,20 @@ constexpr std::uint32_t kMaximumGreenMs = 60000U;
 constexpr std::uint32_t kMaximumCycleMs = 100000U;
 constexpr std::uint64_t kMaximumPlanAgeNs = 10000000000ULL;
 constexpr std::uint32_t kMaximumConsecutiveMisses = 3U;
+// Legacy standalone demo channel. The integrated controller exclusively uses
+// TimingPlanMessageV1 on /traffic_timing_plan_v1.
+constexpr char kLegacyTimingPlanDemoQueueName[] =
+    "/timing_plan_legacy_demo_v0";
+constexpr char kLegacyTimingPlanDemoLockName[] =
+    "/timing_plan_legacy_demo_lock_v0";
 
 }  // namespace
 
 namespace signal_control_demo {
 
-SignalControlApplication::SignalControlApplication() {
+SignalControlApplication::SignalControlApplication()
+    : consumer_{kLegacyTimingPlanDemoQueueName,
+                kLegacyTimingPlanDemoLockName} {
   lastValidPlan_.greenNorthSouthMs = 30000U;
   lastValidPlan_.greenEastWestMs = 30000U;
   lastValidPlan_.yellowMs = 3000U;
@@ -36,33 +41,19 @@ std::int32_t SignalControlApplication::Initialize(
     const score::mw::lifecycle::ApplicationContext& context) {
   (void)context;
 
-  queueDescriptor_ = mq_open(traffic_ipc::kTimingPlanQueueName,
-                             O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-  if (queueDescriptor_ == static_cast<mqd_t>(-1)) {
+  const auto queueStatus = consumer_.open();
+  if (queueStatus != traffic_ipc::QueueStatus::kSuccess) {
     applicationLogger().LogError()
-        << "[INIT][IPC] queue=" << traffic_ipc::kTimingPlanQueueName
-        << "; errno=" << errno;
+        << "[INIT][IPC] queue=" << kLegacyTimingPlanDemoQueueName
+        << "; status="
+        << std::string_view{traffic_ipc::queueStatusName(queueStatus)}
+        << "; errno=" << consumer_.lastError();
     return EXIT_FAILURE;
   }
-
-  mq_attr attributes{};
-  if (mq_getattr(queueDescriptor_, &attributes) != 0 ||
-      attributes.mq_maxmsg != traffic_ipc::kTimingPlanQueueMaxMessages ||
-      attributes.mq_msgsize != traffic_ipc::kTimingPlanQueueMessageSize) {
-    applicationLogger().LogError()
-        << "[INIT][IPC] queue contract mismatch; expected_maxmsg="
-        << traffic_ipc::kTimingPlanQueueMaxMessages
-        << "; expected_msgsize=" << traffic_ipc::kTimingPlanQueueMessageSize;
-    (void)mq_close(queueDescriptor_);
-    queueDescriptor_ = static_cast<mqd_t>(-1);
-    return EXIT_FAILURE;
-  }
-
   if (!periodicWait_.valid()) {
     applicationLogger().LogError()
         << "[INIT][PERIODIC] condition variable initialization failed";
-    (void)mq_close(queueDescriptor_);
-    queueDescriptor_ = static_cast<mqd_t>(-1);
+    consumer_.close();
     return EXIT_FAILURE;
   }
 
@@ -70,7 +61,7 @@ std::int32_t SignalControlApplication::Initialize(
   initialized_ = true;
   applicationLogger().LogInfo()
       << "[INIT] ready; output_state=all_red_safe; period_ms=" << kPeriodMs
-      << "; queue=" << traffic_ipc::kTimingPlanQueueName
+      << "; queue=" << kLegacyTimingPlanDemoQueueName
       << "; lifecycle_profile=Reporting";
   return EXIT_SUCCESS;
 }
@@ -108,7 +99,7 @@ std::int32_t SignalControlApplication::Run(
     }
 
     traffic_ipc::TimingPlan plan{};
-    const auto receiveStatus = receiveLatestPlan(plan);
+    const auto receiveStatus = consumer_.receiveLatest(plan);
     if (receiveStatus == traffic_ipc::QueueStatus::kSuccess &&
         validatePlan(plan)) {
       lastValidPlan_ = plan;
@@ -165,7 +156,8 @@ std::int32_t SignalControlApplication::Run(
 
 bool SignalControlApplication::validatePlan(
     const traffic_ipc::TimingPlan& plan) const noexcept {
-  if (plan.planId == 0U || plan.generationTimestampNs == 0U) {
+  if (plan.planId == 0U || plan.planId <= lastValidPlan_.planId ||
+      plan.generationTimestampNs == 0U) {
     return false;
   }
 
@@ -187,67 +179,6 @@ bool SignalControlApplication::validatePlan(
          expectedCycle <= kMaximumCycleMs;
 }
 
-traffic_ipc::QueueStatus SignalControlApplication::receiveLatestPlan(
-    traffic_ipc::TimingPlan& plan) noexcept {
-  traffic_ipc::TimingPlanMessageV1 newest{};
-  bool hasCandidate{false};
-
-  for (;;) {
-    traffic_ipc::TimingPlanMessageV1 current{};
-    const ssize_t received =
-        mq_receive(queueDescriptor_, reinterpret_cast<char*>(&current),
-                   sizeof(current), nullptr);
-    if (received < 0) {
-      if (errno == EAGAIN) {
-        break;
-      }
-      return traffic_ipc::QueueStatus::kSystemError;
-    }
-    if (received != static_cast<ssize_t>(sizeof(current)) ||
-        !traffic_ipc::HasValidTimingPlanEnvelope(current)) {
-      continue;
-    }
-    if (!isNewerTransportMessage(current.publisherInstanceId,
-                                 current.sequenceNumber)) {
-      continue;
-    }
-    newest = current;
-    hasCandidate = true;
-  }
-
-  if (!hasCandidate) {
-    return traffic_ipc::QueueStatus::kEmpty;
-  }
-
-  plan.planId = newest.planId;
-  plan.generationTimestampNs = newest.generationTimestampNs;
-  plan.greenNorthSouthMs = newest.greenNorthSouthMs;
-  plan.greenEastWestMs = newest.greenEastWestMs;
-  plan.yellowMs = newest.yellowMs;
-  plan.allRedMs = newest.allRedMs;
-  plan.cycleLengthMs = newest.cycleLengthMs;
-  plan.emergencyNorthSouth = newest.emergencyNorthSouth == 1U;
-  plan.emergencyEastWest = newest.emergencyEastWest == 1U;
-  return traffic_ipc::QueueStatus::kSuccess;
-}
-
-bool SignalControlApplication::isNewerTransportMessage(
-    const std::uint64_t publisherInstanceId,
-    const std::uint64_t sequenceNumber) noexcept {
-  if (!hasTransportPosition_ ||
-      publisherInstanceId != publisherInstanceId_) {
-    hasTransportPosition_ = true;
-    publisherInstanceId_ = publisherInstanceId;
-    lastSequenceNumber_ = sequenceNumber;
-    return true;
-  }
-  if (sequenceNumber <= lastSequenceNumber_) {
-    return false;
-  }
-  lastSequenceNumber_ = sequenceNumber;
-  return true;
-}
-
 void SignalControlApplication::shutdown() {
   if (!initialized_) {
     return;
@@ -255,10 +186,7 @@ void SignalControlApplication::shutdown() {
   applicationLogger().LogInfo()
       << "[STOP] output_state=all_red_safe; last_plan_id="
       << lastValidPlan_.planId;
-  if (queueDescriptor_ != static_cast<mqd_t>(-1)) {
-    (void)mq_close(queueDescriptor_);
-    queueDescriptor_ = static_cast<mqd_t>(-1);
-  }
+  consumer_.close();
   initialized_ = false;
 }
 

@@ -1,5 +1,6 @@
 #include "timing_decision_application.h"
 
+#include <sched.h>
 #include <sys/mman.h>
 
 #include <array>
@@ -12,19 +13,20 @@
 #ifdef RT_THREAD_CHECKING
 #include <linux/sched.h>
 #include <pthread.h>
-#include <sched.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 #endif
 
 #include "application_logger.h"
 #include "common.h"
+#include "score/mw/log/rust/stdout_logger_init.h"
 
 namespace {
 
 constexpr std::string_view kDefaultTimingReportDirectory{
     "/tmp/linux_rt_application/logs"};
 constexpr char kTimingReportDirectoryEnvironment[] = "TIMING_REPORT_LOG_DIR";
+constexpr std::int32_t kTimingDecisionCpu{1};
 
 enum class RealtimeMemoryConfiguration : std::uint32_t {
   // A bounded reserve for the periodic thread's nested call stack.
@@ -314,6 +316,29 @@ void TimingDecisionApplication::unlockProcessMemory() noexcept {
 std::int32_t TimingDecisionApplication::Initialize(
     const score::mw::lifecycle::ApplicationContext& context) {
   (void)context;
+
+  // S-CORE HealthMonitor uses score_log's Rust frontend internally. Install
+  // the same process-local bridge used by the official Signal Controller
+  // before constructing the monitor; application DLT records continue to use
+  // score::mw::log and timing_decision_logging.json.
+  score::mw::log::rust::StdoutLoggerBuilder loggerBuilder;
+  loggerBuilder.Context("TDEC")
+      .LogLevel(score::mw::log::rust::LogLevel::Verbose)
+      .SetAsDefaultLogger();
+
+  cpu_set_t affinityMask;
+  CPU_ZERO(&affinityMask);
+  CPU_SET(kTimingDecisionCpu, &affinityMask);
+  if (sched_setaffinity(0, sizeof(affinityMask), &affinityMask) != 0) {
+    const std::int32_t affinityError = errno;
+    applicationLogger().LogError()
+        << "[INIT][CPU_AFFINITY] sched_setaffinity failed; cpu="
+        << kTimingDecisionCpu << "; errno=" << affinityError
+        << "; reason=" << std::string_view{std::strerror(affinityError)};
+    return EXIT_FAILURE;
+  }
+  applicationLogger().LogInfo()
+      << "[INIT][CPU_AFFINITY] process pinned; cpu=" << kTimingDecisionCpu;
 
   if (!periodicWait_.valid()) {
     applicationLogger().LogError()

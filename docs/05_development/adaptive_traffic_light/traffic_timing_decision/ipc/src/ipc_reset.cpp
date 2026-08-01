@@ -3,6 +3,7 @@
 #include <semaphore.h>
 
 #include "traffic_ipc/messages.h"
+#include "traffic_ipc/timing_plan_message_v1.h"
 
 namespace {
 

@@ -10,6 +10,7 @@ fi
 
 readonly INPUT_FILE="$1"
 readonly BUCKET_WIDTH_US="${BUCKET_WIDTH_US:-1}"
+readonly MICROSECONDS_PER_MILLISECOND="1000"
 
 if [[ ! -f "$INPUT_FILE" ]]; then
   echo "Error: file not found: $INPUT_FILE" >&2
@@ -103,6 +104,15 @@ read -r SAMPLE_COUNT MIN_VALUE MAX_VALUE < <(
 readonly SAMPLE_COUNT
 readonly MIN_VALUE
 readonly MAX_VALUE
+readonly MIN_VALUE_MS="$(awk -v value="$MIN_VALUE" \
+  -v scale="$MICROSECONDS_PER_MILLISECOND" \
+  'BEGIN {printf "%.3f", value / scale}')"
+readonly MAX_VALUE_MS="$(awk -v value="$MAX_VALUE" \
+  -v scale="$MICROSECONDS_PER_MILLISECOND" \
+  'BEGIN {printf "%.3f", value / scale}')"
+readonly BUCKET_WIDTH_MS="$(awk -v value="$BUCKET_WIDTH_US" \
+  -v scale="$MICROSECONDS_PER_MILLISECOND" \
+  'BEGIN {printf "%.3f", value / scale}')"
 
 # Bucket zero starts at the measured minimum. Only non-empty buckets are
 # emitted, which is suitable for the logarithmic sample-count axis.
@@ -123,7 +133,7 @@ set terminal pngcairo size 1600,900 enhanced
 set output "${OUTPUT_PNG}"
 
 set title "${PLOT_TITLE}"
-set xlabel "${X_AXIS_NAME} (us), Samples = ${SAMPLE_COUNT}, Min = ${MIN_VALUE} us, Max = ${MAX_VALUE} us, Bucket = ${BUCKET_WIDTH_US} us"
+set xlabel "${X_AXIS_NAME} (ms), Samples = ${SAMPLE_COUNT}, Min = ${MIN_VALUE_MS} ms, Max = ${MAX_VALUE_MS} ms, Bucket = ${BUCKET_WIDTH_MS} ms"
 set ylabel "Number of Samples"
 
 set xrange [0:*]
@@ -135,7 +145,7 @@ set border linewidth 1
 set key top right
 
 plot "${HISTOGRAM_FILE}" using \
-(${MIN_VALUE} + (\$1 * ${BUCKET_WIDTH_US})):2 \
+((${MIN_VALUE} + (\$1 * ${BUCKET_WIDTH_US})) / ${MICROSECONDS_PER_MILLISECOND}):2 \
 with impulses linewidth 1 linecolor rgb "#b000ff" \
 title "${LEGEND_NAME}"
 EOF
@@ -143,6 +153,6 @@ EOF
 echo "Input    : $INPUT_FILE"
 echo "Field    : $FIELD_NAME"
 echo "Samples  : $SAMPLE_COUNT"
-echo "Range    : $MIN_VALUE..$MAX_VALUE us"
-echo "Bucket   : $BUCKET_WIDTH_US us"
+echo "Range    : $MIN_VALUE_MS..$MAX_VALUE_MS ms"
+echo "Bucket   : $BUCKET_WIDTH_MS ms ($BUCKET_WIDTH_US us, unchanged)"
 echo "Generated: $OUTPUT_PNG"

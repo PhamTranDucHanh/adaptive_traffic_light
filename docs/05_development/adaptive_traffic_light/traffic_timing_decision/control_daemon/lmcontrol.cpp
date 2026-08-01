@@ -7,6 +7,7 @@
 #include <thread>
 
 #include <signal.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "control.h"
@@ -74,8 +75,15 @@ int main(int argc, char** argv) {
 
   ipc_dropin::Socket<sizeof(RunTargetResponse), kResponseSocketCapacity>
       responseSocket{};
-  if (responseSocket.create(responseSocketPath, 0600) !=
-      ipc_dropin::ReturnCode::kOk) {
+  // lmcontrol runs outside the Lifecycle sandbox while control_daemon runs as
+  // a managed process and may have a different uid/gid. The path is unique to
+  // this client PID and carries only one bounded transition response. POSIX
+  // applies the process umask to shm_open(), so temporarily clear it while the
+  // single-threaded client creates this cross-UID response endpoint.
+  const mode_t previousUmask = umask(0);
+  const auto createResult = responseSocket.create(responseSocketPath, 0666);
+  (void)umask(previousUmask);
+  if (createResult != ipc_dropin::ReturnCode::kOk) {
     std::cerr << "[LMCONTROL][ERROR] could not create response socket="
               << responseSocketPath << '\n';
     return EXIT_FAILURE;

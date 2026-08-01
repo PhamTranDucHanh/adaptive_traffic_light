@@ -4,7 +4,6 @@
 #include <score/mw/lifecycle/application.h>
 
 #include <cstdint>
-#include <mqueue.h>
 
 #include "common.h"
 #include "traffic_ipc/latest_value_queue.h"
@@ -24,20 +23,13 @@ class SignalControlApplication final
   std::int32_t Run(const score::cpp::stop_token& stopToken) override;
 
  private:
-  traffic_ipc::QueueStatus receiveLatestPlan(
-      traffic_ipc::TimingPlan& plan) noexcept;
-  bool isNewerTransportMessage(std::uint64_t publisherInstanceId,
-                               std::uint64_t sequenceNumber) noexcept;
   bool validatePlan(const traffic_ipc::TimingPlan& plan) const noexcept;
   void shutdown();
 
-  mqd_t queueDescriptor_{static_cast<mqd_t>(-1)};
+  traffic_ipc::LatestValueConsumer<traffic_ipc::TimingPlan> consumer_;
   common::PeriodicWait periodicWait_;
   traffic_ipc::TimingPlan lastValidPlan_{};
-  std::uint64_t publisherInstanceId_{0U};
-  std::uint64_t lastSequenceNumber_{0U};
   std::uint32_t consecutiveMisses_{0U};
-  bool hasTransportPosition_{false};
   bool initialized_{false};
 };
 

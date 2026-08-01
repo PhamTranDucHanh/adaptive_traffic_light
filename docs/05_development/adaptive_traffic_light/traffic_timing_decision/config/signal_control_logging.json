@@ -1,14 +1,9 @@
 {
     "ecuId": "TLGT",
-    "appId": "SIGC",
-    "appDesc": "Traffic Signal Control Demo",
-    "logMode": "kConsole",
-    "logLevel": "kDebug",
-    "logLevelThresholdConsole": "kDebug",
-    "contextConfigs": [
-        {
-            "name": "SIGC",
-            "logLevel": "kDebug"
-        }
-    ]
+    "appId": "CTRL",
+    "appDesc": "Traffic Signal Controller",
+    "logMode": "kConsole|kFile",
+    "logFilePath": "/tmp/linux_rt_application/logs",
+    "logLevel": "kInfo",
+    "logLevelThresholdConsole": "kWarn"
 }

@@ -57,10 +57,10 @@
                 }
             }
         },
-        "perception_demo": {
+        "demo_perception": {
             "description": "Periodic TrafficSnapshot producer used by the integrated demo",
             "component_properties": {
-                "binary_name": "perception_demo",
+                "binary_name": "demo_perception",
                 "application_profile": {
                     "application_type": "Reporting"
                 }
@@ -71,7 +71,7 @@
                     "scheduling_priority": 70
                 },
                 "environmental_variables": {
-                    "PROCESSIDENTIFIER": "perception_demo",
+                    "PROCESSIDENTIFIER": "demo_perception",
                     "MW_LOG_CONFIG_FILE": "/tmp/linux_rt_application/etc/perception_logging.json"
                 }
             }
@@ -81,7 +81,7 @@
             "component_properties": {
                 "binary_name": "traffic_timing_decision",
                 "depends_on": [
-                    "perception_demo"
+                    "demo_perception"
                 ],
                 "application_profile": {
                     "application_type": "Reporting_And_Supervised",
@@ -106,25 +106,35 @@
                 }
             }
         },
-        "signal_control_demo": {
-            "description": "Periodic TimingPlan consumer used as the signal-controller demo",
+        "traffic_signal_controller": {
+            "description": "Real-time signal FSM and output controller consuming TimingPlanMessageV1",
             "component_properties": {
-                "binary_name": "signal_control_demo",
+                "binary_name": "traffic_signal_controller",
                 "depends_on": [
                     "timing_decision"
                 ],
                 "application_profile": {
-                    "application_type": "Reporting"
+                    "application_type": "Reporting_And_Supervised",
+                    "alive_supervision": {
+                        "reporting_cycle": 1.0,
+                        "min_indications": 1,
+                        "max_indications": 3,
+                        "failed_cycles_tolerance": 1
+                    }
                 }
             },
             "deployment_config": {
                 "sandbox": {
                     "scheduling_policy": "SCHED_FIFO",
-                    "scheduling_priority": 80
+                    "scheduling_priority": 50
                 },
                 "environmental_variables": {
-                    "PROCESSIDENTIFIER": "signal_control_demo",
-                    "MW_LOG_CONFIG_FILE": "/tmp/linux_rt_application/etc/signal_control_logging.json"
+                    "PROCESSIDENTIFIER": "traffic_signal_controller",
+                    "IDENTIFIER": "traffic_signal_controller",
+                    "MW_LOG_CONFIG_FILE": "/tmp/linux_rt_application/etc/signal_control_logging.json",
+                    "TRAFFIC_SIGNAL_CONTROLLER_FSM_PRIORITY": "80",
+                    "TRAFFIC_SIGNAL_CONTROLLER_ANALYTICS_LOG_FILE": "/tmp/linux_rt_application/logs/CTRL.dlt",
+                    "TRAFFIC_SIGNAL_CONTROLLER_ANALYTICS_REPORT_FILE": "/tmp/linux_rt_application/logs/signal_control_analytics_report.txt"
                 }
             }
         }
@@ -140,9 +150,9 @@
             "description": "Run the ordered Perception -> Timing Decision -> Signal Control pipeline",
             "depends_on": [
                 "control_daemon",
-                "perception_demo",
+                "demo_perception",
                 "timing_decision",
-                "signal_control_demo"
+                "traffic_signal_controller"
             ]
         }
     },

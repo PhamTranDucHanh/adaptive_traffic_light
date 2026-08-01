@@ -4,13 +4,12 @@
 #include <cstdint>
 #include <type_traits>
 
-#include "traffic_ipc/timing_plan_message_v1.h"
-
 namespace traffic_ipc {
 
 inline constexpr char kTrafficSnapshotQueueName[] = "/traffic_snapshot_v1";
 inline constexpr char kTrafficSnapshotLockName[] =
     "/traffic_snapshot_lock_v1";
+
 struct TrafficSnapshot {
   std::uint64_t frameId{0U};
   std::uint64_t timestampUs{0U};
