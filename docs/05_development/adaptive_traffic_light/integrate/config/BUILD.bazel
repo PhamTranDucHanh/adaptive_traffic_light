@@ -10,6 +10,7 @@ exports_files([
     "signal_control_logging.json",
     "timing_decision_logging.json",
     "traffic_light_lifecycle.json",
+    "traffic_perception_config.json",
 ])
 
 launch_manager_config(

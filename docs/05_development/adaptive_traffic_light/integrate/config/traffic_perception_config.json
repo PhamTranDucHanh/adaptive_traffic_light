@@ -18,16 +18,16 @@
     }
   },
 
-  "model": "test/data/yolov8m-oiv7.onnx",
+  "model": "data/yolov8m-oiv7.onnx",
   "lanes": [
     {
       "direction": "North",
-      "video": "test/data/traffic.mp4",
+      "video": "data/traffic.mp4",
       "roi": [[250,1075], [1395,0], [1520,0], [1750,1075]]
     },
     {
       "direction": "South",
-      "video": "test/data/traffic2.mp4",
+      "video": "data/traffic2.mp4",
       "roi": [
         [0, 445],
         [0, 1080],
@@ -39,12 +39,12 @@
     },
     {
       "direction": "East",
-      "video": "test/data/traffic3.mp4",
+      "video": "data/traffic3.mp4",
       "roi": [[0,561], [0,1075], [1920,40], [1700,0]]
     },
     {
       "direction": "West",
-      "video": "test/data/traffic4.mp4",
+      "video": "data/traffic4.mp4",
       "roi": [
         [0, 750],
         [0, 1080],

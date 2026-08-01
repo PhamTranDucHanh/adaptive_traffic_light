@@ -9,19 +9,9 @@ COMMON_COPTS = [
     "-Wpedantic",
 ]
 
-OPENCV_COPTS = COMMON_COPTS + ["-isystem/usr/include/opencv4"]
+OPENCV_COPTS = COMMON_COPTS
 
-OPENCV_LINKOPTS = [
-    "-lopencv_dnn",
-    "-lopencv_highgui",
-    "-lopencv_videoio",
-    "-lopencv_imgcodecs",
-    "-lopencv_imgproc",
-    "-lopencv_core",
-]
-
-# Existing perception implementation. It remains a separate target so the
-# managed Lifecycle placeholder does not execute or modify domain logic.
+# Real perception implementation used by the Lifecycle-managed process.
 cc_library(
     name = "traffic_perception_core",
     srcs = [
@@ -54,8 +44,10 @@ cc_library(
     copts = OPENCV_COPTS,
     includes = ["include"],
     deps = [
-        "//lib/onnxruntime:onnxruntime",
+        "//traffic_perception/lib/onnxruntime:onnxruntime",
         "@nlohmann_json//:json",
+        "@system_opencv//:opencv",
+        "@traffic_ipc//:traffic_ipc",
 
         "@score_baselibs//score/mw/log:frontend",
         "@score_baselibs//src/log/stdout_logger_cpp_init",
@@ -63,7 +55,7 @@ cc_library(
         "@score_baselibs//score/mw/log:console",
     ],
     linkopts = select({
-        "@platforms//os:linux": OPENCV_LINKOPTS + [
+        "@platforms//os:linux": [
             "-lpthread",
             "-lrt",
         ],

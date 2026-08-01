@@ -1,56 +1,55 @@
-/**
- * @file   snapshot_sender.cpp
- * @brief  MQSnapshotSender implementation.
- *
- * Sends a TrafficSnapshot over a POSIX named message queue.
- * The snapshot is transmitted as raw bytes; a static_assert enforces that
- * TrafficSnapshot is trivially copyable before any byte-copy is attempted.
- *
- * Queue lifecycle:
- *   open()  – creates/opens the queue (O_CREAT | O_WRONLY, blocking mode).
- *   send()  – copies the snapshot bytes into mq_send().
- *   close() – releases the descriptor; does NOT unlink the queue.
- */
-
 #include "traffic_perception/io/snapshot_sender.h"
 
-#include <fcntl.h>  // O_CREAT, O_WRONLY
-#include <sys/stat.h>
-
-#include <cerrno>    // errno
-#include <cstring>   // std::strerror
-#include <iostream>  // std::cerr, std::cout
+#include <algorithm>
+#include <chrono>
+#include <cstdint>
+#include <string_view>
 
 #include "score/mw/log/logging.h"
 
-namespace traffic_perception {
+namespace {
 
-// Guarantee at compile time that a raw byte-copy of TrafficSnapshot is valid.
-static_assert(
-    std::is_trivially_copyable_v<TrafficSnapshot>,
-    "TrafficSnapshot must be trivially copyable for POSIX MQ transport");
-
-// The queue name used by the traffic perception module.
-static const char kQueueName[] = "/traffic_snapshot_q";
-
-// ---------------------------------------------------------------------------
-// Constructor / destructor
-// ---------------------------------------------------------------------------
-
-MQSnapshotSender::MQSnapshotSender()
-    : mqDescriptor{static_cast<mqd_t>(-1)},
-      queueName{kQueueName},
-      attributes{} {}
-
-MQSnapshotSender::~MQSnapshotSender() {
-  // Ensure the descriptor is released even if the caller forgot to call
-  // close().
-  close();
+std::uint32_t ToWireCount(const std::int32_t count) noexcept {
+  return count > 0 ? static_cast<std::uint32_t>(count) : 0U;
 }
 
-// ---------------------------------------------------------------------------
-// ISnapshotSender interface
-// ---------------------------------------------------------------------------
+traffic_ipc::TrafficSnapshot ToWireSnapshot(
+    const TrafficSnapshot& source) noexcept {
+  traffic_ipc::TrafficSnapshot wire{};
+  wire.frameId = source.frameId > 0 ? static_cast<std::uint64_t>(source.frameId)
+                                    : 0U;
+  wire.timestampUs = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now().time_since_epoch())
+          .count());
+
+  wire.vehicleCountNorth = ToWireCount(source.vehicleCountNorth);
+  wire.vehicleCountSouth = ToWireCount(source.vehicleCountSouth);
+  wire.vehicleCountEast = ToWireCount(source.vehicleCountEast);
+  wire.vehicleCountWest = ToWireCount(source.vehicleCountWest);
+
+  wire.queueLengthNorth = source.queueLengthNorth;
+  wire.queueLengthSouth = source.queueLengthSouth;
+  wire.queueLengthEast = source.queueLengthEast;
+  wire.queueLengthWest = source.queueLengthWest;
+  wire.occupancyNorth = source.occupancyNorth;
+  wire.occupancySouth = source.occupancySouth;
+  wire.occupancyEast = source.occupancyEast;
+  wire.occupancyWest = source.occupancyWest;
+  wire.emergencyNorth = source.emergencyNorth;
+  wire.emergencySouth = source.emergencySouth;
+  wire.emergencyEast = source.emergencyEast;
+  wire.emergencyWest = source.emergencyWest;
+  return wire;
+}
+
+}  // namespace
+
+namespace traffic_perception {
+
+MQSnapshotSender::MQSnapshotSender() = default;
+
+MQSnapshotSender::~MQSnapshotSender() { close(); }
 
 /**
  * @brief Open (or create) the POSIX message queue.
@@ -61,29 +60,27 @@ MQSnapshotSender::~MQSnapshotSender() {
  * @return true on success, false on failure (error printed to stderr).
  */
 bool MQSnapshotSender::open() {
-  // Close any existing descriptor to prevent leaks.
-  if (mqDescriptor != static_cast<mqd_t>(-1)) {
-    ::mq_close(mqDescriptor);
-    mqDescriptor = static_cast<mqd_t>(-1);
+  if (open_) {
+    return true;
   }
 
-  // One message slot is enough; the consumer is expected to drain quickly.
-  attributes.mq_flags = 0;
-  attributes.mq_maxmsg = 10;
-  attributes.mq_msgsize = static_cast<long>(sizeof(TrafficSnapshot));
-  attributes.mq_curmsgs = 0;
-
-  mqDescriptor = ::mq_open(queueName, O_CREAT | O_RDWR | O_NONBLOCK,
-                           0644,  // rw-r--r-- permissions
-                           &attributes);
-  if (mqDescriptor == static_cast<mqd_t>(-1)) {
-    std::cerr << "[MQSnapshotSender][ERROR] mq_open(\"" << queueName
-              << "\") failed: " << std::strerror(errno) << '\n';
+  const auto status = publisher_.open();
+  if (status != traffic_ipc::QueueStatus::kSuccess) {
+    score::mw::log::LogError()
+        << "[IPC][SNAPSHOT][OPEN] queue="
+        << traffic_ipc::kTrafficSnapshotQueueName
+        << "; status=" << std::string_view{traffic_ipc::queueStatusName(status)}
+        << "; errno=" << publisher_.lastError();
     return false;
   }
 
-  score::mw::log::LogDebug()
-      << "[MQSnapshotSender] queue opened: " << queueName << '\n';
+  open_ = true;
+  score::mw::log::LogInfo()
+      << "[IPC][SNAPSHOT][OPEN] queue="
+      << traffic_ipc::kTrafficSnapshotQueueName
+      << "; mode=nonblocking_latest_value_producer"
+      << "; maxmsg=" << traffic_ipc::kQueueDepth
+      << "; msgsize=" << sizeof(traffic_ipc::TrafficSnapshot);
   return true;
 }
 
@@ -94,36 +91,32 @@ bool MQSnapshotSender::open() {
  * @return true on success, false on failure (error printed to stderr).
  */
 bool MQSnapshotSender::send(const TrafficSnapshot& snapshot) {
-  if (mqDescriptor == static_cast<mqd_t>(-1)) {
-    std::cerr
-        << "[MQSnapshotSender][ERROR] queue not open – call open() first\n";
+  if (!open_) {
+    score::mw::log::LogError()
+        << "[IPC][SNAPSHOT][SEND] status=not_open";
     return false;
   }
 
-  const char* msgPtr = reinterpret_cast<const char*>(&snapshot);
-
-  if (::mq_send(mqDescriptor, msgPtr, sizeof(TrafficSnapshot), 0) == 0) {
+  const traffic_ipc::TrafficSnapshot wire = ToWireSnapshot(snapshot);
+  const auto status = publisher_.publish(wire);
+  if (status == traffic_ipc::QueueStatus::kSuccess) {
+    score::mw::log::LogInfo()
+        << "[IPC][SNAPSHOT][SENT] frame_id=" << wire.frameId
+        << "; timestamp_us=" << wire.timestampUs;
     return true;
   }
 
-  if (errno == EAGAIN) {
+  if (status == traffic_ipc::QueueStatus::kDeferred) {
     score::mw::log::LogDebug()
-        << "[MQSnapshotSender] Queue full, dropping oldest snapshot."
-        << "\n";
-
-    char buffer[sizeof(TrafficSnapshot)];
-    if (::mq_receive(mqDescriptor, buffer, sizeof(TrafficSnapshot), nullptr) !=
-        -1) {
-      if (::mq_send(mqDescriptor, msgPtr, sizeof(TrafficSnapshot), 0) == 0) {
-        return true;
-      }
-      std::cerr << "[MQSnapshotSender] Retry send failed: "
-                << std::strerror(errno) << '\n';
-    }
+        << "[IPC][SNAPSHOT][DEFERRED] frame_id=" << wire.frameId
+        << "; reason=ipc_lock_busy; retry=next_snapshot";
+    return true;
   }
 
-  std::cerr << "[MQSnapshotSender][ERROR] mq_send failed: "
-            << std::strerror(errno) << '\n';
+  score::mw::log::LogError()
+      << "[IPC][SNAPSHOT][SEND] frame_id=" << wire.frameId
+      << "; status=" << std::string_view{traffic_ipc::queueStatusName(status)}
+      << "; errno=" << publisher_.lastError();
   return false;
 }
 
@@ -134,11 +127,12 @@ bool MQSnapshotSender::send(const TrafficSnapshot& snapshot) {
  * so that other processes can continue to consume remaining messages.
  */
 void MQSnapshotSender::close() {
-  if (mqDescriptor != static_cast<mqd_t>(-1)) {
-    ::mq_close(mqDescriptor);
-    mqDescriptor = static_cast<mqd_t>(-1);
-    score::mw::log::LogDebug()
-        << "[MQSnapshotSender] queue closed: " << queueName << '\n';
+  if (open_) {
+    publisher_.close();
+    open_ = false;
+    score::mw::log::LogInfo()
+        << "[IPC][SNAPSHOT][CLOSED] queue="
+        << traffic_ipc::kTrafficSnapshotQueueName;
   }
 }
 

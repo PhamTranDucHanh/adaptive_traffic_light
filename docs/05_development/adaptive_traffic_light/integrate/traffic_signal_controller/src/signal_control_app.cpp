@@ -383,6 +383,19 @@ std::int32_t SignalControlApplication::Run(
     signalFsmEngine_.flushWakeupSamplesToLog();
 
     nextRelease += kControlPeriod;
+
+    // Do not execute catch-up lifecycle/health cycles back-to-back after a
+    // delayed iteration. The FSM has its own real-time worker, so replaying a
+    // missed lifecycle release adds no control value and would submit multiple
+    // heartbeats inside one S-CORE HealthMonitor evaluation window.
+    const auto releaseCheckTime = std::chrono::steady_clock::now();
+    if (nextRelease <= releaseCheckTime) {
+      nextRelease = releaseCheckTime + kControlPeriod;
+      AppLogger().LogWarn() << "event=CONTROL_RELEASE_RESYNCHRONIZED"
+                            << ", reason=MISSED_LIFECYCLE_RELEASE"
+                            << ", next_period_ms="
+                            << kControlPeriodMilliseconds;
+    }
   }
 
   StopPlanReceiverWorker();

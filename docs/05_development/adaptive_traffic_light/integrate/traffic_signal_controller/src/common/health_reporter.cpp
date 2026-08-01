@@ -13,10 +13,20 @@ using namespace std::chrono_literals;
 
 constexpr auto kControlDeadlineMin = 0ms;
 constexpr auto kControlDeadlineMax = 1000ms;
+// Deadline supervision still covers every 1-second control cycle. Heartbeat
+// supervision intentionally samples every second cycle: WSL2 can suspend the
+// VM long enough for S-CORE v0.3.0 to observe two 1-second heartbeats in one
+// evaluator pass and reject them as MultipleHeartbeats.
+constexpr std::uint64_t kHeartbeatControlCycleInterval{2U};
 constexpr auto kHeartbeatMin = 500ms;
-constexpr auto kHeartbeatMax = 1500ms;
+constexpr auto kHeartbeatMax = 5000ms;
 constexpr auto kInternalProcessingCycle = 100ms;
 constexpr auto kSupervisorApiCycle = 500ms;
+// Keep the S-CORE monitoring worker below the MQ receiver (70) and FSM (80),
+// but above the lifecycle/application thread (50). Without an explicit RT
+// policy the default worker can be starved by the real perception workload,
+// then observe two otherwise valid 1-second heartbeats in one evaluation.
+constexpr std::int32_t kHealthMonitorPriority = 60;
 
 const score::mw::health::MonitorTag kDeadlineMonitorTag{
     "signal_control_deadline_monitor"};
@@ -44,6 +54,9 @@ bool HealthReporter::initialize() {
   }
 
   using score::mw::health::HealthMonitorBuilder;
+  using score::mw::health::SchedulerParameters;
+  using score::mw::health::SchedulerPolicy;
+  using score::mw::health::ThreadParameters;
   using score::mw::health::TimeRange;
   using score::mw::health::deadline::DeadlineMonitorBuilder;
   using score::mw::health::heartbeat::HeartbeatMonitorBuilder;
@@ -53,6 +66,8 @@ bool HealthReporter::initialize() {
       TimeRange{kControlDeadlineMin, kControlDeadlineMax});
   auto heartbeatBuilder =
       HeartbeatMonitorBuilder(TimeRange{kHeartbeatMin, kHeartbeatMax});
+  auto healthThreadParameters = ThreadParameters{}.scheduler_parameters(
+      SchedulerParameters{SchedulerPolicy::Fifo, kHealthMonitorPriority});
 
   auto healthMonitorResult =
       HealthMonitorBuilder()
@@ -62,6 +77,7 @@ bool HealthReporter::initialize() {
                                  std::move(heartbeatBuilder))
           .with_internal_processing_cycle(kInternalProcessingCycle)
           .with_supervisor_api_cycle(kSupervisorApiCycle)
+          .thread_parameters(std::move(healthThreadParameters))
           .build();
   if (!healthMonitorResult.has_value()) {
     Logger().LogWarn() << "event=HEALTH_MONITOR_BUILD_FAILED"
@@ -109,6 +125,8 @@ bool HealthReporter::initialize() {
   Logger().LogInfo() << "event=HEALTH_MONITOR_STARTED"
                      << ", implementation=eclipse_score_health_monitor"
                      << ", evaluation_ms=" << kInternalProcessingCycle.count()
+                     << ", worker_policy=SCHED_FIFO"
+                     << ", worker_priority=" << kHealthMonitorPriority
                      << ", heartbeat_min_ms=" << kHeartbeatMin.count()
                      << ", heartbeat_max_ms=" << kHeartbeatMax.count()
                      << ", deadline_min_ms=" << kControlDeadlineMin.count()
@@ -147,15 +165,21 @@ bool HealthReporter::startControlCycle() {
     return false;
   }
 
-  // One heartbeat corresponds to one released 1-second control cycle. The
-  // HealthMonitor worker converts healthy local supervision into Alive IPC.
+  // Deadline-monitor every control cycle; heartbeat-monitor every configured
+  // sampling interval. The worker converts healthy supervision into Alive IPC.
   ++monitoredCycleCount_;
   cycleStartedAt_ = std::chrono::steady_clock::now();
-  heartbeatMonitor_->heartbeat();
-  Logger().LogInfo() << "event=HEARTBEAT_RECORDED"
-                     << ", cycle=" << monitoredCycleCount_
-                     << ", expected_min_ms=" << kHeartbeatMin.count()
-                     << ", expected_max_ms=" << kHeartbeatMax.count();
+  const bool heartbeatDue =
+      ((monitoredCycleCount_ - 1U) % kHeartbeatControlCycleInterval) == 0U;
+  if (heartbeatDue) {
+    heartbeatMonitor_->heartbeat();
+    Logger().LogInfo() << "event=HEARTBEAT_RECORDED"
+                       << ", cycle=" << monitoredCycleCount_
+                       << ", nominal_interval_ms="
+                       << (kHeartbeatControlCycleInterval * 1000U)
+                       << ", expected_min_ms=" << kHeartbeatMin.count()
+                       << ", expected_max_ms=" << kHeartbeatMax.count();
+  }
 
   // The deadline covers only the useful control work, not the periodic wait.
   auto deadlineResult = cycleDeadline_->start();

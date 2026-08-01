@@ -3,7 +3,7 @@
     "defaults": {
         "deployment_config": {
             "bin_dir": "/tmp/linux_rt_application/bin",
-            "ready_timeout": 3.0,
+            "ready_timeout": 30.0,
             "shutdown_timeout": 10.0,
             "ready_recovery_action": {
                 "restart": {
@@ -57,12 +57,18 @@
                 }
             }
         },
-        "demo_perception": {
-            "description": "Periodic TrafficSnapshot producer used by the integrated demo",
+        "traffic_perception": {
+            "description": "Real camera/video inference process publishing TrafficSnapshot values",
             "component_properties": {
-                "binary_name": "demo_perception",
+                "binary_name": "traffic_perception",
                 "application_profile": {
-                    "application_type": "Reporting"
+                    "application_type": "Reporting_And_Supervised",
+                    "alive_supervision": {
+                        "reporting_cycle": 10.0,
+                        "min_indications": 2,
+                        "max_indications": 6,
+                        "failed_cycles_tolerance": 2
+                    }
                 }
             },
             "deployment_config": {
@@ -71,8 +77,14 @@
                     "scheduling_priority": 70
                 },
                 "environmental_variables": {
-                    "PROCESSIDENTIFIER": "demo_perception",
-                    "MW_LOG_CONFIG_FILE": "/tmp/linux_rt_application/etc/perception_logging.json"
+                    "PROCESSIDENTIFIER": "traffic_perception",
+                    "IDENTIFIER": "traffic_perception",
+                    "MW_LOG_CONFIG_FILE": "/tmp/linux_rt_application/etc/perception_logging.json",
+                    "TPER_ROOT": "/tmp/linux_rt_application",
+                    "LD_LIBRARY_PATH": "/tmp/linux_rt_application/lib",
+                    "DISPLAY": ":0",
+                    "WAYLAND_DISPLAY": "wayland-0",
+                    "XDG_RUNTIME_DIR": "/run/user/0"
                 }
             }
         },
@@ -81,7 +93,7 @@
             "component_properties": {
                 "binary_name": "traffic_timing_decision",
                 "depends_on": [
-                    "demo_perception"
+                    "traffic_perception"
                 ],
                 "application_profile": {
                     "application_type": "Reporting_And_Supervised",
@@ -116,10 +128,10 @@
                 "application_profile": {
                     "application_type": "Reporting_And_Supervised",
                     "alive_supervision": {
-                        "reporting_cycle": 1.0,
-                        "min_indications": 1,
-                        "max_indications": 3,
-                        "failed_cycles_tolerance": 1
+                        "reporting_cycle": 2.0,
+                        "min_indications": 2,
+                        "max_indications": 6,
+                        "failed_cycles_tolerance": 2
                     }
                 }
             },
@@ -150,7 +162,7 @@
             "description": "Run the ordered Perception -> Timing Decision -> Signal Control pipeline",
             "depends_on": [
                 "control_daemon",
-                "demo_perception",
+                "traffic_perception",
                 "timing_decision",
                 "traffic_signal_controller"
             ]

@@ -1,9 +1,9 @@
 #ifndef IO_SNAPSHOT_SENDER_H
 #define IO_SNAPSHOT_SENDER_H
 
-#include <mqueue.h>
-
 #include "traffic_perception/core/types.h"
+#include "traffic_ipc/latest_value_queue.h"
+#include "traffic_ipc/messages.h"
 
 namespace traffic_perception {
 
@@ -25,11 +25,10 @@ class MQSnapshotSender : public ISnapshotSender {
   void close() override;
 
  private:
-  // POSIX message-queue descriptor; (mqd_t)-1 means not open.
-  mqd_t mqDescriptor{static_cast<mqd_t>(-1)};
-  // Fixed queue name; defined in the .cpp.
-  const char* queueName{nullptr};
-  struct mq_attr attributes{};
+  traffic_ipc::LatestValuePublisher<traffic_ipc::TrafficSnapshot> publisher_{
+      traffic_ipc::kTrafficSnapshotQueueName,
+      traffic_ipc::kTrafficSnapshotLockName};
+  bool open_{false};
 };
 
 }  // namespace traffic_perception

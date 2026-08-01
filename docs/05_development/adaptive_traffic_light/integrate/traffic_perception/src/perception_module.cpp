@@ -58,6 +58,14 @@ bool PerceptionModule::initModule(const AppConfig& config) {
       config_.PipelinePhase);
   pipelineThreadContext_.pipeline = pipelineManager_.get();
 
+  if (!snapshotSender_.open()) {
+    score::mw::log::LogError()
+        << "[PERCEPTION_MODULE][INIT] snapshot IPC initialization failed";
+    return false;
+  }
+  snapshotSenderOpen_ = true;
+  pipelineManager_->getPublisher().initSender(&snapshotSender_);
+
   for (std::size_t i = 0; i < NUM_LANES; ++i) {
     workers_[i].initStream(config_.lanes[i].videoSource,
                            static_cast<std::int32_t>(i), &pool_,
@@ -79,7 +87,6 @@ bool PerceptionModule::initModule(const AppConfig& config) {
     return false;
   }
 
-  snapshotSenderOpen_ = true;
   return true;
 }
 

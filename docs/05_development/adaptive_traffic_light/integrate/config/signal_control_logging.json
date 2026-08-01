@@ -7,6 +7,13 @@
     "logLevel": "kInfo",
     "logLevelThresholdConsole": "kWarn",
     "contextConfigs": [
-        { "name": "MQRX", "logLevel": "kInfo" }
+        { "name": "APP", "logLevel": "kInfo" },
+        { "name": "HLTH", "logLevel": "kInfo" },
+        { "name": "PLAN", "logLevel": "kInfo" },
+        { "name": "MQRX", "logLevel": "kInfo" },
+        { "name": "SYNC", "logLevel": "kInfo" },
+        { "name": "FSM", "logLevel": "kInfo" },
+        { "name": "OUT", "logLevel": "kInfo" },
+        { "name": "ANLY", "logLevel": "kInfo" }
     ]
 }

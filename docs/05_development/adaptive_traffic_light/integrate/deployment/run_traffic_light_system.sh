@@ -56,7 +56,7 @@ if ! type rlocation >/dev/null 2>&1; then
 fi
 # --- end runfiles.bash initialization v3 ---
 
-if [[ $# -ne 14 ]]; then
+if [[ $# -ne 21 ]]; then
   echo "ERROR: deployment target received an invalid runfiles layout" >&2
   exit 1
 fi
@@ -64,7 +64,7 @@ fi
 launch_manager="$(rlocation "$1")"
 control_daemon="$(rlocation "$2")"
 lmcontrol="$(rlocation "$3")"
-demo_perception="$(rlocation "$4")"
+traffic_perception="$(rlocation "$4")"
 timing_decision="$(rlocation "$5")"
 traffic_signal_controller="$(rlocation "$6")"
 ipc_reset="$(rlocation "$7")"
@@ -75,11 +75,22 @@ lm_logging_config="$(rlocation "${11}")"
 perception_logging_config="$(rlocation "${12}")"
 timing_decision_logging_config="$(rlocation "${13}")"
 signal_control_logging_config="$(rlocation "${14}")"
+onnxruntime_so="$(rlocation "${15}")"
+traffic_perception_config="$(rlocation "${16}")"
+yolov8m_oiv7_onnx="$(rlocation "${17}")"
+traffic_mp4="$(rlocation "${18}")"
+traffic2_mp4="$(rlocation "${19}")"
+traffic3_mp4="$(rlocation "${20}")"
+traffic4_mp4="$(rlocation "${21}")"
 
 runtime_root="${LINUX_RT_RUNTIME_DIR:-/tmp/linux_rt_application}"
 runtime_bin="$runtime_root/bin"
 runtime_etc="$runtime_root/etc"
 runtime_logs="$runtime_root/logs"
+runtime_lib="$runtime_root/lib"
+runtime_models="$runtime_root/models"
+perception_dlt="$runtime_logs/traffic_perception.dlt"
+perception_backend_dlt="$runtime_logs/PERC.dlt"
 timing_decision_dlt="$runtime_logs/timing_decision.dlt"
 timing_decision_backend_dlt="$runtime_logs/DECI.dlt"
 wakeup_latency_dlt="$runtime_logs/wakeup_latency.dlt"
@@ -111,24 +122,28 @@ if [[ "$rtprio_limit" != "unlimited" ]] && \
   exit 1
 fi
 
-mkdir -p "$runtime_bin" "$runtime_etc" "$runtime_logs"
+mkdir -p "$runtime_bin" "$runtime_etc" "$runtime_logs" "$runtime_lib" \
+  "$runtime_models"
 # S-CORE's file backend derives the canonical file name from the four-byte DLT
 # application ID. Keep protocol-correct four-byte APIDs while exposing each
 # recorder through a descriptive hard link to the same freshly truncated file.
-rm -f "$runtime_logs/test.log" "$timing_decision_dlt" \
-  "$timing_decision_backend_dlt" "$runtime_logs/PERC.dlt" \
+rm -f "$runtime_logs/test.log" "$perception_dlt" \
+  "$perception_backend_dlt" "$timing_decision_dlt" \
+  "$timing_decision_backend_dlt" \
   "$runtime_logs/SIGC.dlt" "$runtime_logs/adaptive_traffic.dlt" \
   "$runtime_logs/ADPT.dlt" \
   "$wakeup_latency_backend_dlt" "$execution_time_backend_dlt" \
   "$signal_control_dlt" "$signal_control_backend_dlt" \
   "$signal_control_converted_log" \
   "$signal_control_analytics_report"
+: > "$perception_dlt"
 : > "$timing_decision_dlt"
 : > "$wakeup_latency_dlt"
 : > "$execution_time_dlt"
 : > "$signal_control_dlt"
 : > "$signal_control_converted_log"
 : > "$signal_control_analytics_report"
+ln "$perception_dlt" "$perception_backend_dlt"
 ln "$timing_decision_dlt" "$timing_decision_backend_dlt"
 ln "$wakeup_latency_dlt" "$wakeup_latency_backend_dlt"
 ln "$execution_time_dlt" "$execution_time_backend_dlt"
@@ -136,7 +151,7 @@ ln "$signal_control_dlt" "$signal_control_backend_dlt"
 # Lifecycle sandboxes may run managed applications under a uid different from
 # the deployment wrapper. All files are pre-created so recorders never need a
 # world-writable directory; grant write access only to these runtime artifacts.
-chmod 0666 "$timing_decision_dlt" "$wakeup_latency_dlt" \
+chmod 0666 "$perception_dlt" "$timing_decision_dlt" "$wakeup_latency_dlt" \
   "$execution_time_dlt" "$signal_control_dlt" \
   "$signal_control_converted_log" \
   "$signal_control_analytics_report"
@@ -145,6 +160,7 @@ chmod 0666 "$timing_decision_dlt" "$wakeup_latency_dlt" \
 # inherit the Bazel terminal directly. Timing Decision uses the S-CORE file
 # recorder only, so its DECI records are written to the DLT file below without
 # being duplicated on the console.
+echo "[DEPLOYMENT][LOG] perception DLT=$perception_dlt"
 echo "[DEPLOYMENT][LOG] timing decision DLT=$timing_decision_dlt"
 echo "[DEPLOYMENT][LOG] wake-up latency DLT=$wakeup_latency_dlt"
 echo "[DEPLOYMENT][LOG] execution/deadline DLT=$execution_time_dlt"
@@ -158,10 +174,11 @@ echo "[DEPLOYMENT][IPC] stale POSIX MQ objects removed"
 install -m 0755 "$launch_manager" "$runtime_bin/launch_manager"
 install -m 0755 "$control_daemon" "$runtime_bin/control_daemon"
 install -m 0755 "$lmcontrol" "$runtime_bin/lmcontrol"
-install -m 0755 "$demo_perception" "$runtime_bin/demo_perception"
+install -m 0755 "$traffic_perception" "$runtime_bin/traffic_perception"
 install -m 0755 "$timing_decision" "$runtime_bin/traffic_timing_decision"
 install -m 0755 "$traffic_signal_controller" \
   "$runtime_bin/traffic_signal_controller"
+install -m 0755 "$onnxruntime_so" "$runtime_lib/libonnxruntime.so.1"
 # Bazel outputs are read-only. A plain recursive copy preserves that mode, so
 # the next run cannot truncate the existing generated configuration files.
 # Unlink each old destination before copying to keep staging repeatable.
@@ -175,12 +192,21 @@ install -m 0644 "$timing_decision_logging_config" \
   "$runtime_etc/timing_decision_logging.json"
 install -m 0644 "$signal_control_logging_config" \
   "$runtime_etc/signal_control_logging.json"
+install -m 0644 "$traffic_perception_config" \
+  "$runtime_etc/traffic_perception_config.json"
+install -m 0644 "$yolov8m_oiv7_onnx" \
+  "$runtime_models/yolov8m-oiv7.onnx"
+install -m 0644 "$traffic_mp4" "$runtime_etc/traffic.mp4"
+install -m 0644 "$traffic2_mp4" "$runtime_etc/traffic2.mp4"
+install -m 0644 "$traffic3_mp4" "$runtime_etc/traffic3.mp4"
+install -m 0644 "$traffic4_mp4" "$runtime_etc/traffic4.mp4"
 
 echo "[DEPLOYMENT][STAGE] runtime ready"
 echo "[LAUNCH_MANAGER][START] binary=$runtime_bin/launch_manager"
 launch_manager_pid=$$
 echo "[LAUNCH_MANAGER][START] pid=$launch_manager_pid"
 export TIMING_REPORT_LOG_DIR="$runtime_logs"
+export LD_LIBRARY_PATH="$runtime_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 # Startup contains the control daemon. Once its IPC endpoint is ready, request
 # Running so Launch Manager starts the ordered three-process pipeline.

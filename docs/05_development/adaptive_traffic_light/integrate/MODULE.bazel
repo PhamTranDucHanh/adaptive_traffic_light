@@ -8,17 +8,25 @@ bazel_dep(name = "rules_cc", version = "0.2.17")
 bazel_dep(name = "rules_python", version = "1.8.5")
 bazel_dep(name = "score_baselibs", version = "0.2.9")
 bazel_dep(name = "score_logging", version = "0.2.2")
+bazel_dep(name = "nlohmann_json", version = "3.12.0")
 bazel_dep(name = "traffic_ipc", version = "0.1.0")
-bazel_dep(name = "traffic_signal_controller", version = "0.1.0")
 
 local_path_override(
     module_name = "traffic_ipc",
     path = "ipc",
 )
 
-local_path_override(
-    module_name = "traffic_signal_controller",
-    path = "../traffic_signal_controller",
+# Make the WSL/Linux OpenCV development headers visible inside Bazel's
+# execution root. The pinned S-CORE GCC toolchain rejects direct absolute
+# include paths such as -isystem/usr/include/opencv4.
+new_local_repository = use_repo_rule(
+    "@bazel_tools//tools/build_defs/repo:local.bzl",
+    "new_local_repository",
+)
+new_local_repository(
+    name = "system_opencv",
+    build_file = "//third_party:opencv.BUILD.bazel",
+    path = "/usr",
 )
 
 # Lifecycle's architecture configurations depend on these repositories, but
