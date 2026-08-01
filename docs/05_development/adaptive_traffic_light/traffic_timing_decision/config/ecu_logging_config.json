@@ -1,5 +1,5 @@
 {
     "ecuId": "TLGT",
-    "logMode": "kConsole",
+    "logMode": "kFile",
     "logLevelThresholdConsole": "kDebug"
 }

@@ -141,10 +141,10 @@ chmod 0666 "$timing_decision_dlt" "$wakeup_latency_dlt" \
   "$signal_control_converted_log" \
   "$signal_control_analytics_report"
 
-# Do not redirect stdout/stderr: Launch Manager and all three managed
-# applications inherit the Bazel terminal directly. Timing Decision's S-CORE
-# composite recorder independently fans each DECI log record out to the
-# console and its DLT file.
+# Do not redirect stdout/stderr: Launch Manager and the managed applications
+# inherit the Bazel terminal directly. Timing Decision uses the S-CORE file
+# recorder only, so its DECI records are written to the DLT file below without
+# being duplicated on the console.
 echo "[DEPLOYMENT][LOG] timing decision DLT=$timing_decision_dlt"
 echo "[DEPLOYMENT][LOG] wake-up latency DLT=$wakeup_latency_dlt"
 echo "[DEPLOYMENT][LOG] execution/deadline DLT=$execution_time_dlt"

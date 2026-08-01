@@ -102,11 +102,10 @@ DLT application identifiers are limited to four bytes. S-CORE therefore opens
 the canonical `DECI.dlt` name for application ID `DECI`; deployment creates
 `DECI.dlt` and `timing_decision.dlt` as hard links to the same inode. Open the
 descriptive `timing_decision.dlt` path in tooling. The Timing Decision logging
-configuration uses `kConsole|kFile`: S-CORE creates a composite recorder that
-forwards every existing `DECI` logger record to both the terminal and the DLT
-file. Perception and Signal Control keep their console recorders, so the
-terminal still shows the complete three-process pipeline. Output is no longer
-mirrored to `test.log`.
+configuration uses `kFile`, so `DECI` logger records are written only to the
+DLT file and are not duplicated on the terminal. Perception and Signal Control
+keep their own configured recorders. Output is no longer mirrored to
+`test.log`.
 
 ## Timing report
 

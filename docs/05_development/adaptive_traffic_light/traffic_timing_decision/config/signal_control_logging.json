@@ -2,7 +2,7 @@
     "ecuId": "TLGT",
     "appId": "CTRL",
     "appDesc": "Traffic Signal Controller",
-    "logMode": "kConsole|kFile",
+    "logMode": "kFile",
     "logFilePath": "/tmp/linux_rt_application/logs",
     "logLevel": "kInfo",
     "logLevelThresholdConsole": "kWarn",
