@@ -1,0 +1,14 @@
+{
+    "ecuId": "TLGT",
+    "appId": "PERC",
+    "appDesc": "Traffic Perception Demo",
+    "logMode": "kFile",
+    "logLevel": "kDebug",
+    "logLevelThresholdConsole": "kDebug",
+    "contextConfigs": [
+        {
+            "name": "PERC",
+            "logLevel": "kDebug"
+        }
+    ]
+}

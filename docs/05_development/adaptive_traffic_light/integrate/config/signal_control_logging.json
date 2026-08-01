@@ -1,0 +1,12 @@
+{
+    "ecuId": "TLGT",
+    "appId": "CTRL",
+    "appDesc": "Traffic Signal Controller",
+    "logMode": "kFile",
+    "logFilePath": "/tmp/linux_rt_application/logs",
+    "logLevel": "kInfo",
+    "logLevelThresholdConsole": "kWarn",
+    "contextConfigs": [
+        { "name": "MQRX", "logLevel": "kInfo" }
+    ]
+}
