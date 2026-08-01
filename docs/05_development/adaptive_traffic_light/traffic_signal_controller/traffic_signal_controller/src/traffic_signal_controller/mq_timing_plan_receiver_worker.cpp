@@ -22,7 +22,7 @@ constexpr std::uint64_t kNanosecondsPerSecond{1'000'000'000ULL};
 
 score::mw::log::Logger& Logger() {
   static auto& logger = score::mw::log::CreateLogger(
-      ctrl::logging::kCtxPlan, "MQ Timing Plan Receiver");
+      ctrl::logging::kCtxMqReceiver, "MQ Timing Plan Receiver");
   return logger;
 }
 
