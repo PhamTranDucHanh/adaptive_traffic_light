@@ -15,7 +15,7 @@ traffic_signal_controller
 Từ thư mục `integrate`, chạy script setup trước tiên:
 
 ```bash
-cd /root/work/adaptive_traffic_light/docs/05_development/adaptive_traffic_light/integrate
+cd /adaptive_traffic_light/docs/05_development/adaptive_traffic_light/integrate
 bash traffic_perception/scripts/setup_deps.sh
 ```
 
@@ -93,7 +93,7 @@ Dừng hệ thống bằng `Ctrl-C`. Lifecycle sẽ dừng các process theo dep
 ## Lệnh đầy đủ
 
 ```bash
-cd /root/work/adaptive_traffic_light/docs/05_development/adaptive_traffic_light/integrate
+cd /adaptive_traffic_light/docs/05_development/adaptive_traffic_light/integrate
 bash traffic_perception/scripts/setup_deps.sh
 sudo prlimit --pid $$ --rtprio=99:99 --memlock=unlimited:unlimited
 bazel shutdown
