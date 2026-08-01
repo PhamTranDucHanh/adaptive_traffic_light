@@ -98,3 +98,8 @@ Lifecycle references:
 ```bash 
 MW_LOG_CONFIG_FILE="$PWD/config/logging.json" bazel run --config=x86_64-linux   //traffic_signal_controller:traffic_signal_controller_demo 
 ```
+
+
+```bash
+ls -lh /tmp/traffic_signal_controller/logs/output
+``` 

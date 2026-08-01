@@ -1,14 +1,12 @@
 {
     "ecuId": "TLGT",
-    "appId": "SIGC",
-    "appDesc": "Traffic Signal Control Demo",
-    "logMode": "kConsole",
-    "logLevel": "kDebug",
-    "logLevelThresholdConsole": "kDebug",
+    "appId": "CTRL",
+    "appDesc": "Traffic Signal Controller",
+    "logMode": "kFile",
+    "logFilePath": "/tmp/linux_rt_application/logs",
+    "logLevel": "kInfo",
+    "logLevelThresholdConsole": "kWarn",
     "contextConfigs": [
-        {
-            "name": "SIGC",
-            "logLevel": "kDebug"
-        }
+        { "name": "MQRX", "logLevel": "kInfo" }
     ]
 }

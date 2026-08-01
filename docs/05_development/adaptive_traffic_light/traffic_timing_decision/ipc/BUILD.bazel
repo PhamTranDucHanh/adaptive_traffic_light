@@ -1,4 +1,4 @@
-load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -26,8 +26,8 @@ cc_binary(
     deps = [":traffic_ipc"],
 )
 
-cc_binary(
-    name = "ipc_smoke",
-    srcs = ["src/ipc_smoke.cpp"],
+cc_test(
+    name = "timing_plan_message_v1_test",
+    srcs = ["test/timing_plan_message_v1_test.cpp"],
     deps = [":traffic_ipc"],
 )

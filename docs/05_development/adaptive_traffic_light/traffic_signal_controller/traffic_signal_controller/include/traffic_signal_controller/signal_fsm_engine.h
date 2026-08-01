@@ -2,6 +2,7 @@
 #define TRAFFIC_SIGNAL_CONTROLLER_SIGNAL_FSM_ENGINE_H_
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <ctime>
@@ -16,7 +17,11 @@ class SignalFSMEngine final {
   SignalDisplay processTick();
   void reset() noexcept;
 
-  // Call only after the FSM real-time thread has stopped.
+  // Drain buffered wakeup samples from a non-real-time thread.
+  // Safe to call while the FSM producer thread is running.
+  void flushWakeupSamplesToLog();
+
+  // Final drain after the FSM real-time thread has stopped.
   void dumpWakeupSamplesToLog();
 
  private:
@@ -75,9 +80,12 @@ class SignalFSMEngine final {
   timespec nextDeadline_{};
   bool deadlineInitialized_{false};
 
+  // Single-producer/single-consumer ring buffer:
+  // producer = FSM real-time thread, consumer = lifecycle thread.
   std::array<WakeupSample, kWakeupSampleCapacity> wakeupSamples_{};
-  std::size_t wakeupSampleCount_{0U};
-  std::uint64_t droppedWakeupSampleCount_{0U};
+  std::atomic<std::uint64_t> wakeupWriteSequence_{0U};
+  std::atomic<std::uint64_t> wakeupReadSequence_{0U};
+  std::atomic<std::uint64_t> droppedWakeupSampleCount_{0U};
 };
 
 #endif  // TRAFFIC_SIGNAL_CONTROLLER_SIGNAL_FSM_ENGINE_H_

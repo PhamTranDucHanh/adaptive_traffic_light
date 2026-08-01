@@ -2,7 +2,7 @@
     "ecuId": "TLGT",
     "appId": "PERC",
     "appDesc": "Traffic Perception Demo",
-    "logMode": "kConsole",
+    "logMode": "kFile",
     "logLevel": "kDebug",
     "logLevelThresholdConsole": "kDebug",
     "contextConfigs": [

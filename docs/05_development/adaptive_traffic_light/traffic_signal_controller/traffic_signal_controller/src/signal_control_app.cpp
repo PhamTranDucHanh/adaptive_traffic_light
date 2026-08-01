@@ -13,6 +13,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <iostream>
 #include <string>
 
 #include "analytics_service/analytics.h"
@@ -30,11 +32,12 @@ constexpr const char* kDefaultAnalyticsReportFile{
 constexpr const char* kRuntimeDirectory{"/tmp/traffic_signal_controller"};
 constexpr const char* kRuntimeLogDirectory{
     "/tmp/traffic_signal_controller/logs"};
+constexpr const char* kRuntimeAnalyticsOutputDirectory{
+    "/tmp/traffic_signal_controller/logs/output"};
 
 constexpr std::int32_t kDefaultFsmPriority{80};
 constexpr std::int32_t kDefaultPlanReceiverPriority{70};
-constexpr std::int32_t kDefaultFsmCpu{0};
-constexpr std::int32_t kDefaultPlanReceiverCpu{1};
+constexpr std::int32_t kTrafficSignalControllerCpu{3};
 constexpr std::int32_t kDecimalBase{10};
 
 constexpr std::size_t kBytesPerKibibyte{1024U};
@@ -110,19 +113,26 @@ std::int32_t GetPriorityFromEnvOrDefault(const char* const name,
   return parsedPriority;
 }
 
-std::int32_t GetCpuFromEnvOrDefault(const char* const name,
-                                    const std::int32_t defaultCpu) {
-  const std::int32_t parsedCpu = GetIntegerFromEnvOrDefault(name, defaultCpu);
+bool PinCurrentThreadToCpu(const std::int32_t cpu,
+                           const char* const threadName) noexcept {
+  cpu_set_t cpuSet{};
+  CPU_ZERO(&cpuSet);
+  CPU_SET(cpu, &cpuSet);
 
-  if (parsedCpu < 0 || parsedCpu >= CPU_SETSIZE) {
-    AppLogger().LogWarn() << "event=THREAD_CPU_ENV_INVALID"
-                          << ", variable=" << name << ", value=" << parsedCpu
-                          << ", valid_range=0-" << (CPU_SETSIZE - 1)
-                          << ", fallback_cpu=" << defaultCpu;
-    return defaultCpu;
+  const std::int32_t result = static_cast<std::int32_t>(
+      pthread_setaffinity_np(pthread_self(), sizeof(cpuSet), &cpuSet));
+
+  if (result != EXIT_SUCCESS) {
+    AppLogger().LogWarn() << "event=THREAD_AFFINITY_FAILED"
+                          << ", thread=" << threadName << ", cpu=" << cpu
+                          << ", error=" << result
+                          << ", reason=" << std::strerror(result);
+    return false;
   }
 
-  return parsedCpu;
+  AppLogger().LogInfo() << "event=THREAD_AFFINITY_CONFIGURED"
+                        << ", thread=" << threadName << ", cpu=" << cpu;
+  return true;
 }
 
 bool ConfigureRealtimeThreadAttributes(pthread_attr_t& attributes,
@@ -213,10 +223,38 @@ void EnsureRuntimeLogDirectoryExists() {
   (void)mkdir(kRuntimeLogDirectory, kRuntimeDirectoryPermissions);
 }
 
+bool TruncateFile(const std::string& path) {
+  std::ofstream output(path, std::ios::binary | std::ios::trunc);
+  return output.is_open();
+}
+
+void ResetAnalyticsOutputFiles() {
+  EnsureRuntimeLogDirectoryExists();
+
+  const std::string logFilePath = GetEnvOrDefault(
+      "TRAFFIC_SIGNAL_CONTROLLER_ANALYTICS_LOG_FILE", kDefaultAnalyticsLogFile);
+  const std::string reportFilePath =
+      GetEnvOrDefault("TRAFFIC_SIGNAL_CONTROLLER_ANALYTICS_REPORT_FILE",
+                      kDefaultAnalyticsReportFile);
+
+  if (!TruncateFile(logFilePath)) {
+    std::cerr << "Unable to reset analytics log file: " << logFilePath << '\n';
+  }
+
+  if (!TruncateFile(logFilePath + ".txt")) {
+    std::cerr << "Unable to reset converted analytics log file: "
+              << logFilePath << ".txt\n";
+  }
+
+  if (!TruncateFile(reportFilePath)) {
+    std::cerr << "Unable to reset analytics report file: " << reportFilePath
+              << '\n';
+  }
+}
+
 }  // namespace
 
 SignalControlApplication::~SignalControlApplication() {
-  acceptingPlans_.store(false, std::memory_order_release);
   StopPlanReceiverWorker();
   StopFsmWorker();
   outputSimulator_.stop();
@@ -226,10 +264,18 @@ std::int32_t SignalControlApplication::Initialize(
     const score::mw::lifecycle::ApplicationContext& context) {
   (void)context;
 
+  ResetAnalyticsOutputFiles();
+
   score::mw::log::rust::StdoutLoggerBuilder loggerBuilder;
   loggerBuilder.Context("TSIG")
       .LogLevel(score::mw::log::rust::LogLevel::Verbose)
       .SetAsDefaultLogger();
+
+  // Pin lifecycle_main before starting any application-owned worker.
+  // Every worker created afterwards inherits this CPU3 affinity.
+  if (!PinCurrentThreadToCpu(kTrafficSignalControllerCpu, "lifecycle_main")) {
+    return EXIT_FAILURE;
+  }
 
   LockProcessMemory();
   PrefaultCurrentThreadStack("lifecycle_main");
@@ -245,8 +291,6 @@ std::int32_t SignalControlApplication::Initialize(
   planReceiverFailed_.store(false, std::memory_order_release);
   fsmRunning_.store(true, std::memory_order_release);
   planReceiverRunning_.store(true, std::memory_order_release);
-  acceptingPlans_.store(false, std::memory_order_release);
-  ResetPlanQueue();
 
   try {
     outputSimulator_.start();
@@ -271,7 +315,6 @@ std::int32_t SignalControlApplication::Initialize(
 
   if (!StartFsmWorker()) {
     fsmRunning_.store(false, std::memory_order_release);
-    acceptingPlans_.store(false, std::memory_order_release);
     StopPlanReceiverWorker();
     planSyncChannel_.RequestShutdown();
     outputSimulator_.stop();
@@ -282,10 +325,10 @@ std::int32_t SignalControlApplication::Initialize(
   }
 
   initialized_ = true;
-  acceptingPlans_.store(true, std::memory_order_release);
 
   AppLogger().LogInfo() << "event=APP_READY"
                         << ", application_threads=4"
+                        << ", cpu=" << kTrafficSignalControllerCpu
                         << ", period_ms=" << kControlPeriodMilliseconds;
   return EXIT_SUCCESS;
 }
@@ -336,10 +379,12 @@ std::int32_t SignalControlApplication::Run(
                           << ", cycle=" << cycleCount_
                           << ", period_ms=" << kControlPeriodMilliseconds;
 
+    // Drain from the non-real-time lifecycle thread.
+    signalFsmEngine_.flushWakeupSamplesToLog();
+
     nextRelease += kControlPeriod;
   }
 
-  acceptingPlans_.store(false, std::memory_order_release);
   StopPlanReceiverWorker();
   StopFsmWorker();
   outputSimulator_.stop();
@@ -350,15 +395,6 @@ std::int32_t SignalControlApplication::Run(
   AppLogger().LogInfo() << "event=APP_STOPPED"
                         << ", cycles_completed=" << cycleCount_;
   return exitCode;
-}
-
-bool SignalControlApplication::ReceiveTimingPlan(
-    const TimingPlan& plan) noexcept {
-  if (!acceptingPlans_.load(std::memory_order_acquire)) {
-    return false;
-  }
-
-  return TryPushTimingPlan(plan);
 }
 
 void* SignalControlApplication::FsmWorkerEntry(void* const argument) noexcept {
@@ -381,10 +417,17 @@ void* SignalControlApplication::PlanReceiverWorkerEntry(
 }
 
 bool SignalControlApplication::StartFsmWorker() noexcept {
-  const std::int32_t priority = GetPriorityFromEnvOrDefault(
+  std::int32_t priority = GetPriorityFromEnvOrDefault(
       "TRAFFIC_SIGNAL_CONTROLLER_FSM_PRIORITY", kDefaultFsmPriority);
-  const std::int32_t cpu = GetCpuFromEnvOrDefault(
-      "TRAFFIC_SIGNAL_CONTROLLER_FSM_CPU", kDefaultFsmCpu);
+  if (priority <= kDefaultPlanReceiverPriority) {
+    AppLogger().LogWarn() << "event=FSM_PRIORITY_INVALID"
+                          << ", configured_priority=" << priority
+                          << ", receiver_priority="
+                          << kDefaultPlanReceiverPriority
+                          << ", fallback_priority=" << kDefaultFsmPriority;
+    priority = kDefaultFsmPriority;
+  }
+  constexpr std::int32_t cpu{kTrafficSignalControllerCpu};
 
   pthread_attr_t attributes{};
   std::int32_t result = pthread_attr_init(&attributes);
@@ -417,10 +460,8 @@ bool SignalControlApplication::StartFsmWorker() noexcept {
 }
 
 bool SignalControlApplication::StartPlanReceiverWorker() noexcept {
-  const std::int32_t priority = GetPriorityFromEnvOrDefault(
-      "TRAFFIC_SIGNAL_CONTROLLER_PLAN_PRIORITY", kDefaultPlanReceiverPriority);
-  const std::int32_t cpu = GetCpuFromEnvOrDefault(
-      "TRAFFIC_SIGNAL_CONTROLLER_PLAN_CPU", kDefaultPlanReceiverCpu);
+  constexpr std::int32_t priority{kDefaultPlanReceiverPriority};
+  constexpr std::int32_t cpu{kTrafficSignalControllerCpu};
 
   pthread_attr_t attributes{};
   std::int32_t result = pthread_attr_init(&attributes);
@@ -476,15 +517,8 @@ void SignalControlApplication::RunPlanReceiverWorker() noexcept {
   try {
     (void)pthread_setname_np(pthread_self(), "tsc_plan_rx");
     PrefaultCurrentThreadStack("plan_receiver");
-
-    TimingPlan plan{};
-    while (WaitAndPopTimingPlan(plan)) {
-      const bool accepted = planReceiver_.ReceivePlan(plan);
-
-      AppLogger().LogInfo()
-          << "event=TIMING_PLAN_PROCESSED"
-          << ", plan_id=" << plan.planId
-          << ", result=" << (accepted ? "accepted" : "rejected");
+    if (!mqTimingPlanReceiverWorker_.Run(planReceiverRunning_)) {
+      planReceiverFailed_.store(true, std::memory_order_release);
     }
   } catch (...) {
     planReceiverFailed_.store(true, std::memory_order_release);
@@ -493,7 +527,6 @@ void SignalControlApplication::RunPlanReceiverWorker() noexcept {
 
 void SignalControlApplication::StopPlanReceiverWorker() noexcept {
   planReceiverRunning_.store(false, std::memory_order_release);
-  planQueueCondition_.notify_all();
 
   if (!planReceiverWorkerCreated_) {
     return;
@@ -530,51 +563,6 @@ void SignalControlApplication::StopFsmWorker() noexcept {
   signalFsmEngine_.dumpWakeupSamplesToLog();
 }
 
-void SignalControlApplication::ResetPlanQueue() noexcept {
-  std::lock_guard<std::mutex> lock{planQueueMutex_};
-  planQueueReadIndex_ = 0U;
-  planQueueWriteIndex_ = 0U;
-  planQueueSize_ = 0U;
-}
-
-bool SignalControlApplication::TryPushTimingPlan(
-    const TimingPlan& plan) noexcept {
-  {
-    std::lock_guard<std::mutex> lock{planQueueMutex_};
-
-    if (!planReceiverRunning_.load(std::memory_order_acquire) ||
-        planQueueSize_ >= kPlanQueueCapacity) {
-      return false;
-    }
-
-    planQueue_[planQueueWriteIndex_] = plan;
-    planQueueWriteIndex_ = (planQueueWriteIndex_ + 1U) % kPlanQueueCapacity;
-    ++planQueueSize_;
-  }
-
-  planQueueCondition_.notify_one();
-  return true;
-}
-
-bool SignalControlApplication::WaitAndPopTimingPlan(TimingPlan& plan) noexcept {
-  std::unique_lock<std::mutex> lock{planQueueMutex_};
-
-  planQueueCondition_.wait(lock, [this]() {
-    return planQueueSize_ > 0U ||
-           !planReceiverRunning_.load(std::memory_order_acquire);
-  });
-
-  if (planQueueSize_ == 0U &&
-      !planReceiverRunning_.load(std::memory_order_acquire)) {
-    return false;
-  }
-
-  plan = planQueue_[planQueueReadIndex_];
-  planQueueReadIndex_ = (planQueueReadIndex_ + 1U) % kPlanQueueCapacity;
-  --planQueueSize_;
-  return true;
-}
-
 void SignalControlApplication::WriteAnalyticsReport() const {
   EnsureRuntimeLogDirectoryExists();
 
@@ -590,6 +578,20 @@ void SignalControlApplication::WriteAnalyticsReport() const {
     AnalyticsLogger().LogWarn() << "event=ANALYTICS_FAILED"
                                 << ", log_file=" << logFilePath;
     return;
+  }
+
+  std::string archivedInputPath;
+  if (!analytics.ArchiveInputData(kRuntimeAnalyticsOutputDirectory,
+                                  archivedInputPath)) {
+    AnalyticsLogger().LogWarn()
+        << "event=ANALYTICS_INPUT_ARCHIVE_FAILED"
+        << ", log_file=" << logFilePath
+        << ", output_directory=" << kRuntimeAnalyticsOutputDirectory;
+  } else {
+    AnalyticsLogger().LogInfo()
+        << "event=ANALYTICS_INPUT_ARCHIVED"
+        << ", log_file=" << logFilePath
+        << ", archived_input=" << archivedInputPath;
   }
 
   if (!analytics.WriteReport(reportFilePath)) {

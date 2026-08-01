@@ -41,6 +41,7 @@ sudo trace-cmd record \
   -e sched:sched_waking \
   -e sched:sched_wakeup \
   -e sched:sched_switch \
+  -e sched:sched_migrate_task \
   -o "$DAT_FILE" \
   sleep "${DURATION%s}"
 

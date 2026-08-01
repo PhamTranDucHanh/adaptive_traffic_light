@@ -5,6 +5,7 @@ namespace ctrl::logging {
 inline constexpr char kCtxApp[] = "APP";
 inline constexpr char kCtxHealth[] = "HLTH";
 inline constexpr char kCtxPlan[] = "PLAN";
+inline constexpr char kCtxMqReceiver[] = "MQRX";
 inline constexpr char kCtxSync[] = "SYNC";
 inline constexpr char kCtxFsm[] = "FSM";
 inline constexpr char kCtxOut[] = "OUT";

@@ -1,7 +1,7 @@
 {
     "ecuId": "TLGT",
     "appId": "LM",
-    "logMode": "kConsole",
+    "logMode": "kFile",
     "logLevel": "kDebug",
     "logLevelThresholdConsole": "kDebug"
 }

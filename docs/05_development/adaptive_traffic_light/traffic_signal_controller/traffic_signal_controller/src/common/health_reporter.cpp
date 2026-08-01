@@ -189,11 +189,3 @@ void HealthReporter::finishControlCycle() {
                      << ", observed_status="
                      << (withinConfiguredDeadline ? "met" : "missed");
 }
-
-void HealthReporter::receiveHealthMetrics(const HealthStatus& metrics) {}
-
-void HealthReporter::requestHeartbeat() {}
-
-bool HealthReporter::checkHealth() { return true; }
-
-HealthStatus HealthReporter::createHealthStatus() { return {}; }

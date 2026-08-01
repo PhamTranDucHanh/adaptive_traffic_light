@@ -17,7 +17,25 @@ score::mw::log::Logger& Logger() {
 }  // namespace
 
 PlanSyncChannel::PlanSyncChannel() {
-  const int mutexResult = pthread_mutex_init(&mutex_, nullptr);
+  pthread_mutexattr_t mutexAttributes{};
+  int mutexResult = pthread_mutexattr_init(&mutexAttributes);
+
+  if (mutexResult != 0) {
+    throw std::runtime_error(
+        "Failed to initialize PlanSyncChannel mutex attributes");
+  }
+
+  mutexResult =
+      pthread_mutexattr_setprotocol(&mutexAttributes, PTHREAD_PRIO_INHERIT);
+
+  if (mutexResult != 0) {
+    pthread_mutexattr_destroy(&mutexAttributes);
+    throw std::runtime_error(
+        "Failed to enable PlanSyncChannel priority inheritance");
+  }
+
+  mutexResult = pthread_mutex_init(&mutex_, &mutexAttributes);
+  pthread_mutexattr_destroy(&mutexAttributes);
 
   if (mutexResult != 0) {
     throw std::runtime_error("Failed to initialize PlanSyncChannel mutex");
@@ -90,10 +108,11 @@ bool PlanSyncChannel::PublishPlan(const PlanData& plan) {
      * phải bị loại.
      */
     if (!IsGreenPhase(currentPhase_) || shutdownRequested_) {
+      pthread_mutex_unlock(&mutex_);
+
       Logger().LogWarn() << "event=EMERGENCY_DROPPED"
                          << ", plan_id=" << plan.sourcePlanId
                          << ", reason=NOT_GREEN";
-      pthread_mutex_unlock(&mutex_);
       return false;
     }
 
@@ -101,8 +120,6 @@ bool PlanSyncChannel::PublishPlan(const PlanData& plan) {
      * Chỉ giữ emergency plan mới nhất.
      */
     pendingEmergencyPlan_ = plan;
-    Logger().LogInfo() << "event=EMERGENCY_QUEUED"
-                       << ", plan_id=" << plan.sourcePlanId;
     hasPendingEmergency_ = true;
 
     /*
@@ -111,6 +128,9 @@ bool PlanSyncChannel::PublishPlan(const PlanData& plan) {
     pthread_cond_signal(&condition_);
 
     pthread_mutex_unlock(&mutex_);
+
+    Logger().LogInfo() << "event=EMERGENCY_QUEUED"
+                       << ", plan_id=" << plan.sourcePlanId;
     return true;
   }
 
@@ -119,11 +139,12 @@ bool PlanSyncChannel::PublishPlan(const PlanData& plan) {
    * Plan mới nhất ghi đè plan cũ chưa được áp dụng.
    */
   pendingNormalPlan_ = plan;
-  Logger().LogInfo() << "event=PLAN_QUEUED"
-                     << ", plan_id=" << plan.sourcePlanId;
   hasPendingNormal_ = true;
 
   pthread_mutex_unlock(&mutex_);
+
+  Logger().LogInfo() << "event=PLAN_QUEUED"
+                     << ", plan_id=" << plan.sourcePlanId;
   return true;
 }
 
@@ -156,13 +177,14 @@ PlanSyncChannel::WaitResult PlanSyncChannel::WaitForEmergencyUntil(
   }
 
   outPlan = pendingEmergencyPlan_;
-  Logger().LogInfo() << "event=EMERGENCY_CONSUMED"
-                     << ", plan_id=" << outPlan.sourcePlanId;
 
   pendingEmergencyPlan_ = PlanData{};
   hasPendingEmergency_ = false;
 
   pthread_mutex_unlock(&mutex_);
+
+  Logger().LogInfo() << "event=EMERGENCY_CONSUMED"
+                     << ", plan_id=" << outPlan.sourcePlanId;
 
   return WaitResult::EMERGENCY_AVAILABLE;
 }
@@ -177,13 +199,13 @@ bool PlanSyncChannel::ConsumePendingPlan(PlanData& outPlan) {
 
   outPlan = pendingNormalPlan_;
 
-  Logger().LogInfo() << "event=PLAN_CONSUMED"
-                     << ", plan_id=" << outPlan.sourcePlanId;
-
   pendingNormalPlan_ = PlanData{};
   hasPendingNormal_ = false;
 
   pthread_mutex_unlock(&mutex_);
+
+  Logger().LogInfo() << "event=PLAN_CONSUMED"
+                     << ", plan_id=" << outPlan.sourcePlanId;
 
   return true;
 }

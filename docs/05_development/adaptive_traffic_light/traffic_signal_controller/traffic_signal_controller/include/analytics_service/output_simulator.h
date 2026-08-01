@@ -1,17 +1,17 @@
 #ifndef ANALYTICS_SERVICE_OUTPUT_SIMULATOR_H_
 #define ANALYTICS_SERVICE_OUTPUT_SIMULATOR_H_
 
+#include <semaphore.h>
+
 #include <atomic>
-#include <condition_variable>
 #include <cstdint>
-#include <mutex>
 #include <thread>
 
 #include "traffic_signal_controller/signal_fsm_engine.h"
 
 class OutputSimulator final {
  public:
-  OutputSimulator() = default;
+  OutputSimulator();
   ~OutputSimulator();
 
   OutputSimulator(const OutputSimulator&) = delete;
@@ -37,12 +37,13 @@ class OutputSimulator final {
 
   std::atomic<bool> running_{false};
   std::atomic<std::uint64_t> mailbox_{0U};
+  std::atomic<bool> notificationPending_{false};
+  std::atomic<std::uint64_t> notificationFailureCount_{0U};
 
   // submit() is called by one producer: the FSM worker.
   std::uint64_t nextSequence_{0U};
 
-  std::mutex notificationMutex_;
-  std::condition_variable notificationCondition_;
+  sem_t notificationSemaphore_{};
   std::thread worker_;
 };
 

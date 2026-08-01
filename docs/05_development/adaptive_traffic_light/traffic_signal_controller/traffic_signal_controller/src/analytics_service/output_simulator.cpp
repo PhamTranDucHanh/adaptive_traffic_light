@@ -1,12 +1,15 @@
 #include "analytics_service/output_simulator.h"
 
+#include <cerrno>
 #include <pthread.h>
 #include <sched.h>
+#include <semaphore.h>
 
 #include <cstdint>
 #include <cstring>
 #include <iostream>
-#include <mutex>
+#include <stdexcept>
+#include <string_view>
 #include <utility>
 
 #include "common/logging_contexts.h"
@@ -15,6 +18,11 @@
 namespace {
 
 constexpr std::uint32_t kMillisecondsPerSecond{1'000U};
+
+static_assert(std::atomic<std::uint64_t>::is_always_lock_free,
+              "Output mailbox must be lock-free");
+static_assert(std::atomic<bool>::is_always_lock_free,
+              "Output notification state must be lock-free");
 
 score::mw::log::Logger& Logger() {
   static auto& logger = score::mw::log::CreateLogger(
@@ -47,8 +55,16 @@ void ConfigureCurrentThreadAsNonRealtime() noexcept {
 
 }  // namespace
 
+OutputSimulator::OutputSimulator() {
+  if (sem_init(&notificationSemaphore_, 0, 0U) != 0) {
+    throw std::runtime_error(
+        "Failed to initialize OutputSimulator notification semaphore");
+  }
+}
+
 OutputSimulator::~OutputSimulator() {
   stop();
+  (void)sem_destroy(&notificationSemaphore_);
 }
 
 void OutputSimulator::start() {
@@ -60,6 +76,17 @@ void OutputSimulator::start() {
     return;
   }
 
+  notificationPending_.store(false, std::memory_order_release);
+  for (;;) {
+    if (sem_trywait(&notificationSemaphore_) == 0) {
+      continue;
+    }
+    if (errno == EINTR) {
+      continue;
+    }
+    break;
+  }
+
   try {
     worker_ = std::thread{&OutputSimulator::run, this};
   } catch (...) {
@@ -69,18 +96,22 @@ void OutputSimulator::start() {
 }
 
 void OutputSimulator::stop() noexcept {
-  running_.store(false, std::memory_order_release);
-
-  {
-    // Synchronize with the worker's wait operation so shutdown cannot lose
-    // its notification.
-    const std::lock_guard<std::mutex> lock{notificationMutex_};
+  const bool wasRunning = running_.exchange(false, std::memory_order_acq_rel);
+  if (!wasRunning && !worker_.joinable()) {
+    return;
   }
 
-  notificationCondition_.notify_one();
+  (void)sem_post(&notificationSemaphore_);
 
   if (worker_.joinable()) {
     worker_.join();
+  }
+
+  const std::uint64_t notificationFailures =
+      notificationFailureCount_.exchange(0U, std::memory_order_acq_rel);
+  if (notificationFailures > 0U) {
+    Logger().LogWarn() << "event=OUTPUT_NOTIFICATION_FAILED"
+                       << ", count=" << notificationFailures;
   }
 }
 
@@ -102,13 +133,11 @@ void OutputSimulator::submit(const SignalDisplay& display) noexcept {
 
   mailbox_.store(packed, std::memory_order_release);
 
-  {
-    // The mutex closes the check/wait versus publish/notify race and prevents
-    // a lost wake-up. The mailbox itself remains latest-value and atomic.
-    const std::lock_guard<std::mutex> lock{notificationMutex_};
+  if (!notificationPending_.exchange(true, std::memory_order_acq_rel) &&
+      sem_post(&notificationSemaphore_) != 0) {
+    notificationPending_.store(false, std::memory_order_release);
+    notificationFailureCount_.fetch_add(1U, std::memory_order_relaxed);
   }
-
-  notificationCondition_.notify_one();
 }
 
 void OutputSimulator::run() noexcept {
@@ -128,25 +157,30 @@ void OutputSimulator::run() noexcept {
   std::cout.setf(std::ios::unitbuf);
 
   std::uint64_t lastSequence{0U};
-  std::unique_lock<std::mutex> lock{notificationMutex_};
 
-  while (true) {
-    notificationCondition_.wait(lock, [this, &lastSequence]() noexcept {
-      if (!running_.load(std::memory_order_acquire)) {
-        return true;
-      }
+  while (running_.load(std::memory_order_acquire)) {
+    int waitResult{};
+    do {
+      waitResult = sem_wait(&notificationSemaphore_);
+    } while (waitResult != 0 && errno == EINTR);
 
-      const std::uint64_t packed =
-          mailbox_.load(std::memory_order_acquire);
-      const std::uint64_t sequence =
-          (packed >> kSequenceShift) & kSequenceMask;
-
-      return sequence != 0U && sequence != lastSequence;
-    });
+    if (waitResult != 0) {
+      const int errorNumber = errno;
+      Logger().LogWarn()
+          << "event=OUTPUT_NOTIFICATION_WAIT_FAILED"
+          << ", error=" << errorNumber
+          << ", reason=" << std::string_view{std::strerror(errorNumber)};
+      running_.store(false, std::memory_order_release);
+      break;
+    }
 
     if (!running_.load(std::memory_order_acquire)) {
       break;
     }
+
+    // Clear before loading the mailbox. A concurrent submit either becomes
+    // visible in this load or posts the next semaphore notification.
+    notificationPending_.store(false, std::memory_order_release);
 
     const std::uint64_t packed =
         mailbox_.load(std::memory_order_acquire);
@@ -164,11 +198,7 @@ void OutputSimulator::run() noexcept {
         packed & kRemainingMask);
 
     lastSequence = sequence;
-
-    // Do not hold the notification mutex while logging or writing output.
-    lock.unlock();
     publish(display);
-    lock.lock();
   }
 }
 
