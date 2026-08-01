@@ -42,6 +42,7 @@ cc_library(
         "@score_baselibs//score/language/futurecpp",
         "@score_baselibs//score/mw/log",
         "@score_baselibs//score/mw/log/configuration",
+        "@score_baselibs//src/log/stdout_logger_cpp_init",
         "@score_logging//score/mw/log/backend:file",
         "@score_lifecycle//score/launch_manager:lifecycle_cc",
     ],
@@ -90,4 +91,3 @@ cc_binary(
     ],
     includes = ["include"],
 )
-

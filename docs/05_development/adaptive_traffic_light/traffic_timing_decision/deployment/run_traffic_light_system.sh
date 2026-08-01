@@ -64,9 +64,9 @@ fi
 launch_manager="$(rlocation "$1")"
 control_daemon="$(rlocation "$2")"
 lmcontrol="$(rlocation "$3")"
-perception_demo="$(rlocation "$4")"
+demo_perception="$(rlocation "$4")"
 timing_decision="$(rlocation "$5")"
-signal_control_demo="$(rlocation "$6")"
+traffic_signal_controller="$(rlocation "$6")"
 ipc_reset="$(rlocation "$7")"
 generated_config="$(rlocation "$8")"
 ecu_logging_config="$(rlocation "$9")"
@@ -86,6 +86,10 @@ wakeup_latency_dlt="$runtime_logs/wakeup_latency.dlt"
 wakeup_latency_backend_dlt="$runtime_logs/WKUP.dlt"
 execution_time_dlt="$runtime_logs/execution_time.dlt"
 execution_time_backend_dlt="$runtime_logs/EXEC.dlt"
+signal_control_dlt="$runtime_logs/signal_control.dlt"
+signal_control_backend_dlt="$runtime_logs/CTRL.dlt"
+signal_control_converted_log="$runtime_logs/CTRL.dlt.txt"
+signal_control_analytics_report="$runtime_logs/signal_control_analytics_report.txt"
 
 # Must be at least the maximum SCHED_FIFO priority requested by any managed
 # component in config/traffic_light_lifecycle.json.
@@ -115,13 +119,27 @@ rm -f "$runtime_logs/test.log" "$timing_decision_dlt" \
   "$timing_decision_backend_dlt" "$runtime_logs/PERC.dlt" \
   "$runtime_logs/SIGC.dlt" "$runtime_logs/adaptive_traffic.dlt" \
   "$runtime_logs/ADPT.dlt" \
-  "$wakeup_latency_backend_dlt" "$execution_time_backend_dlt"
+  "$wakeup_latency_backend_dlt" "$execution_time_backend_dlt" \
+  "$signal_control_dlt" "$signal_control_backend_dlt" \
+  "$signal_control_converted_log" \
+  "$signal_control_analytics_report"
 : > "$timing_decision_dlt"
 : > "$wakeup_latency_dlt"
 : > "$execution_time_dlt"
+: > "$signal_control_dlt"
+: > "$signal_control_converted_log"
+: > "$signal_control_analytics_report"
 ln "$timing_decision_dlt" "$timing_decision_backend_dlt"
 ln "$wakeup_latency_dlt" "$wakeup_latency_backend_dlt"
 ln "$execution_time_dlt" "$execution_time_backend_dlt"
+ln "$signal_control_dlt" "$signal_control_backend_dlt"
+# Lifecycle sandboxes may run managed applications under a uid different from
+# the deployment wrapper. All files are pre-created so recorders never need a
+# world-writable directory; grant write access only to these runtime artifacts.
+chmod 0666 "$timing_decision_dlt" "$wakeup_latency_dlt" \
+  "$execution_time_dlt" "$signal_control_dlt" \
+  "$signal_control_converted_log" \
+  "$signal_control_analytics_report"
 
 # Do not redirect stdout/stderr: Launch Manager and all three managed
 # applications inherit the Bazel terminal directly. Timing Decision's S-CORE
@@ -130,6 +148,7 @@ ln "$execution_time_dlt" "$execution_time_backend_dlt"
 echo "[DEPLOYMENT][LOG] timing decision DLT=$timing_decision_dlt"
 echo "[DEPLOYMENT][LOG] wake-up latency DLT=$wakeup_latency_dlt"
 echo "[DEPLOYMENT][LOG] execution/deadline DLT=$execution_time_dlt"
+echo "[DEPLOYMENT][LOG] signal control DLT=$signal_control_dlt"
 echo "[DEPLOYMENT][STAGE] preparing runtime=$runtime_root"
 if ! "$ipc_reset"; then
   echo "[DEPLOYMENT][IPC][ERROR] could not reset POSIX MQ objects" >&2
@@ -139,9 +158,10 @@ echo "[DEPLOYMENT][IPC] stale POSIX MQ objects removed"
 install -m 0755 "$launch_manager" "$runtime_bin/launch_manager"
 install -m 0755 "$control_daemon" "$runtime_bin/control_daemon"
 install -m 0755 "$lmcontrol" "$runtime_bin/lmcontrol"
-install -m 0755 "$perception_demo" "$runtime_bin/perception_demo"
+install -m 0755 "$demo_perception" "$runtime_bin/demo_perception"
 install -m 0755 "$timing_decision" "$runtime_bin/traffic_timing_decision"
-install -m 0755 "$signal_control_demo" "$runtime_bin/signal_control_demo"
+install -m 0755 "$traffic_signal_controller" \
+  "$runtime_bin/traffic_signal_controller"
 # Bazel outputs are read-only. A plain recursive copy preserves that mode, so
 # the next run cannot truncate the existing generated configuration files.
 # Unlink each old destination before copying to keep staging repeatable.

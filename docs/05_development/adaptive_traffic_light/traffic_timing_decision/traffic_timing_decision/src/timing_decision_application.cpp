@@ -19,6 +19,7 @@
 
 #include "application_logger.h"
 #include "common.h"
+#include "score/mw/log/rust/stdout_logger_init.h"
 
 namespace {
 
@@ -315,6 +316,15 @@ void TimingDecisionApplication::unlockProcessMemory() noexcept {
 std::int32_t TimingDecisionApplication::Initialize(
     const score::mw::lifecycle::ApplicationContext& context) {
   (void)context;
+
+  // S-CORE HealthMonitor uses score_log's Rust frontend internally. Install
+  // the same process-local bridge used by the official Signal Controller
+  // before constructing the monitor; application DLT records continue to use
+  // score::mw::log and timing_decision_logging.json.
+  score::mw::log::rust::StdoutLoggerBuilder loggerBuilder;
+  loggerBuilder.Context("TDEC")
+      .LogLevel(score::mw::log::rust::LogLevel::Verbose)
+      .SetAsDefaultLogger();
 
   cpu_set_t affinityMask;
   CPU_ZERO(&affinityMask);

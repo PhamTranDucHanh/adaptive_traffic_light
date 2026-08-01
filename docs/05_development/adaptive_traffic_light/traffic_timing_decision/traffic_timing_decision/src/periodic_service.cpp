@@ -79,12 +79,14 @@ bool PeriodicService::runDecisionCycle() {
           << "; errno=" << trafficReceiver.lastQueueError()
           << "; consecutive_misses=" << consecutiveSnapshotMisses_;
     }
+    cycleSuccessful = timingPublisher.retryPendingTimingPlan();
   } else if (!trafficReceiver.validateSnapshot(snapshot)) {
     ++consecutiveSnapshotMisses_;
     traffic_timing_decision::applicationLogger().LogWarn()
         << "[IPC][SNAPSHOT][REJECTED] frame_id=" << snapshot.frameId
         << "; consecutive_misses=" << consecutiveSnapshotMisses_
         << "; action=keep_previous_plan";
+    cycleSuccessful = timingPublisher.retryPendingTimingPlan();
   } else {
     consecutiveSnapshotMisses_ = std::uint32_t{};
     const TimingPlan plan = decisionEngine.processTrafficMetrics(snapshot);

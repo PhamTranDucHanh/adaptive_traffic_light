@@ -24,7 +24,7 @@ cc_library(
 )
 
 cc_binary(
-    name = "perception_demo",
+    name = "demo_perception",
     srcs = ["src/main.cpp"],
     linkopts = select({
         "@platforms//os:linux": ["-lpthread"],
