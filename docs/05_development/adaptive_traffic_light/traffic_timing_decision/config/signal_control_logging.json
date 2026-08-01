@@ -5,5 +5,8 @@
     "logMode": "kConsole|kFile",
     "logFilePath": "/tmp/linux_rt_application/logs",
     "logLevel": "kInfo",
-    "logLevelThresholdConsole": "kWarn"
+    "logLevelThresholdConsole": "kWarn",
+    "contextConfigs": [
+        { "name": "MQRX", "logLevel": "kInfo" }
+    ]
 }
