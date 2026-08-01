@@ -12,7 +12,7 @@
 
 namespace {
 
-#ifdef SCENERIO_DETAIL
+#ifdef END_TO_END_TEST
 constexpr std::uint32_t kPeriodMs = 2000U;
 #else
 constexpr std::uint32_t kPeriodMs = 3000U;
@@ -84,7 +84,7 @@ static_assert(approximatelyEqual(demandScore(kTarget50BoundaryTraffic), 90.0F),
               "Target-50 boundary traffic must produce demand score 90");
 
 /*
- * SCENERIO_DETAIL is intentionally the switch for the controller-focused
+ * END_TO_END_TEST is intentionally the switch for the controller-focused
  * end-to-end suite. It is currently enabled in perception_application.h.
  * Undefine it to run the original decision-boundary suite kept in the #else
  * block below.
@@ -95,8 +95,8 @@ static_assert(approximatelyEqual(demandScore(kTarget50BoundaryTraffic), 90.0F),
  * 1 s FSM to reach the phase boundary or emergency acceptance window under
  * test. They do not add sleeps or controller coupling to this publisher.
  */
-#ifdef SCENERIO_DETAIL
-constexpr std::array<TrafficScenario, 9U> kScenarios{{
+#ifdef END_TO_END_TEST
+constexpr std::array<TrafficScenario, 12U> kScenarios{{
     {1U, "target_ew_50_until_first_all_red",
      "Hold NS light/EW saturated from startup. Decision converges from 30/30 "
      "s to 20/50 s; controller keeps only the newest pending normal plan.",
@@ -159,6 +159,27 @@ constexpr std::array<TrafficScenario, 9U> kScenarios{{
      true, "",
      "Normal operation resumes; the newest 20/50 s plan is applied at "
      "ALL_RED and the following EW_GREEN starts with 50 s."},
+    {10U, "ns_moderate_ew_high_pending",
+     "Use different moderate/high inputs: NS score 30 and EW score 60. "
+     "Decision moves the current 20/50 s plan toward 30/40 s.",
+     kTarget30BoundaryTraffic, kTarget40BoundaryTraffic, 4U, false, false,
+     false, false, true, "",
+     "The resulting 30/40 s normal plan is accepted and held pending; it "
+     "does not interrupt the active EW_GREEN."},
+    {11U, "ns_very_high_ew_moderate_supersedes_pending",
+     "Change to a strongly asymmetric input: NS score 90 and EW score 30. "
+     "Decision moves from 30/40 s toward 50/30 s.",
+     kTarget50BoundaryTraffic, kTarget30BoundaryTraffic, 6U, false, false,
+     false, false, true, "",
+     "The newest 50/30 s normal plan replaces the previous 30/40 s pending "
+     "plan without changing the active phase."},
+    {12U, "ns_high_ew_light_apply_latest_at_all_red",
+     "Change again to NS score 60 and EW score 20. Decision reaches 40/20 s "
+     "and holds this final input through the next ALL_RED.",
+     kTarget40BoundaryTraffic, kLightTraffic, 17U, false, false, false, false,
+     true, "",
+     "Only the final 40/20 s plan is consumed and applied at ALL_RED; the "
+     "following NS_GREEN starts with 40 s."},
 }};
 #else
 // Original decision-boundary suite. Repeat counts are intentional: one

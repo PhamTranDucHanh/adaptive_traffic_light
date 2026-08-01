@@ -1,6 +1,6 @@
 # Các kịch bản Perception chuyên kiểm thử Controller
 
-Macro `SCENERIO_DETAIL` dùng để chọn bộ kịch bản này trong file
+Macro `END_TO_END_TEST` dùng để chọn bộ kịch bản này trong file
 `perception_application.cpp`. Nếu bỏ định nghĩa macro, chương trình sẽ quay lại
 sử dụng 14 kịch bản kiểm thử Timing Decision ban đầu.
 
@@ -22,6 +22,9 @@ gian dự kiến để kiểm thử, không phải deadline của IPC.
 | 7 | Gửi emergency hướng North khi đang ở `NS_GREEN` và còn khoảng 6-9 giây. | Mong đợi xuất hiện `EMERGENCY_ACCEPTED` và `EMERGENCY_APPLIED`. Thời gian còn lại của `NS_GREEN` được đặt lại thành 20 giây. |
 | 8 | Bật đồng thời cờ emergency của cả hai hướng trong 4 giây khi NS vẫn đang xanh. | Khoảng thời gian 4 giây bảo đảm ít nhất một chu kỳ Timing Decision đọc được input. Plan bị từ chối và phase `NS_GREEN` đang hoạt động không bị thay đổi. |
 | 9 | Xóa toàn bộ cờ emergency và duy trì nhu cầu ổn định `NS=20 giây, EW=50 giây` cho đến khi hoàn thành chu kỳ hiện tại. | Tại `ALL_RED` tiếp theo, normal plan mới nhất được áp dụng và `EW_GREEN` bắt đầu với thời gian 50 giây. |
+| 10 | Đặt NS ở mức trung bình: 40 xe, queue 20, occupancy 40%, tạo score 30. Đặt EW ở mức cao: 60 xe, queue 60, occupancy 60%, tạo score 60. | Timing Decision điều chỉnh từ `NS/EW=20/50 giây` về `30/40 giây`. Controller accept plan nhưng chỉ giữ pending; phase `EW_GREEN` hiện tại không bị ngắt. |
+| 11 | Đổi sang NS rất cao: 80 xe, queue 100, occupancy 80%, tạo score 90. EW ở mức trung bình với score 30. | Timing Decision điều chỉnh từ `30/40 giây` về `50/30 giây`. Plan mới nhất ghi đè plan `30/40 giây` đang pending, nhưng chưa được áp dụng ngay. |
+| 12 | Đổi lần nữa sang NS cao với score 60 và EW nhẹ với score 20; giữ input này đến `ALL_RED` tiếp theo. | Timing Decision đạt `NS/EW=40/20 giây`. Đây là pending plan cuối cùng nên controller consume và apply tại `ALL_RED`; `NS_GREEN` tiếp theo bắt đầu với 40 giây. |
 
 ## Những điểm cần phân biệt khi tích hợp
 

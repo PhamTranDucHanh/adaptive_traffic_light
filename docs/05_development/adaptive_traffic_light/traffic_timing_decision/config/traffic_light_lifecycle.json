@@ -4,7 +4,7 @@
         "deployment_config": {
             "bin_dir": "/tmp/linux_rt_application/bin",
             "ready_timeout": 3.0,
-            "shutdown_timeout": 5.0,
+            "shutdown_timeout": 10.0,
             "ready_recovery_action": {
                 "restart": {
                     "number_of_attempts": 1,
