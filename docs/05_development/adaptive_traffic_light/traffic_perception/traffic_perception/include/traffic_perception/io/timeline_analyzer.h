@@ -44,8 +44,10 @@ class TimelineAnalyzer {
 
     int laneId = -1;
     uint32_t frameId = 0;
+    uint32_t cycleId = 0;
 
     int64_t expectedWakeup = 0;
+    int64_t wakeup = 0;
     int64_t begin = 0;
     int64_t end = 0;
   };
@@ -61,9 +63,11 @@ class TimelineAnalyzer {
       double mean);
 
   struct AnalysisData {
-    std::vector<int64_t> wakeupLatency;
+    std::vector<int64_t> schedulerLatency;
+    std::vector<int64_t> dispatchLatency;
     std::vector<int64_t> executionTime;
     std::vector<int64_t> period;
+    std::vector<int64_t> deadlineMiss;
   };
 
   std::string logFile_;

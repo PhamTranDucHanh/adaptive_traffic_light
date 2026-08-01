@@ -1,9 +1,8 @@
 #include "traffic_perception/traffic_perception_application.h"
 
-#include <traffic_perception/inference/yolov8_backend.h>
-
 #include <chrono>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <iostream>
 
@@ -12,14 +11,24 @@
 #include "score/mw/log/rust/stdout_logger_init.h"
 #include "traffic_perception/core/runtime_paths.h"
 #include "traffic_perception/core/types.h"
-#include "traffic_perception/inference/yolov8_oiv7_backend.h"
 
-using namespace traffic_perception;
+namespace {
+
+std::int64_t toNanoseconds(
+    const std::chrono::steady_clock::time_point timestamp) {
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(
+             timestamp.time_since_epoch())
+      .count();
+}
+
+}  // namespace
 
 namespace traffic_perception {
 
 std::int32_t TrafficPerceptionApplication::Initialize(
     const score::mw::lifecycle::ApplicationContext& context) {
+  (void)context;
+
   score::mw::log::LogDebug() << std::unitbuf;
   std::cerr << std::unitbuf;
 
@@ -30,70 +39,77 @@ std::int32_t TrafficPerceptionApplication::Initialize(
       .LogLevel(score::mw::log::rust::LogLevel::Verbose)
       .SetAsDefaultLogger();
 
-  // Load config
-  std::string configPath =
-      (RuntimePaths::Etc() / "traffic_perception_config.json").string();
+  try {
+    const std::string configPath =
+        (RuntimePaths::Etc() / "traffic_perception_config.json").string();
+    configManager_ = ConfigManager(configPath);
+    if (!configManager_.loadConfig()) {
+      return EXIT_FAILURE;
+    }
 
-  configManager_ = ConfigManager(configPath);
-
-  if (!configManager_.loadConfig()) return EXIT_FAILURE;
-
-  AppConfig& config = configManager_.getConfig();
-
-  // Resolve paths using RuntimePaths
-  config.modelPath = (RuntimePaths::Models() /
-                      std::filesystem::path(config.modelPath).filename())
-                         .string();
-
-  for (size_t i = 0; i < NUM_LANES; ++i)
-    config.lanes[i].videoSource =
-        (RuntimePaths::Etc() /
-         std::filesystem::path(config.lanes[i].videoSource).filename())
+    // Resolve packaged model/video paths exactly as the successful standalone
+    // pipeline test resolves its Bazel runfiles.
+    AppConfig& config = configManager_.getConfig();
+    config.modelPath =
+        (RuntimePaths::Models() /
+         std::filesystem::path(config.modelPath).filename())
             .string();
+    for (std::size_t i = 0; i < NUM_LANES; ++i) {
+      config.lanes[i].videoSource =
+          (RuntimePaths::Etc() /
+           std::filesystem::path(config.lanes[i].videoSource).filename())
+              .string();
+    }
 
-  // Build ROI array
-  std::array<Roi, NUM_LANES> laneRois;
+    if (config.ViewerPeriod <= std::chrono::milliseconds::zero() ||
+        config.ViewerPhase < std::chrono::milliseconds::zero()) {
+      std::cerr << "[TRAFFIC_PERCEPTION][INIT][ERROR] invalid viewer timing\n";
+      return EXIT_FAILURE;
+    }
 
-  for (size_t i = 0; i < NUM_LANES; ++i) laneRois[i] = config.lanes[i].roi;
-  // Init FramePool
-  if (!pool_.init(20)) return EXIT_FAILURE;
-  // Create backend
-  backend_ = std::make_unique<YoloV8OIV7Backend>(config.modelPath);
+    // PerceptionModule is the tested owner of the pool, backend, capture
+    // workers and pipeline thread. Do not duplicate that ownership here.
+    if (!perceptionModule_.initModule(config) ||
+        !perceptionModule_.startThreads()) {
+      std::cerr << "[TRAFFIC_PERCEPTION][INIT][ERROR] perception module "
+                   "initialization failed\n";
+      perceptionModule_.stopThreads();
+      return EXIT_FAILURE;
+    }
+    perceptionStarted_ = true;
 
-  backendPtr_ = backend_.get();
-  // Create PipelineManager
-  pipeline_ = std::make_unique<PipelineManager>(std::move(backend_), buffer_,
-                                                pool_, laneRois);
-  // MQ Sender
-  mqSender_ = std::make_unique<MQSnapshotSender>();
+    if (!viewer_.init(config, perceptionModule_.backend())) {
+      std::cerr
+          << "[TRAFFIC_PERCEPTION][INIT][ERROR] viewer initialization failed\n";
+      shutdown();
+      return EXIT_FAILURE;
+    }
+    viewerInitialized_ = true;
+    viewerPeriod_ = config.ViewerPeriod;
+    viewerPhase_ = config.ViewerPhase;
 
-  if (!mqSender_->open()) return EXIT_FAILURE;
-
-  pipeline_->getPublisher().initSender(mqSender_.get());
-  // Viewer
-  viewer_.init(config, backendPtr_);
-  // Workers
-  for (uint32_t i = 0; i < NUM_LANES; ++i) {
-    auto worker = std::make_unique<StreamWorker>();
-
-    worker->initStream(config.lanes[i].videoSource, i, &pool_,
-                       config.CapturePeriod);
-
-    worker->start(buffer_);
-
-    workers_.push_back(std::move(worker));
-  }
-
-  if (!healthReporter_.initialize()) {
-    std::cerr << "[TRAFFIC_PERCEPTION][INIT][ERROR] HealthReporter "
-                 "initialization failed\n";
+    // HealthMonitor must be running before Initialize() returns because
+    // run_application reports the managed process as Running immediately
+    // afterwards.
+    if (!healthReporter_.initialize()) {
+      std::cerr << "[TRAFFIC_PERCEPTION][INIT][ERROR] HealthReporter "
+                   "initialization failed\n";
+      shutdown();
+      return EXIT_FAILURE;
+    }
+  } catch (const std::exception& error) {
+    std::cerr << "[TRAFFIC_PERCEPTION][INIT][ERROR] exception: " << error.what()
+              << '\n';
+    shutdown();
     return EXIT_FAILURE;
   }
 
   cycleCount_ = 0U;
   initialized_ = true;
-  score::mw::log::LogDebug() << "[TRAFFIC_PERCEPTION][INIT] application ready; "
-                                "period_ms=3000\n";
+  score::mw::log::LogDebug()
+      << "[TRAFFIC_PERCEPTION][INIT] application ready; viewer_period_ms="
+      << viewerPeriod_.count() << "; viewer_phase_ms=" << viewerPhase_.count()
+      << "; lifecycle_supervision_window_ms=10000\n";
   return EXIT_SUCCESS;
 }
 
@@ -103,54 +119,73 @@ std::int32_t TrafficPerceptionApplication::Run(
     return EXIT_FAILURE;
   }
 
-  using namespace std::chrono_literals;
-  constexpr auto kPeriod = 3s;
-  auto nextRelease = std::chrono::steady_clock::now() + kPeriod;
+  auto nextRelease = std::chrono::steady_clock::now() + viewerPhase_;
   std::int32_t exitCode{EXIT_SUCCESS};
 
   score::mw::log::LogDebug()
-      << "[TRAFFIC_PERCEPTION][RUN] periodic loop started\n";
-  while (!stopToken.stop_requested()) {
-    // The first release occurs after one complete period, giving the heartbeat
-    // monitor a real 3-second baseline. Absolute releases avoid timer drift.
-    if (score::concurrency::wait_until(stopToken, nextRelease)) {
-      break;
+      << "[TRAFFIC_PERCEPTION][RUN] periodic viewer loop started; "
+         "release_clock=steady_clock; schedule=absolute\n";
+  try {
+    while (!stopToken.stop_requested()) {
+      const auto scheduledRelease = nextRelease;
+      if (score::concurrency::wait_until(stopToken, scheduledRelease)) {
+        break;
+      }
+
+      const auto wakeup = std::chrono::steady_clock::now();
+      if (!healthReporter_.startPerceptionCycle()) {
+        std::cerr << "[TRAFFIC_PERCEPTION][RUN][ERROR] could not start "
+                     "health-monitored perception cycle\n";
+        exitCode = EXIT_FAILURE;
+        break;
+      }
+
+      // The capture and inference pipeline is already running in the tested
+      // PerceptionModule threads. The lifecycle thread owns only the periodic
+      // viewer work, matching pipeline_manager_test.
+      viewer_.render(perceptionModule_.analyzer(),
+                     toNanoseconds(scheduledRelease), toNanoseconds(wakeup));
+      static_cast<void>(cv::waitKey(1));
+      healthReporter_.finishPerceptionCycle();
+
+      ++cycleCount_;
+      score::mw::log::LogDebug()
+          << "[TRAFFIC_PERCEPTION][CYCLE] viewer rendered; counter="
+          << cycleCount_ << "; period_ms=" << viewerPeriod_.count() << '\n';
+
+      // Preserve the test's absolute schedule and discard a stale backlog if
+      // the thread woke more than one complete period late.
+      if (wakeup > scheduledRelease + viewerPeriod_) {
+        nextRelease = wakeup + viewerPeriod_;
+      } else {
+        nextRelease = scheduledRelease + viewerPeriod_;
+      }
     }
-
-    if (!healthReporter_.startPerceptionCycle()) {
-      std::cerr << "[TRAFFIC_PERCEPTION][RUN][ERROR] could not start "
-                   "health-monitored perception cycle\n";
-      exitCode = EXIT_FAILURE;
-      break;
-    }
-
-    pipeline_->runOneCycle();
-
-    viewer_.render(pipeline_->analyzer());
-
-    if (cv::waitKey(1) == 'd') pipeline_->getPublisher().flush();
-
-    ++cycleCount_;
-    score::mw::log::LogDebug()
-        << "[TRAFFIC_PERCEPTION][CYCLE] hello; counter=" << cycleCount_
-        << "; period_ms=3000\n";
-
-    healthReporter_.finishPerceptionCycle();
-    nextRelease += kPeriod;
+  } catch (const std::exception& error) {
+    std::cerr << "[TRAFFIC_PERCEPTION][RUN][ERROR] exception: " << error.what()
+              << '\n';
+    exitCode = EXIT_FAILURE;
   }
 
-  viewer_.shutdown();
-  for (auto& worker : workers_) worker->stop();
-
-  if (mqSender_) mqSender_->close();
-
-  healthReporter_.shutdown();
-  initialized_ = false;
+  shutdown();
   score::mw::log::LogDebug()
       << "[TRAFFIC_PERCEPTION][STOP] cycles_completed=" << cycleCount_ << '\n';
   score::mw::log::LogDebug()
-    << "[TRAFFIC_PERCEPTION][STOP] stop_token requested";
+      << "[TRAFFIC_PERCEPTION][STOP] exit_code=" << exitCode;
   return exitCode;
+}
+
+void TrafficPerceptionApplication::shutdown() {
+  if (viewerInitialized_) {
+    viewer_.shutdown();
+    viewerInitialized_ = false;
+  }
+  if (perceptionStarted_) {
+    perceptionModule_.stopThreads();
+    perceptionStarted_ = false;
+  }
+  healthReporter_.shutdown();
+  initialized_ = false;
 }
 
 }  // namespace traffic_perception

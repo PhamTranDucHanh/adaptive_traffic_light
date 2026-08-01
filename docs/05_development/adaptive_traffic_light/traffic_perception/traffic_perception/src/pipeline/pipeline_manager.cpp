@@ -4,6 +4,7 @@
 #include <thread>
 
 #include "score/mw/log/logger.h"
+#include "traffic_perception/core/time_utils.h"
 
 namespace {
 
@@ -29,40 +30,32 @@ PipelineManager::PipelineManager(IModelBackend& backend,
       publisher_(),
       engine_(backend, buffer, pool, analyzer_, laneRois_) {}
 
-void PipelineManager::run() {
+void PipelineManager::run(std::chrono::steady_clock::time_point startTime) {
   running_ = true;
 
-  auto nextRelease = std::chrono::steady_clock::now() + phase_;
+  auto nextRelease = startTime + phase_;
 
   while (running_) {
-    // Scheduled release time for this cycle.
-    const auto scheduledRelease = nextRelease;
+    const auto nowNs = GetMonotonicTimeNs();
+    const int64_t periodNs = period_.count() * 1000000LL;
 
-    // Wait until the next activation.
-    std::this_thread::sleep_until(scheduledRelease);
+    int64_t nextReleaseNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                nextRelease.time_since_epoch()).count();
 
-    // Actual wakeup time.
-    const auto wakeup = std::chrono::steady_clock::now();
+    while (nextReleaseNs + periodNs <= nowNs) {
+      nextReleaseNs += periodNs;
+    }
 
-    const int64_t expectedWakeup =
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            scheduledRelease.time_since_epoch())
-            .count();
+    const int64_t expectedWakeup = nextReleaseNs;
 
-    const int64_t pipelineBegin =
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            wakeup.time_since_epoch())
-            .count();
+    SleepUntilNs(expectedWakeup);
+
+    const int64_t pipelineBegin = GetMonotonicTimeNs();
 
     runOneCycle(expectedWakeup, pipelineBegin);
 
-    // If we are more than one period late, drop backlog and
-    // restart the schedule from now.
-    if (wakeup > scheduledRelease + period_) {
-      nextRelease = wakeup + period_;
-    } else {
-      nextRelease = scheduledRelease + period_;
-    }
+    nextRelease = std::chrono::steady_clock::time_point(
+        std::chrono::nanoseconds(nextReleaseNs)) + period_;
   }
 }
 
@@ -72,14 +65,11 @@ void PipelineManager::runOneCycle(int64_t expectedWakeup,
                                   int64_t pipelineBegin) {
   engine_.runOneCycle();
 
-  const int64_t pipelineEnd =
-      std::chrono::duration_cast<std::chrono::nanoseconds>(
-          std::chrono::steady_clock::now().time_since_epoch())
-          .count();
+  const int64_t pipelineEnd = GetMonotonicTimeNs();
 
   getPipelineBenchmarkLogger().LogInfo()
-      << "ExpectedWakeup=" << expectedWakeup << " Begin=" << pipelineBegin
-      << " End=" << pipelineEnd;
+      << "ExpectedWakeup=" << expectedWakeup
+      << " Begin=" << pipelineBegin << " End=" << pipelineEnd;
 
   TrafficSnapshot snapshot = analyzer_.buildTrafficSnapshot();
 

@@ -68,14 +68,15 @@
                 "application_profile": {
                     "application_type": "Reporting_And_Supervised",
                     "alive_supervision": {
-                        "reporting_cycle": 3.0,
-                        "min_indications": 1,
-                        "max_indications": 4,
-                        "failed_cycles_tolerance": 1
+                        "reporting_cycle": 10.0,
+                        "min_indications": 2,
+                        "max_indications": 6,
+                        "failed_cycles_tolerance": 2
                     }
                 }
             },
             "deployment_config": {
+                "shutdown_timeout": 10.0,
                 "environmental_variables": {
                     "PROCESSIDENTIFIER": "traffic_perception",
                     "IDENTIFIER": "traffic_perception",

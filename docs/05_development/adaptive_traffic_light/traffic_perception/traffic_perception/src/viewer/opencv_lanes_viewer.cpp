@@ -3,6 +3,7 @@
 #include <chrono>
 
 #include "score/mw/log/logger.h"
+#include "traffic_perception/core/time_utils.h"
 
 namespace {
 
@@ -79,14 +80,11 @@ void OpenCVLanesViewer::render(Analyzer& analyzer, int64_t expectedWakeupNs,
 
   cv::imshow(windowName_, canvas);
 
-  const int64_t renderEnd =
-      std::chrono::duration_cast<std::chrono::nanoseconds>(
-          std::chrono::steady_clock::now().time_since_epoch())
-          .count();
+  const int64_t renderEnd = GetMonotonicTimeNs();
 
   getViewerBenchmarkLogger().LogInfo()
-      << "ExpectedWakeup=" << expectedWakeupNs << " Begin=" << renderBeginNs
-      << " End=" << renderEnd;
+      << "ExpectedWakeup=" << expectedWakeupNs
+      << " Begin=" << renderBeginNs << " End=" << renderEnd;
 }
 
 void OpenCVLanesViewer::shutdown() { cv::destroyWindow(windowName_); }

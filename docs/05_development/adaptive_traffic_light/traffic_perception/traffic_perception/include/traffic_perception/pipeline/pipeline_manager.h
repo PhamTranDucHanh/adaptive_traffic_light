@@ -17,15 +17,12 @@ namespace traffic_perception {
 
 class PipelineManager {
  public:
-  PipelineManager(
-      IModelBackend& backend,
-      AtomicFrameBuffer& buffer,
-      FramePool& pool,
-      const std::array<Roi, NUM_LANES>& laneRois,
-      std::chrono::milliseconds period,
-      std::chrono::milliseconds phase);
+  PipelineManager(IModelBackend& backend, AtomicFrameBuffer& buffer,
+                  FramePool& pool, const std::array<Roi, NUM_LANES>& laneRois,
+                  std::chrono::milliseconds period,
+                  std::chrono::milliseconds phase);
 
-  void run();
+  void run(std::chrono::steady_clock::time_point startTime);
   void stop();
 
   Analyzer& analyzer() { return analyzer_; }

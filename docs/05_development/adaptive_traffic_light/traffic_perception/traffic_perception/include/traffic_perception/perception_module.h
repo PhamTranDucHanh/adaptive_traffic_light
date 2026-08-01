@@ -12,17 +12,23 @@
 #include "traffic_perception/core/config_manager.h"
 #include "traffic_perception/core/frame_pool.h"
 #include "traffic_perception/core/types.h"
+#include "traffic_perception/inference/imodel_backend.h"
 #include "traffic_perception/ingestion/atomic_frame_buffer.h"
 #include "traffic_perception/ingestion/stream_worker.h"
 #include "traffic_perception/io/snapshot_sender.h"
 #include "traffic_perception/pipeline/pipeline_manager.h"
-#include "traffic_perception/inference/imodel_backend.h"
 
 namespace traffic_perception {
 
 struct StreamThreadContext {
   StreamWorker* worker{nullptr};
   AtomicFrameBuffer* buffer{nullptr};
+  std::chrono::steady_clock::time_point startTime;
+};
+
+struct PipelineThreadContext {
+  PipelineManager* pipeline{nullptr};
+  std::chrono::steady_clock::time_point startTime;
 };
 
 class PerceptionModule final {
@@ -33,17 +39,20 @@ class PerceptionModule final {
   Analyzer& analyzer();
   const Analyzer& analyzer() const;
   IModelBackend* backend();
+  std::chrono::steady_clock::time_point getStartTime();
 
  private:
-  static bool ConfigureRealtimeThreadAttr(
-      pthread_attr_t& attr,
-      const ThreadConfig& config);
+  static bool ConfigureRealtimeThreadAttr(pthread_attr_t& attr,
+                                          const ThreadConfig& config);
+
+  std::chrono::steady_clock::time_point startTime_;
 
   FramePool pool_{};
 
   std::array<StreamWorker, NUM_LANES> workers_{};
   AtomicFrameBuffer buffer_{};
   std::array<StreamThreadContext, NUM_LANES> streamThreadContexts_{};
+  PipelineThreadContext pipelineThreadContext_;
 
   std::unique_ptr<PipelineManager> pipelineManager_;
   std::unique_ptr<IModelBackend> backend_;
