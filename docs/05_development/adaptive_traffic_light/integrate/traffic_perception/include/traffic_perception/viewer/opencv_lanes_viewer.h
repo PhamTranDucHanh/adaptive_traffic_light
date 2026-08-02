@@ -23,7 +23,8 @@ class OpenCVLanesViewer {
   AppConfig config_;
   IModelBackend* backend_{nullptr};
   std::string windowName_;
-  std::array<cv::Mat, 4> lastRenderedFrames_;
+  std::array<std::string, NUM_LANES> laneLabels_{};
+  std::array<cv::Mat, NUM_LANES> lastRenderedFrames_;
 };
 
 }  // namespace traffic_perception

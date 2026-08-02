@@ -12,6 +12,13 @@
 
 namespace {
 
+constexpr float kMetricPercentageMultiplier = 100.0F;
+constexpr float kVehicleScorePerAverageVehicle = 6.0F;
+constexpr float kMaximumComponentScore = 100.0F;
+constexpr float kQueueLengthWeight = 0.2F;
+constexpr float kVehicleCountWeight = 0.6F;
+constexpr float kOccupancyWeight = 0.2F;
+
 float mean(const float first, const float second) noexcept {
   return (first + second) * traffic_timing_decision::kPairMeanMultiplier;
 }
@@ -183,28 +190,40 @@ DemandScore DecisionEngine::calculateDemandScore(
     const TrafficSnapshot& snapshot) const {
   DemandScore score{};
   const float northSouthQueue =
-      mean(snapshot.queueLengthNorth, snapshot.queueLengthSouth);
+      mean(snapshot.queueLengthNorth, snapshot.queueLengthSouth) *
+      kMetricPercentageMultiplier;
   const float eastWestQueue =
-      mean(snapshot.queueLengthEast, snapshot.queueLengthWest);
-  const float northSouthVehicles =
+      mean(snapshot.queueLengthEast, snapshot.queueLengthWest) *
+      kMetricPercentageMultiplier;
+  const float northSouthVehicleAverage =
       mean(snapshot.vehicleCountNorth, snapshot.vehicleCountSouth);
-  const float eastWestVehicles =
+  const float eastWestVehicleAverage =
       mean(snapshot.vehicleCountEast, snapshot.vehicleCountWest);
+
+  // Vehicle count is averaged across both lanes: (N+S)/2 or (E+W)/2.
+  // With low queue/occupancy: avg < 7 -> 20 s, avg 10 -> 30 s,
+  // avg 17-20 -> 40 s. Strong queue/occupancy can raise the target to 50 s.
+  const float northSouthVehicleScore = std::min(
+      northSouthVehicleAverage * kVehicleScorePerAverageVehicle,
+      kMaximumComponentScore);
+  const float eastWestVehicleScore = std::min(
+      eastWestVehicleAverage * kVehicleScorePerAverageVehicle,
+      kMaximumComponentScore);
   const float northSouthOccupancy =
       mean(snapshot.occupancyNorth, snapshot.occupancySouth) *
-      traffic_timing_decision::kOccupancyPercentageMultiplier;
+      kMetricPercentageMultiplier;
   const float eastWestOccupancy =
       mean(snapshot.occupancyEast, snapshot.occupancyWest) *
-      traffic_timing_decision::kOccupancyPercentageMultiplier;
+      kMetricPercentageMultiplier;
 
   score.northSouthScore =
-      traffic_timing_decision::kQueueLengthWeight * northSouthQueue +
-      traffic_timing_decision::kVehicleCountWeight * northSouthVehicles +
-      traffic_timing_decision::kOccupancyWeight * northSouthOccupancy;
+      kQueueLengthWeight * northSouthQueue +
+      kVehicleCountWeight * northSouthVehicleScore +
+      kOccupancyWeight * northSouthOccupancy;
   score.eastWestScore =
-      traffic_timing_decision::kQueueLengthWeight * eastWestQueue +
-      traffic_timing_decision::kVehicleCountWeight * eastWestVehicles +
-      traffic_timing_decision::kOccupancyWeight * eastWestOccupancy;
+      kQueueLengthWeight * eastWestQueue +
+      kVehicleCountWeight * eastWestVehicleScore +
+      kOccupancyWeight * eastWestOccupancy;
   score.overallScore = (score.northSouthScore + score.eastWestScore) *
                        traffic_timing_decision::kPairMeanMultiplier;
 
@@ -219,7 +238,7 @@ DemandScore DecisionEngine::calculateDemandScore(
       << "; ew_score=" << score.eastWestScore
       << "; ew_target_green_ms=" << eastWestTargetMs
       << "; overall_score=" << score.overallScore
-      << "; weights=queue:0.5,vehicles:0.3,occupancy_pct:0.2";
+      << "; weights=queue:0.2,vehicles:0.6,occupancy_pct:0.2";
 #endif
 
   return score;

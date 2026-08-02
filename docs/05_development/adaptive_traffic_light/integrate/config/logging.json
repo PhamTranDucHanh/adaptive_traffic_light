@@ -1,7 +1,8 @@
 {
     "ecuId": "TLGT",
     "appId": "LM",
-    "logMode": "kConsole",
+    "logMode": "kConsole|kFile",
+    "logFilePath": "/tmp/linux_rt_application/logs",
     "logLevel": "kDebug",
-    "logLevelThresholdConsole": "kDebug"
+    "logLevelThresholdConsole": "kError"
 }
