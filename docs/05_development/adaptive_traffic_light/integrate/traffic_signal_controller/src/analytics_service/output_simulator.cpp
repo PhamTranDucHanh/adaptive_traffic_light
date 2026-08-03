@@ -17,9 +17,6 @@
 
 namespace {
 
-constexpr std::uint32_t kMillisecondsPerSecond{1'000U};
-constexpr std::int32_t kOutputSimulatorPriority{50};
-
 static_assert(std::atomic<std::uint64_t>::is_always_lock_free,
               "Output mailbox must be lock-free");
 static_assert(std::atomic<bool>::is_always_lock_free,

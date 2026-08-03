@@ -17,6 +17,8 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
+
 namespace {
 
 std::string Trim(std::string value) {
@@ -114,6 +116,11 @@ bool CopyFile(const std::string& sourcePath,
   return destination.good();
 }
 
+std::uint64_t RoundedSeconds(const std::uint64_t nanoseconds) {
+  return (nanoseconds + (kNanosecondsPerSecond / 2U)) /
+         kNanosecondsPerSecond;
+}
+
 std::uint32_t NextArchiveNumber(const std::string& outputDirectory) {
   std::uint32_t nextArchiveNumber{1U};
   DIR* directory = ::opendir(outputDirectory.c_str());
@@ -143,6 +150,7 @@ Analytics::Analytics(std::string logFilePath)
 
 bool Analytics::Analyze() {
   logEntries_.clear();
+  displayStatistics_ = {};
   planStatistics_ = {};
   emergencyStatistics_ = {};
   wakeupStatistics_ = {};
@@ -151,6 +159,7 @@ bool Analytics::Analyze() {
     return false;
   }     
 
+  ComputeDisplayStatistics();
   ComputePlanStatistics();
   ComputeEmergencyStatistics();
   ComputeWakeupStatistics();
@@ -395,9 +404,6 @@ std::uint64_t Analytics::ExtractDltStorageTimestampNs(
              static_cast<unsigned char>(record[offset + 3U]))
          << 24U));
   };
-
-  constexpr std::uint64_t kNanosecondsPerSecond{1'000'000'000ULL};
-  constexpr std::uint64_t kNanosecondsPerMicrosecond{1'000ULL};
 
   const std::uint64_t seconds = readLittleEndianUint32(4U);
   const std::uint64_t microseconds = readLittleEndianUint32(8U);
@@ -782,6 +788,63 @@ void Analytics::ComputeWakeupStatistics() {
   }
 }
 
+void Analytics::ComputeDisplayStatistics() {
+  struct PhaseDisplayStart {
+    std::string phase;
+    std::uint64_t startedAtNs{};
+    std::uint64_t configuredDurationNs{};
+  };
+
+  std::vector<PhaseDisplayStart> phaseStarts;
+  std::uint64_t lastTimestampNs{};
+
+  for (const auto& entry : logEntries_) {
+    if (entry.timestampNs > lastTimestampNs) {
+      lastTimestampNs = entry.timestampNs;
+    }
+
+    if (entry.eventType != EventType::PhaseEnter || entry.timestampNs == 0U) {
+      continue;
+    }
+
+    const std::string phase = ExtractValue(entry.message, "phase");
+    if (phase.empty()) {
+      continue;
+    }
+
+    const std::uint64_t durationMs =
+        ParseUint64OrZero(ExtractValue(entry.message, "duration_ms"));
+
+    phaseStarts.push_back(
+        PhaseDisplayStart{phase, entry.timestampNs,
+                          durationMs * kNanosecondsPerMillisecond});
+  }
+
+  if (phaseStarts.empty() || lastTimestampNs == 0U) {
+    return;
+  }
+
+  for (std::size_t index{}; index < phaseStarts.size(); ++index) {
+    const auto& current = phaseStarts[index];
+    const std::uint64_t nextTimestampNs =
+        index + 1U < phaseStarts.size() ? phaseStarts[index + 1U].startedAtNs
+                                        : lastTimestampNs;
+
+    if (nextTimestampNs <= current.startedAtNs) {
+      continue;
+    }
+
+    std::uint64_t displayedNs = nextTimestampNs - current.startedAtNs;
+    if (current.configuredDurationNs > 0U) {
+      displayedNs = std::min(displayedNs, current.configuredDurationNs);
+    }
+
+    displayStatistics_.available = true;
+    displayStatistics_.totalDisplayedNs += displayedNs;
+    displayStatistics_.phaseDisplayedNs[current.phase] += displayedNs;
+  }
+}
+
 bool Analytics::ArchiveInputData(const std::string& outputDirectory,
                                  std::string& archivedInputPath) const {
   if (!EnsureDirectoryExists(outputDirectory)) {
@@ -826,6 +889,32 @@ bool Analytics::WriteReport(const std::string& outputPath) const {
   output << "===============================\n\n";
 
   output << "Log entries: " << logEntries_.size() << "\n\n";
+
+  output << "DISPLAY DURATION\n";
+  output << "----------------\n";
+
+  if (displayStatistics_.available) {
+    output << "Total displayed time: "
+           << RoundedSeconds(displayStatistics_.totalDisplayedNs) << " s\n";
+
+    for (const auto* const phase :
+         {"NS_GREEN", "EW_GREEN", "YELLOW", "ALL_RED"}) {
+      const auto phaseIterator =
+          displayStatistics_.phaseDisplayedNs.find(phase);
+
+      if (phaseIterator == displayStatistics_.phaseDisplayedNs.end()) {
+        continue;
+      }
+
+      output << phase << ": " << RoundedSeconds(phaseIterator->second)
+             << " s\n";
+    }
+
+    output << '\n';
+  } else {
+    output << "Total displayed time: unavailable "
+              "(no phase enter log entries)\n\n";
+  }
 
   output << "PLAN STATISTICS\n";
   output << "---------------\n";

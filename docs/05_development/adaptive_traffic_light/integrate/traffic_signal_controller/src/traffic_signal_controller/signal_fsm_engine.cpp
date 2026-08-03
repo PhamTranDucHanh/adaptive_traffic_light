@@ -10,10 +10,6 @@
 
 namespace {
 
-constexpr std::uint64_t kNanosecondsPerMillisecond{1'000'000ULL};
-
-constexpr std::uint64_t kNanosecondsPerSecond{1'000'000'000ULL};
-
 std::uint64_t timespecToNanoseconds(const timespec& timestamp) noexcept {
   return static_cast<std::uint64_t>(timestamp.tv_sec) * kNanosecondsPerSecond +
          static_cast<std::uint64_t>(timestamp.tv_nsec);
@@ -70,6 +66,14 @@ SignalDisplay SignalFSMEngine::processTick() {
     initializeDeadline();
   }
 
+  if (!initialPhaseLogged_) {
+    Logger().LogInfo() << "event=PHASE_ENTER"
+                       << ", phase=" << phaseToString(currentPhaseId())
+                       << ", duration_ms=" << remainingTimeMs_
+                       << ", plan_id=" << currentPlan_.sourcePlanId;
+    initialPhaseLogged_ = true;
+  }
+
   addMilliseconds(nextDeadline_, TIMER_INTERVAL_MS);
 
   const PhaseId processedPhase = currentPhaseId();
@@ -108,6 +112,7 @@ void SignalFSMEngine::reset() noexcept {
 
   nextDeadline_ = timespec{};
   deadlineInitialized_ = false;
+  initialPhaseLogged_ = false;
 
   wakeupWriteSequence_.store(0U, std::memory_order_relaxed);
   wakeupReadSequence_.store(0U, std::memory_order_relaxed);
@@ -341,19 +346,16 @@ SignalFSMEngine::evaluateEmergencyPlan(const PlanData& emergencyPlan) const {
     return EmergencyEvaluationResult::INVALID_DIRECTION_FLAGS;
   }
 
-  constexpr std::uint32_t kLowerThresholdMs{5'000U};
-  constexpr std::uint32_t kUpperThresholdMs{10'000U};
-
   /*
    * Chỉ chấp nhận khi:
    *
    * 5 giây < remainingTimeMs_ < 10 giây.
    */
-  if (remainingTimeMs_ >= kUpperThresholdMs) {
+  if (remainingTimeMs_ >= kEmergencyUpperThresholdMs) {
     return EmergencyEvaluationResult::TOO_EARLY;
   }
 
-  if (remainingTimeMs_ <= kLowerThresholdMs) {
+  if (remainingTimeMs_ <= kEmergencyLowerThresholdMs) {
     return EmergencyEvaluationResult::TOO_LATE;
   }
 
@@ -379,8 +381,6 @@ SignalFSMEngine::evaluateEmergencyPlan(const PlanData& emergencyPlan) const {
 }
 
 void SignalFSMEngine::applyEmergencyPlan(const PlanData& emergencyPlan) {
-  constexpr std::uint32_t kEmergencyGreenDurationMs{20'000U};
-
   const PhaseId phaseId = currentPhaseId();
   const std::uint32_t oldRemainingTimeMs = remainingTimeMs_;
 

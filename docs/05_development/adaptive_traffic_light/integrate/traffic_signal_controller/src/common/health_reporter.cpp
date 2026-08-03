@@ -3,30 +3,12 @@
 #include <chrono>
 #include <utility>
 
+#include "common/config.h"
 #include "common/logging_contexts.h"
 #include <score/mw/health/common.h>
 #include "score/mw/log/logger.h"
 
 namespace {
-
-using namespace std::chrono_literals;
-
-constexpr auto kControlDeadlineMin = 0ms;
-constexpr auto kControlDeadlineMax = 1000ms;
-// Deadline supervision still covers every 1-second control cycle. Heartbeat
-// supervision intentionally samples every second cycle: WSL2 can suspend the
-// VM long enough for S-CORE v0.3.0 to observe two 1-second heartbeats in one
-// evaluator pass and reject them as MultipleHeartbeats.
-constexpr std::uint64_t kHeartbeatControlCycleInterval{2U};
-constexpr auto kHeartbeatMin = 500ms;
-constexpr auto kHeartbeatMax = 5000ms;
-constexpr auto kInternalProcessingCycle = 100ms;
-constexpr auto kSupervisorApiCycle = 500ms;
-// Keep the S-CORE monitoring worker below the MQ receiver (70) and FSM (80),
-// but above the lifecycle/application thread (50). Without an explicit RT
-// policy the default worker can be starved by the real perception workload,
-// then observe two otherwise valid 1-second heartbeats in one evaluation.
-constexpr std::int32_t kHealthMonitorPriority = 60;
 
 const score::mw::health::MonitorTag kDeadlineMonitorTag{
     "signal_control_deadline_monitor"};

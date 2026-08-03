@@ -18,6 +18,7 @@
 #include <string>
 
 #include "analytics_service/analytics.h"
+#include "common/config.h"
 #include "common/logging_contexts.h"
 #include "score/concurrency/interruptible_wait.h"
 #include "score/mw/log/logger.h"
@@ -25,29 +26,6 @@
 
 namespace traffic_signal_controller {
 namespace {
-
-constexpr const char* kDefaultAnalyticsLogFile{"/tmp/CTRL.dlt"};
-constexpr const char* kDefaultAnalyticsReportFile{
-    "/tmp/traffic_signal_controller/logs/analytics_report.txt"};
-constexpr const char* kRuntimeDirectory{"/tmp/traffic_signal_controller"};
-constexpr const char* kRuntimeLogDirectory{
-    "/tmp/traffic_signal_controller/logs"};
-constexpr const char* kRuntimeAnalyticsOutputDirectory{
-    "/tmp/traffic_signal_controller/logs/output"};
-
-constexpr std::int32_t kDefaultFsmPriority{80};
-constexpr std::int32_t kDefaultPlanReceiverPriority{70};
-constexpr std::int32_t kTrafficSignalControllerCpu{3};
-constexpr std::int32_t kDecimalBase{10};
-
-constexpr std::size_t kBytesPerKibibyte{1024U};
-constexpr std::size_t kPrefaultStackSizeKibibytes{64U};
-constexpr std::size_t kPrefaultStackBytes{kPrefaultStackSizeKibibytes *
-                                          kBytesPerKibibyte};
-constexpr std::size_t kPageSizeBytes{4096U};
-
-constexpr mode_t kRuntimeDirectoryPermissions{0755};
-constexpr std::uint64_t kControlPeriodMilliseconds{1000U};
 
 score::mw::log::Logger& AppLogger() {
   static auto& logger = score::mw::log::CreateLogger(ctrl::logging::kCtxApp,

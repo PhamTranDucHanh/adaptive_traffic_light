@@ -79,6 +79,7 @@ class SignalFSMEngine final {
 
   timespec nextDeadline_{};
   bool deadlineInitialized_{false};
+  bool initialPhaseLogged_{false};
 
   // Single-producer/single-consumer ring buffer:
   // producer = FSM real-time thread, consumer = lifecycle thread.

@@ -7,15 +7,6 @@
 #include "score/mw/log/logger.h"
 namespace {
 
-constexpr std::uint32_t kMinGreenDurationMs{1000U};
-constexpr std::uint32_t kMaxGreenDurationMs{500000U};
-
-constexpr std::uint32_t kMinYellowDurationMs{1000U};
-constexpr std::uint32_t kMaxYellowDurationMs{10000U};
-
-constexpr std::uint32_t kMinAllRedDurationMs{500U};
-constexpr std::uint32_t kMaxAllRedDurationMs{10000U};
-
 score::mw::log::Logger& Logger() {
   static auto& logger =
       score::mw::log::CreateLogger(ctrl::logging::kCtxPlan, "Plan Receiver");
@@ -148,8 +139,6 @@ std::uint64_t PlanReceiver::GetMonotonicTimestampNs() {
   if (clock_gettime(CLOCK_MONOTONIC, &timestamp) != 0) {
     return 0U;
   }
-
-  constexpr std::uint64_t kNanosecondsPerSecond{1'000'000'000ULL};
 
   return static_cast<std::uint64_t>(timestamp.tv_sec) * kNanosecondsPerSecond +
          static_cast<std::uint64_t>(timestamp.tv_nsec);

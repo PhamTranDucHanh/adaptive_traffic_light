@@ -16,10 +16,6 @@
 
 namespace {
 
-constexpr long kOpenRetryNanoseconds{100'000'000L};
-constexpr long kReceiveTimeoutNanoseconds{200'000'000L};
-constexpr std::uint64_t kNanosecondsPerSecond{1'000'000'000ULL};
-
 score::mw::log::Logger& Logger() {
   static auto& logger = score::mw::log::CreateLogger(
       ctrl::logging::kCtxMqReceiver, "MQ Timing Plan Receiver");
@@ -43,7 +39,7 @@ bool MakeRealtimeDeadlineAfter(const long nanoseconds,
 }
 
 void WaitBeforeOpenRetry(const std::atomic_bool& running) noexcept {
-  timespec remaining{0, kOpenRetryNanoseconds};
+  timespec remaining{0, kTimingPlanOpenRetryNanoseconds};
   while (running.load(std::memory_order_acquire) &&
          nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
   }
@@ -151,7 +147,8 @@ bool MqTimingPlanReceiverWorker::ReceiveAndProcessNewest(
   while (running.load(std::memory_order_acquire)) {
     timespec deadline{};
     if (!MakeRealtimeDeadlineAfter(
-            firstReceive ? kReceiveTimeoutNanoseconds : 0L, deadline)) {
+            firstReceive ? kTimingPlanReceiveTimeoutNanoseconds : 0L,
+            deadline)) {
       const int errorNumber = errno;
       Logger().LogWarn() << "event=TIMING_PLAN_DEADLINE_FAILED"
                          << ", error=" << errorNumber

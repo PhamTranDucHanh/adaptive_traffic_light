@@ -92,11 +92,18 @@ class Analytics {
     std::vector<std::int64_t> latencySamplesNs;
   };
 
+  struct DisplayStatistics {
+    bool available{};
+    std::uint64_t totalDisplayedNs{};
+    std::unordered_map<std::string, std::uint64_t> phaseDisplayedNs;
+  };
+
   bool LoadLog();
   bool LoadDltBinaryLog(const std::string& content);
   bool ParseLogLine(const std::string& line, LogEntry& entry) const;
   void ParseApplicationMessage(LogEntry& entry) const;
 
+  void ComputeDisplayStatistics();
   void ComputePlanStatistics();
   void ComputeEmergencyStatistics();
   void ComputeWakeupStatistics();
@@ -144,6 +151,7 @@ class Analytics {
   PlanStatistics planStatistics_;
   EmergencyStatistics emergencyStatistics_;
   WakeupStatistics wakeupStatistics_;
+  DisplayStatistics displayStatistics_;
 };
 
 #endif
