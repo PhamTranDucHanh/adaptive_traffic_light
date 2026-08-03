@@ -1,1 +1,4 @@
-exports_files(["opencv.BUILD.bazel"])
+exports_files([
+    "lifecycle_shutdown_stability.patch",
+    "opencv.BUILD.bazel",
+])

@@ -142,7 +142,11 @@ int main(int argc, char** argv) {
 
   // Delivery is not activation. Wait for ControlClient::ActivateRunTarget()
   // to finish so the command's exit code reflects the real transition result.
-  constexpr auto activationTimeout = std::chrono::seconds{10};
+  // Match the longest configured Run Target transition. On a slow host,
+  // perception initialization can legitimately take much longer than ten
+  // seconds; timing out here would make the deployment helper submit a second
+  // activation while the first one is still completing.
+  constexpr auto activationTimeout = std::chrono::seconds{180};
   const auto activationDeadline =
       std::chrono::steady_clock::now() + activationTimeout;
   while (std::chrono::steady_clock::now() < activationDeadline) {
@@ -159,7 +163,9 @@ int main(int argc, char** argv) {
 
           std::cout << "[LMCONTROL][ACCEPTED] Launch Manager shutdown pid="
                     << launchManagerPid << '\n';
-          constexpr auto shutdownTimeout = std::chrono::seconds{15};
+          // Perception may need up to 120 seconds to finish an in-flight ONNX
+          // cycle. Keep a bounded margin for Launch Manager to reap children.
+          constexpr auto shutdownTimeout = std::chrono::seconds{150};
           if (!waitForProcessExit(launchManagerPid, shutdownTimeout)) {
             std::cerr << "[LMCONTROL][ERROR] Launch Manager did not exit "
                          "before shutdown timeout pid="

@@ -3,16 +3,27 @@
 set -euo pipefail
 
 if [[ "${1:-}" == "--activate-running" ]]; then
-  if [[ $# -ne 3 ]]; then
+  if [[ $# -ne 5 ]]; then
     echo "[DEPLOYMENT][ERROR] invalid transition helper arguments" >&2
     exit 1
   fi
 
   lmcontrol_binary="$2"
   launch_manager_pid="$3"
+  activation_generation_file="$4"
+  expected_activation_generation="$5"
   request_output=""
 
   for attempt in $(seq 1 50); do
+    active_generation=""
+    if [[ -r "$activation_generation_file" ]]; then
+      IFS= read -r active_generation < "$activation_generation_file" || true
+    fi
+    if [[ "$active_generation" != "$expected_activation_generation" ]]; then
+      echo "[DEPLOYMENT][TRANSITION] stale activation helper ignored generation=$expected_activation_generation" >&2
+      exit 0
+    fi
+
     if ! kill -0 "$launch_manager_pid" 2>/dev/null; then
       echo "[LAUNCH_MANAGER][ERROR] exited during Startup" >&2
       exit 1
@@ -28,6 +39,16 @@ if [[ "${1:-}" == "--activate-running" ]]; then
       request_status=$?
     fi
     if [[ $request_status -eq 2 ]]; then
+      # A previous one-shot helper may have won the activation race just before
+      # its generation became stale. Running is already the requested end
+      # state, so this result is idempotent success and must never terminate LM.
+      if [[ "$request_output" == *"already in requested state"* ]]; then
+        echo "$request_output"
+        echo "[DEPLOYMENT][TRANSITION] Running already active; treating request as success"
+        echo "[DEPLOYMENT][RUN] requested run_target=Running"
+        echo "[DEPLOYMENT][RUN] stop with Ctrl-C or: bazel run --config=x86_64-linux //control_daemon:lmcontrol -- Stop"
+        exit 0
+      fi
       echo "$request_output" >&2
       echo "[DEPLOYMENT][ERROR] Running activation failed" >&2
       kill -TERM "$launch_manager_pid" 2>/dev/null || true
@@ -205,6 +226,9 @@ echo "[DEPLOYMENT][STAGE] runtime ready"
 echo "[LAUNCH_MANAGER][START] binary=$runtime_bin/launch_manager policy=SCHED_RR priority=50"
 launch_manager_pid=$$
 echo "[LAUNCH_MANAGER][START] pid=$launch_manager_pid"
+activation_generation_file="$runtime_root/activation_generation"
+activation_generation="${launch_manager_pid}:$(date +%s%N)"
+printf '%s\n' "$activation_generation" > "$activation_generation_file"
 export TIMING_REPORT_LOG_DIR="$runtime_logs"
 export LD_LIBRARY_PATH="$runtime_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
@@ -213,7 +237,8 @@ export LD_LIBRARY_PATH="$runtime_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 # Detach the one-shot helper before exec. Launch Manager uses waitpid() for its
 # own managed children, so the helper must not become one of those children.
 setsid --fork "$0" --activate-running "$runtime_bin/lmcontrol" \
-  "$launch_manager_pid"
+  "$launch_manager_pid" "$activation_generation_file" \
+  "$activation_generation"
 
 # Make Launch Manager the process directly owned by `bazel run`. Its official
 # SIGINT/SIGTERM handler can then stop all managed processes in dependency order.

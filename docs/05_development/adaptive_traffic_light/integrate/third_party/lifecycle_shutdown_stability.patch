@@ -1,0 +1,37 @@
+diff --git a/score/health_monitor/src/rust/worker.rs b/score/health_monitor/src/rust/worker.rs
+index d9fdde1..e2fb82f 100644
+--- a/score/health_monitor/src/rust/worker.rs
++++ b/score/health_monitor/src/rust/worker.rs
+@@ -133,7 +133,10 @@ impl UniqueThreadRunner {
+                             break;
+                         }
+ 
+-                        next_sleep_time = interval - now.elapsed();
++                        // Monitoring can exceed its nominal interval while the
++                        // system is loaded, suspended, or shutting down. A
++                        // Duration subtraction must never underflow and panic.
++                        next_sleep_time = interval.saturating_sub(now.elapsed());
+                     }
+ 
+                     info!("Monitoring thread exiting.");
+diff --git a/score/launch_manager/src/daemon/src/process_group_manager/details/process_group_manager.cpp b/score/launch_manager/src/daemon/src/process_group_manager/details/process_group_manager.cpp
+index 05383ef..9b6b7e3 100644
+--- a/score/launch_manager/src/daemon/src/process_group_manager/details/process_group_manager.cpp
++++ b/score/launch_manager/src/daemon/src/process_group_manager/details/process_group_manager.cpp
+@@ -359,10 +359,14 @@ inline void ProcessGroupManager::allProcessGroupsOff()
+         (void)pg->startTransitionToOffState();
+     }
+ 
+-    // Wait for the transition to complete (max 1 second)
++    // Graceful application shutdown can include joining an in-flight inference
++    // cycle and stopping health-monitor workers. One second is too short for
++    // that work and caused unconditional SIGKILL during normal Ctrl-C handling.
++    constexpr int32_t graceful_shutdown_wait_ms = 120000;
++
+     LM_LOG_DEBUG() << "Wait for all process groups to complete the transition";
+ 
+-    if (!waitForStateCompletion(process_groups_, GraphState::kInTransition, 1000))
++    if (!waitForStateCompletion(process_groups_, GraphState::kInTransition, graceful_shutdown_wait_ms))
+     {
+         LM_LOG_ERROR() << "NOTE: Transition to Off state timed out";
+         worker_threads_->stop();
