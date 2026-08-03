@@ -21,8 +21,8 @@ constexpr std::uint32_t kMaxYellowDurationMs{10'000U};
 constexpr std::uint32_t kMinAllRedDurationMs{500U};
 constexpr std::uint32_t kMaxAllRedDurationMs{10'000U};
 
-constexpr std::uint32_t kEmergencyLowerThresholdMs{5'000U};
-constexpr std::uint32_t kEmergencyUpperThresholdMs{10'000U};
+constexpr std::uint32_t kEmergencyLowerThresholdMs{2'000U};
+constexpr std::uint32_t kEmergencyUpperThresholdMs{15'000U};
 constexpr std::uint32_t kEmergencyGreenDurationMs{20'000U};
 
 constexpr long kTimingPlanOpenRetryNanoseconds{100'000'000L};
