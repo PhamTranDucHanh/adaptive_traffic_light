@@ -143,7 +143,8 @@ std::int32_t TrafficPerceptionApplication::Run(
       // The capture and inference pipeline is already running in the tested
       // PerceptionModule threads. The lifecycle thread owns only the periodic
       // viewer work, matching pipeline_manager_test.
-      viewer_.render(perceptionModule_.analyzer(),
+      const auto previewFrames = perceptionModule_.latestPreviewFrames();
+      viewer_.render(perceptionModule_.analyzer(), previewFrames,
                      toNanoseconds(scheduledRelease), toNanoseconds(wakeup));
       static_cast<void>(cv::waitKey(1));
       healthReporter_.finishPerceptionCycle();

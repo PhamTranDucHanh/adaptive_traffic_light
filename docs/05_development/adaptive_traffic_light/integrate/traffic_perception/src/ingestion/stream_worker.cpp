@@ -85,11 +85,10 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
 
   pthread_attr_t attr;
   pthread_attr_init(&attr);
-  pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
-  pthread_attr_setschedpolicy(&attr, SCHED_OTHER);
-  struct sched_param param;
-  param.sched_priority = 0;
-  pthread_attr_setschedparam(&attr, &param);
+  // The short-lived VideoCapture opener inherits the stream worker's
+  // SCHED_RR policy and priority. Do not demote it to SCHED_OTHER/0, otherwise
+  // the process would no longer be fully round-robin scheduled.
+  pthread_attr_setinheritsched(&attr, PTHREAD_INHERIT_SCHED);
 
   pthread_t tid;
   pthread_create(&tid, &attr, [](void* arg) -> void* {
@@ -171,6 +170,13 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
       continue;
     }
 
+    {
+      // cv::Mat assignment only increments the reference count. This keeps a
+      // display reference without copying a 1080p image every capture cycle.
+      std::lock_guard<std::mutex> lock(previewMutex_);
+      latestPreviewFrame_ = frame->Image;
+    }
+
     const auto decodeEnd = std::chrono::steady_clock::now();
 
     const int64_t acquireBeginNs =
@@ -233,6 +239,11 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
 
 std::int32_t StreamWorker::getLaneId() const {
   return LaneId;
+}
+
+cv::Mat StreamWorker::latestPreviewFrame() const {
+  std::lock_guard<std::mutex> lock(previewMutex_);
+  return latestPreviewFrame_.clone();
 }
 
 }  // namespace traffic_perception

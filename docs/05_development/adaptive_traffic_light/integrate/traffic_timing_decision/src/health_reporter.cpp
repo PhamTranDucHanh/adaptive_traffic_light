@@ -36,6 +36,7 @@ constexpr std::chrono::milliseconds kInternalProcessingCycle =
     toDuration(HealthIntervalMilliseconds::kInternalProcessingCycle);
 constexpr std::chrono::milliseconds kSupervisorApiCycle =
     toDuration(HealthIntervalMilliseconds::kSupervisorApiCycle);
+constexpr std::int32_t kHealthMonitorPriority = 60;
 
 const score::mw::health::MonitorTag kDeadlineMonitorTag{
     "timing_decision_deadline_monitor"};
@@ -56,6 +57,9 @@ bool HealthReporter::initialize() {
   }
 
   using score::mw::health::HealthMonitorBuilder;
+  using score::mw::health::SchedulerParameters;
+  using score::mw::health::SchedulerPolicy;
+  using score::mw::health::ThreadParameters;
   using score::mw::health::TimeRange;
   using score::mw::health::deadline::DeadlineMonitorBuilder;
   using score::mw::health::heartbeat::HeartbeatMonitorBuilder;
@@ -66,6 +70,9 @@ bool HealthReporter::initialize() {
       TimeRange{kDecisionDeadlineMin, kDecisionDeadlineMax});
   score::mw::health::heartbeat::HeartbeatMonitorBuilder heartbeatBuilder =
       HeartbeatMonitorBuilder(TimeRange{kHeartbeatMin, kHeartbeatMax});
+  auto healthThreadParameters = ThreadParameters{}.scheduler_parameters(
+      SchedulerParameters{SchedulerPolicy::RoundRobin,
+                          kHealthMonitorPriority});
 
   score::cpp::expected<score::mw::health::HealthMonitor,
                        score::mw::health::Error>
@@ -76,6 +83,7 @@ bool HealthReporter::initialize() {
                                  std::move(heartbeatBuilder))
           .with_internal_processing_cycle(kInternalProcessingCycle)
           .with_supervisor_api_cycle(kSupervisorApiCycle)
+          .thread_parameters(std::move(healthThreadParameters))
           .build();
   if (!healthMonitorResult.has_value()) {
     traffic_timing_decision::applicationLogger().LogError()
@@ -134,7 +142,9 @@ bool HealthReporter::initialize() {
       << "; heartbeat_ms=" << kHeartbeatMin.count() << ".."
       << kHeartbeatMax.count()
       << "; deadline_ms=" << kDecisionDeadlineMin.count() << ".."
-      << kDecisionDeadlineMax.count();
+      << kDecisionDeadlineMax.count()
+      << "; worker_policy=SCHED_RR; worker_priority="
+      << kHealthMonitorPriority;
   traffic_timing_decision::applicationLogger().LogInfo()
       << "[HEALTH][ALIVE] notifications=enabled; "
          "producer=health_monitor_worker; delivery=asynchronous; "

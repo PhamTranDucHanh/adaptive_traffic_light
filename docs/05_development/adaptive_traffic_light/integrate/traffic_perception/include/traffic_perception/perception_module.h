@@ -39,6 +39,7 @@ class PerceptionModule final {
   Analyzer& analyzer();
   const Analyzer& analyzer() const;
   IModelBackend* backend();
+  std::array<cv::Mat, NUM_LANES> latestPreviewFrames() const;
   std::chrono::steady_clock::time_point getStartTime();
 
  private:

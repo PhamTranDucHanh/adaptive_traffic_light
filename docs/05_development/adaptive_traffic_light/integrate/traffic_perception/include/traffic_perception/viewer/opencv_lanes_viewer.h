@@ -17,6 +17,10 @@ class OpenCVLanesViewer {
   void render(Analyzer& analyzer, int64_t expectedWakeupNs,
               int64_t renderBeginNs);
 
+  void render(Analyzer& analyzer,
+              const std::array<cv::Mat, NUM_LANES>& previewFrames,
+              int64_t expectedWakeupNs, int64_t renderBeginNs);
+
   void shutdown();
 
  private:

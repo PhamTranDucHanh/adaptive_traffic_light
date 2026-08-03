@@ -24,6 +24,7 @@ constexpr auto kInternalProcessingCycle = 100ms;
 // reporting window. A single notification exactly on a 10-second boundary is
 // vulnerable to scheduler jitter and can land in the adjacent window.
 constexpr auto kSupervisorApiCycle = 2000ms;
+constexpr std::int32_t kHealthMonitorPriority = 70;
 
 const score::mw::health::MonitorTag kDeadlineMonitorTag{
     "perception_deadline_monitor"};
@@ -44,6 +45,9 @@ bool LifecycleHealthReporter::initialize() {
   }
 
   using score::mw::health::HealthMonitorBuilder;
+  using score::mw::health::SchedulerParameters;
+  using score::mw::health::SchedulerPolicy;
+  using score::mw::health::ThreadParameters;
   using score::mw::health::TimeRange;
   using score::mw::health::deadline::DeadlineMonitorBuilder;
   using score::mw::health::heartbeat::HeartbeatMonitorBuilder;
@@ -53,6 +57,9 @@ bool LifecycleHealthReporter::initialize() {
       TimeRange{kPerceptionDeadlineMin, kPerceptionDeadlineMax});
   auto heartbeatBuilder =
       HeartbeatMonitorBuilder(TimeRange{kHeartbeatMin, kHeartbeatMax});
+  auto healthThreadParameters = ThreadParameters{}.scheduler_parameters(
+      SchedulerParameters{SchedulerPolicy::RoundRobin,
+                          kHealthMonitorPriority});
 
   auto healthResult =
       HealthMonitorBuilder()
@@ -61,6 +68,7 @@ bool LifecycleHealthReporter::initialize() {
                                  std::move(heartbeatBuilder))
           .with_internal_processing_cycle(kInternalProcessingCycle)
           .with_supervisor_api_cycle(kSupervisorApiCycle)
+          .thread_parameters(std::move(healthThreadParameters))
           .build();
   if (!healthResult.has_value()) {
     std::cerr << "[TRAFFIC_PERCEPTION][HEALTH][ERROR] could not build "
@@ -110,7 +118,9 @@ bool LifecycleHealthReporter::initialize() {
       << "; heartbeat_ms=" << kHeartbeatMin.count() << ".."
       << kHeartbeatMax.count()
       << "; deadline_ms=" << kPerceptionDeadlineMin.count() << ".."
-      << kPerceptionDeadlineMax.count() << '\n';
+      << kPerceptionDeadlineMax.count()
+      << "; worker_policy=SCHED_RR; worker_priority="
+      << kHealthMonitorPriority << '\n';
   score::mw::log::LogDebug()
       << "[TRAFFIC_PERCEPTION][HEALTH][ALIVE] "
          "notifications=enabled; producer=health_monitor_worker; "

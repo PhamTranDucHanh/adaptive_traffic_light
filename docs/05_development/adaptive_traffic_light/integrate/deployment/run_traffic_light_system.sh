@@ -102,7 +102,7 @@ signal_control_backend_dlt="$runtime_logs/CTRL.dlt"
 signal_control_converted_log="$runtime_logs/CTRL.dlt.txt"
 signal_control_analytics_report="$runtime_logs/signal_control_analytics_report.txt"
 
-# Must be at least the maximum SCHED_FIFO priority requested by any managed
+# Must be at least the maximum SCHED_RR priority requested by any managed
 # component in config/traffic_light_lifecycle.json.
 required_rt_priority=80
 rtprio_limit="$(ulimit -r)"
@@ -116,7 +116,7 @@ fi
 if [[ "$rtprio_limit" != "unlimited" ]] && \
     (( rtprio_limit < required_rt_priority )) && \
     (( has_cap_sys_nice == 0 )); then
-  echo "[DEPLOYMENT][RT][ERROR] SCHED_FIFO priority=$required_rt_priority requires RLIMIT_RTPRIO >= $required_rt_priority or CAP_SYS_NICE; current_rtprio=$rtprio_limit" >&2
+  echo "[DEPLOYMENT][RT][ERROR] SCHED_RR priority=$required_rt_priority requires RLIMIT_RTPRIO >= $required_rt_priority or CAP_SYS_NICE; current_rtprio=$rtprio_limit" >&2
   echo '[DEPLOYMENT][RT][HINT] current shell: sudo prlimit --pid $$ --rtprio=99:99 --memlock=unlimited:unlimited' >&2
   echo '[DEPLOYMENT][RT][HINT] then run: bazel shutdown; rerun the deployment' >&2
   exit 1
@@ -202,7 +202,7 @@ install -m 0644 "$traffic3_mp4" "$runtime_etc/traffic3.mp4"
 install -m 0644 "$traffic4_mp4" "$runtime_etc/traffic4.mp4"
 
 echo "[DEPLOYMENT][STAGE] runtime ready"
-echo "[LAUNCH_MANAGER][START] binary=$runtime_bin/launch_manager"
+echo "[LAUNCH_MANAGER][START] binary=$runtime_bin/launch_manager policy=SCHED_RR priority=50"
 launch_manager_pid=$$
 echo "[LAUNCH_MANAGER][START] pid=$launch_manager_pid"
 export TIMING_REPORT_LOG_DIR="$runtime_logs"
@@ -218,4 +218,4 @@ setsid --fork "$0" --activate-running "$runtime_bin/lmcontrol" \
 # Make Launch Manager the process directly owned by `bazel run`. Its official
 # SIGINT/SIGTERM handler can then stop all managed processes in dependency order.
 cd "$runtime_root"
-exec "$runtime_bin/launch_manager"
+exec chrt --rr 50 "$runtime_bin/launch_manager"

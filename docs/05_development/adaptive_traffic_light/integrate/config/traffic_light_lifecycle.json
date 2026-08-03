@@ -17,7 +17,7 @@
                 }
             },
             "sandbox": {
-                "scheduling_policy": "SCHED_FIFO",
+                "scheduling_policy": "SCHED_RR",
                 "scheduling_priority": 50
             }
         },
@@ -73,7 +73,7 @@
             },
             "deployment_config": {
                 "sandbox": {
-                    "scheduling_policy": "SCHED_FIFO",
+                    "scheduling_policy": "SCHED_RR",
                     "scheduling_priority": 70
                 },
                 "environmental_variables": {
@@ -107,7 +107,7 @@
             },
             "deployment_config": {
                 "sandbox": {
-                    "scheduling_policy": "SCHED_FIFO",
+                    "scheduling_policy": "SCHED_RR",
                     "scheduling_priority": 60
                 },
                 "environmental_variables": {
@@ -137,7 +137,7 @@
             },
             "deployment_config": {
                 "sandbox": {
-                    "scheduling_policy": "SCHED_FIFO",
+                    "scheduling_policy": "SCHED_RR",
                     "scheduling_priority": 50
                 },
                 "environmental_variables": {

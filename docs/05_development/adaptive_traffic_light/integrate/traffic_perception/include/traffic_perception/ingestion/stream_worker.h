@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <mutex>
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <utility>
@@ -29,6 +30,10 @@ class StreamWorker {
 
   int32_t getLaneId() const;
 
+  // Display-only path: return an owned preview without transferring frame-pool
+  // ownership or changing the inference input.
+  cv::Mat latestPreviewFrame() const;
+
  private:
   int32_t LaneId;
   std::string SourceUri;
@@ -38,6 +43,9 @@ class StreamWorker {
 
   std::chrono::milliseconds AcquisitionPeriod{200};
   std::chrono::milliseconds phase_{0};
+
+  mutable std::mutex previewMutex_;
+  cv::Mat latestPreviewFrame_;
 
   static InputSourceType detectSourceType(const std::string& source);
   static cv::VideoCapture createCapture(const std::string& source);

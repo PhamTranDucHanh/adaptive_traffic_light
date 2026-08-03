@@ -96,9 +96,9 @@ std::int32_t GetPriorityFromEnvOrDefault(const char* const name,
       GetIntegerFromEnvOrDefault(name, defaultPriority);
 
   const std::int32_t minimumPriority =
-      static_cast<std::int32_t>(sched_get_priority_min(SCHED_FIFO));
+      static_cast<std::int32_t>(sched_get_priority_min(SCHED_RR));
   const std::int32_t maximumPriority =
-      static_cast<std::int32_t>(sched_get_priority_max(SCHED_FIFO));
+      static_cast<std::int32_t>(sched_get_priority_max(SCHED_RR));
 
   if (parsedPriority < minimumPriority || parsedPriority > maximumPriority) {
     AppLogger().LogWarn() << "event=THREAD_PRIORITY_ENV_INVALID"
@@ -150,7 +150,7 @@ bool ConfigureRealtimeThreadAttributes(pthread_attr_t& attributes,
     return false;
   }
 
-  result = pthread_attr_setschedpolicy(&attributes, SCHED_FIFO);
+  result = pthread_attr_setschedpolicy(&attributes, SCHED_RR);
   if (result != EXIT_SUCCESS) {
     AppLogger().LogWarn() << "event=THREAD_ATTRIBUTE_FAILED"
                           << ", thread=" << threadName
@@ -467,7 +467,7 @@ bool SignalControlApplication::StartFsmWorker() noexcept {
 
   fsmWorkerCreated_ = true;
   AppLogger().LogInfo() << "event=FSM_THREAD_CREATED"
-                        << ", policy=SCHED_FIFO"
+                        << ", policy=SCHED_RR"
                         << ", priority=" << priority << ", cpu=" << cpu;
   return true;
 }
@@ -502,7 +502,7 @@ bool SignalControlApplication::StartPlanReceiverWorker() noexcept {
 
   planReceiverWorkerCreated_ = true;
   AppLogger().LogInfo() << "event=PLAN_RECEIVER_THREAD_CREATED"
-                        << ", policy=SCHED_FIFO"
+                        << ", policy=SCHED_RR"
                         << ", priority=" << priority << ", cpu=" << cpu;
   return true;
 }

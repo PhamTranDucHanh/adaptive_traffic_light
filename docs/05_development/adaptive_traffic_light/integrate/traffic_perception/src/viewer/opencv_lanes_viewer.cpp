@@ -40,6 +40,56 @@ std::string FileName(const std::string& path) {
   return separator == std::string::npos ? path : path.substr(separator + 1U);
 }
 
+std::vector<Detection> ScaleDetections(const std::vector<Detection>& source,
+                                       const cv::Size& sourceSize) {
+  std::vector<Detection> scaled = source;
+  if (sourceSize.width <= 0 || sourceSize.height <= 0) {
+    return scaled;
+  }
+
+  const float scaleX = static_cast<float>(kLaneCanvasWidth) /
+                       static_cast<float>(sourceSize.width);
+  const float scaleY = static_cast<float>(kLaneCanvasHeight) /
+                       static_cast<float>(sourceSize.height);
+  for (auto& detection : scaled) {
+    detection.Box.x = static_cast<int>(std::lround(detection.Box.x * scaleX));
+    detection.Box.y = static_cast<int>(std::lround(detection.Box.y * scaleY));
+    detection.Box.width =
+        static_cast<int>(std::lround(detection.Box.width * scaleX));
+    detection.Box.height =
+        static_cast<int>(std::lround(detection.Box.height * scaleY));
+  }
+  return scaled;
+}
+
+std::vector<cv::Point> ScaleRoi(const Roi& roi, const cv::Size& sourceSize) {
+  std::vector<cv::Point> scaled;
+  if (sourceSize.width <= 0 || sourceSize.height <= 0) {
+    return scaled;
+  }
+
+  const float scaleX = static_cast<float>(kLaneCanvasWidth) /
+                       static_cast<float>(sourceSize.width);
+  const float scaleY = static_cast<float>(kLaneCanvasHeight) /
+                       static_cast<float>(sourceSize.height);
+  scaled.reserve(roi.Points.size());
+  for (const auto& point : roi.Points) {
+    scaled.emplace_back(static_cast<int>(std::lround(point.x * scaleX)),
+                        static_cast<int>(std::lround(point.y * scaleY)));
+  }
+  return scaled;
+}
+
+void DrawScaledRoi(cv::Mat& image, const Roi& roi,
+                   const cv::Size& sourceSize) {
+  const std::vector<cv::Point> scaledRoi = ScaleRoi(roi, sourceSize);
+  if (!scaledRoi.empty()) {
+    const std::vector<std::vector<cv::Point>> contours{scaledRoi};
+    cv::polylines(image, contours, true, cv::Scalar(0, 255, 0), 1,
+                  cv::LINE_AA);
+  }
+}
+
 void DrawMetricsOverlay(
     cv::Mat& image, const std::string& laneLabel,
     const traffic_perception::Analyzer::LaneMetrics& metrics) {
@@ -106,6 +156,14 @@ bool OpenCVLanesViewer::init(const AppConfig& config, IModelBackend* backend) {
 
 void OpenCVLanesViewer::render(Analyzer& analyzer, int64_t expectedWakeupNs,
                                int64_t renderBeginNs) {
+  const std::array<cv::Mat, NUM_LANES> noPreviews{};
+  render(analyzer, noPreviews, expectedWakeupNs, renderBeginNs);
+}
+
+void OpenCVLanesViewer::render(
+    Analyzer& analyzer,
+    const std::array<cv::Mat, NUM_LANES>& previewFrames,
+    int64_t expectedWakeupNs, int64_t renderBeginNs) {
   auto frames = analyzer.takeRenderFrames();
 
   std::array<cv::Mat, NUM_LANES> canvasLanes{};
@@ -113,30 +171,36 @@ void OpenCVLanesViewer::render(Analyzer& analyzer, int64_t expectedWakeupNs,
   for (std::size_t i = 0; i < NUM_LANES; ++i) {
     if (frames[i] != nullptr && !frames[i]->Image.empty()) {
       const auto& ctx = analyzer.latestContext(i);
+      const cv::Size sourceSize = frames[i]->Image.size();
+      cv::Mat displayFrame;
+      cv::resize(frames[i]->Image, displayFrame,
+                 cv::Size(kLaneCanvasWidth, kLaneCanvasHeight), 0.0, 0.0,
+                 cv::INTER_AREA);
 
       if (backend_ != nullptr) {
         InferenceResult result;
-        result.Detections = ctx.Detections;
-        backend_->draw(frames[i]->Image, result);
+        result.Detections = ScaleDetections(ctx.Detections, sourceSize);
+        backend_->draw(displayFrame, result);
       }
 
-      const auto& roi = config_.lanes[i].roi;
-      std::vector<std::vector<cv::Point>> contours = {roi.Points};
-
-      DrawMetricsOverlay(frames[i]->Image, laneLabels_[i], ctx);
-      const float roiScale = std::clamp(
-          std::min(static_cast<float>(frames[i]->Image.cols) / kLaneCanvasWidth,
-                   static_cast<float>(frames[i]->Image.rows) /
-                       kLaneCanvasHeight),
-          1.0F, 3.0F);
-      cv::polylines(frames[i]->Image, contours, true, cv::Scalar(0, 255, 0),
-                    std::max(2, static_cast<int>(std::lround(2.0F * roiScale))),
-                    cv::LINE_AA);
-
-      cv::resize(frames[i]->Image, lastRenderedFrames_[i],
-                 cv::Size(kLaneCanvasWidth, kLaneCanvasHeight));
+      DrawScaledRoi(displayFrame, config_.lanes[i].roi, sourceSize);
+      DrawMetricsOverlay(displayFrame, laneLabels_[i], ctx);
+      lastRenderedFrames_[i] = std::move(displayFrame);
 
       analyzer.releaseFrame(frames[i]);
+    } else if (lastRenderedFrames_[i].empty() &&
+               !previewFrames[i].empty()) {
+      // Preview is display-only and is used until the first analyzed frame for
+      // this lane arrives. Domain metrics and published snapshots still come
+      // exclusively from the inference pipeline.
+      const cv::Size sourceSize = previewFrames[i].size();
+      cv::resize(previewFrames[i], lastRenderedFrames_[i],
+                 cv::Size(kLaneCanvasWidth, kLaneCanvasHeight), 0.0, 0.0,
+                 cv::INTER_AREA);
+      DrawScaledRoi(lastRenderedFrames_[i], config_.lanes[i].roi, sourceSize);
+      cv::putText(lastRenderedFrames_[i], laneLabels_[i] + " | Preview",
+                  cv::Point(8, 20), cv::FONT_HERSHEY_SIMPLEX, 0.42,
+                  cv::Scalar(0, 255, 255), 1, cv::LINE_AA);
     }
 
     if (!lastRenderedFrames_[i].empty()) {

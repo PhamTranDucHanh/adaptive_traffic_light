@@ -197,4 +197,12 @@ const Analyzer& PerceptionModule::analyzer() const {
   return pipelineManager_->analyzer();
 }
 
+std::array<cv::Mat, NUM_LANES> PerceptionModule::latestPreviewFrames() const {
+  std::array<cv::Mat, NUM_LANES> previews{};
+  for (std::size_t i = 0; i < NUM_LANES; ++i) {
+    previews[i] = workers_[i].latestPreviewFrame();
+  }
+  return previews;
+}
+
 }  // namespace traffic_perception

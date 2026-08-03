@@ -81,7 +81,7 @@ struct LaneConfig {
 constexpr std::size_t NUM_LANES = 4;
 
 struct ThreadConfig {
-  std::string Policy{"SCHED_FIFO"};
+  std::string Policy{"SCHED_RR"};
   std::int32_t Priority{0};
 };
 

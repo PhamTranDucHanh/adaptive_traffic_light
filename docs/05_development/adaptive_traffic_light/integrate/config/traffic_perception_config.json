@@ -9,11 +9,11 @@
   "viewer_phase_ms": 260,
   "threading": {
     "stream": {
-      "policy": "SCHED_FIFO",
-      "priority": 80
+      "policy": "SCHED_RR",
+      "priority": 70
     },
     "pipeline": {
-      "policy": "SCHED_FIFO",
+      "policy": "SCHED_RR",
       "priority": 70
     }
   },

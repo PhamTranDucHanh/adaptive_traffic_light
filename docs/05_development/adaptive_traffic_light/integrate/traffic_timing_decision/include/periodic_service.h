@@ -21,7 +21,9 @@ class PeriodicService {
  private:
   enum class Configuration : std::uint32_t {
     kPeriodMilliseconds = 2500U,
-    kMaximumConsecutiveSnapshotMisses = 3U,
+    // 24 cycles x 2500 ms = 60 seconds. Keep the existing timeout logic, but
+    // allow a slower CPU to finish four sequential YOLO inferences.
+    kMaximumConsecutiveSnapshotMisses = 24U,
   };
 
   std::uint32_t periodMs_{

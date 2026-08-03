@@ -18,6 +18,7 @@
 namespace {
 
 constexpr std::uint32_t kMillisecondsPerSecond{1'000U};
+constexpr std::int32_t kOutputSimulatorPriority{50};
 
 static_assert(std::atomic<std::uint64_t>::is_always_lock_free,
               "Output mailbox must be lock-free");
@@ -30,25 +31,25 @@ score::mw::log::Logger& Logger() {
   return logger;
 }
 
-void ConfigureCurrentThreadAsNonRealtime() noexcept {
+void ConfigureCurrentThreadRoundRobin() noexcept {
   sched_param parameters{};
-  parameters.sched_priority = 0;
+  parameters.sched_priority = kOutputSimulatorPriority;
 
   const int result =
-      pthread_setschedparam(pthread_self(), SCHED_OTHER, &parameters);
+      pthread_setschedparam(pthread_self(), SCHED_RR, &parameters);
 
   if (result == 0) {
     Logger().LogInfo() << "event=THREAD_SCHEDULING_CONFIGURED"
                        << ", thread=output_simulator"
-                       << ", policy=SCHED_OTHER"
-                       << ", priority=0";
+                       << ", policy=SCHED_RR"
+                       << ", priority=" << kOutputSimulatorPriority;
     return;
   }
 
   Logger().LogWarn() << "event=THREAD_SCHEDULING_FAILED"
                      << ", thread=output_simulator"
-                     << ", policy=SCHED_OTHER"
-                     << ", priority=0"
+                     << ", policy=SCHED_RR"
+                     << ", priority=" << kOutputSimulatorPriority
                      << ", error=" << result
                      << ", reason=" << std::strerror(result);
 }
@@ -152,7 +153,7 @@ void OutputSimulator::run() noexcept {
                        << ", reason=" << std::strerror(nameResult);
   }
 
-  ConfigureCurrentThreadAsNonRealtime();
+  ConfigureCurrentThreadRoundRobin();
 
   std::cout.setf(std::ios::unitbuf);
 

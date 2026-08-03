@@ -67,7 +67,8 @@ bool HealthReporter::initialize() {
   auto heartbeatBuilder =
       HeartbeatMonitorBuilder(TimeRange{kHeartbeatMin, kHeartbeatMax});
   auto healthThreadParameters = ThreadParameters{}.scheduler_parameters(
-      SchedulerParameters{SchedulerPolicy::Fifo, kHealthMonitorPriority});
+      SchedulerParameters{SchedulerPolicy::RoundRobin,
+                          kHealthMonitorPriority});
 
   auto healthMonitorResult =
       HealthMonitorBuilder()
@@ -125,7 +126,7 @@ bool HealthReporter::initialize() {
   Logger().LogInfo() << "event=HEALTH_MONITOR_STARTED"
                      << ", implementation=eclipse_score_health_monitor"
                      << ", evaluation_ms=" << kInternalProcessingCycle.count()
-                     << ", worker_policy=SCHED_FIFO"
+                     << ", worker_policy=SCHED_RR"
                      << ", worker_priority=" << kHealthMonitorPriority
                      << ", heartbeat_min_ms=" << kHeartbeatMin.count()
                      << ", heartbeat_max_ms=" << kHeartbeatMax.count()
