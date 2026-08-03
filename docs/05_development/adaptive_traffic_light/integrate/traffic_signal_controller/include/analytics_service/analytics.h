@@ -21,12 +21,7 @@ class Analytics {
   enum class EventType {
     Unknown,
 
-    DemoStarted,
-    DemoCompleted,
-
-    PhaseStatus,
     PhaseEnter,
-    PhaseExit,
 
     PlanReceived,
     PlanValidated,
@@ -44,7 +39,6 @@ class Analytics {
   };
 
   struct LogEntry {
-    std::string contextId;
     std::uint64_t timestampNs{};
 
     std::string message;

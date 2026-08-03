@@ -16,7 +16,6 @@ public:
     bool init(uint32_t poolSize);
     Frame* acquire();
     void release(Frame* frame);
-    uint32_t available() const;
 
 private:
     std::mutex mutex_;

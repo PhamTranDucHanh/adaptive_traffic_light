@@ -1,6 +1,5 @@
 #include "traffic_signal_controller/plan_receiver.h"
 
-#include <ctime>
 #include <limits>
 
 #include "common/logging_contexts.h"
@@ -34,8 +33,7 @@ bool PlanReceiver::ReceivePlan(const TimingPlan& plan) {
   Logger().LogInfo() << "event=PLAN_VALIDATED"
                      << ", plan_id=" << plan.planId;
 
-  const std::uint64_t receivedTimestampNs = GetMonotonicTimestampNs();
-  const PlanData translatedPlan = TranslatePlan(plan, receivedTimestampNs);
+  const PlanData translatedPlan = TranslatePlan(plan);
 
   const bool result = syncChannel_.PublishPlan(translatedPlan);
 
@@ -101,14 +99,12 @@ bool PlanReceiver::ValidatePlan(const TimingPlan& plan) const {
   return true;
 }
 
-PlanData PlanReceiver::TranslatePlan(
-    const TimingPlan& plan, const std::uint64_t receivedTimestampNs) const {
+PlanData PlanReceiver::TranslatePlan(const TimingPlan& plan) const {
   PlanData output{};
 
   output.sourcePlanId = plan.planId;
   output.isEmergencyNS = plan.emergencyNorthSouth;
   output.isEmergencyEW = plan.emergencyEastWest;
-  output.receivedAt = receivedTimestampNs;
 
   output.phases[0] = Phase{PhaseId::NS_GREEN, plan.greenNorthSouthMs};
 
@@ -124,22 +120,5 @@ PlanData PlanReceiver::TranslatePlan(
 
   output.phaseCount = 6U;
 
-  const std::uint64_t calculatedCycleLengthMs =
-      static_cast<std::uint64_t>(plan.greenNorthSouthMs) +
-      static_cast<std::uint64_t>(plan.greenEastWestMs) +
-      2ULL * static_cast<std::uint64_t>(plan.yellowMs) +
-      2ULL * static_cast<std::uint64_t>(plan.allRedMs);
-
-  output.totalCycleMs = static_cast<std::uint32_t>(calculatedCycleLengthMs);
   return output;
-}
-
-std::uint64_t PlanReceiver::GetMonotonicTimestampNs() {
-  timespec timestamp{};
-  if (clock_gettime(CLOCK_MONOTONIC, &timestamp) != 0) {
-    return 0U;
-  }
-
-  return static_cast<std::uint64_t>(timestamp.tv_sec) * kNanosecondsPerSecond +
-         static_cast<std::uint64_t>(timestamp.tv_nsec);
 }

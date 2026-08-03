@@ -39,18 +39,6 @@ enum class TimelineStage {
   Publish
 };
 
-inline std::string to_string(TimelineStage stage) {
-  switch (stage) {
-    case TimelineStage::Capture: return "Capture";
-    case TimelineStage::InferenceBegin: return "InferenceBegin";
-    case TimelineStage::InferenceEnd: return "InferenceEnd";
-    case TimelineStage::AnalyzerBegin: return "AnalyzerBegin";
-    case TimelineStage::AnalyzerEnd: return "AnalyzerEnd";
-    case TimelineStage::Publish: return "Publish";
-    default: return "Unknown";
-  }
-}
-
 struct TimelineEntry {
   TimelineStage stage;
   std::chrono::steady_clock::time_point timestamp;
@@ -130,7 +118,6 @@ struct TrafficSnapshot {
 };
 
 struct FrameContext {
-  Frame* frame;
   Timeline timeline;
   TrafficSnapshot snapshot;
 };

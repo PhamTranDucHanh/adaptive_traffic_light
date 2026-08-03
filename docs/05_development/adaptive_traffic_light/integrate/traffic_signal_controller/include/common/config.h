@@ -70,7 +70,6 @@ constexpr std::uint64_t kControlPeriodMilliseconds{1'000U};
 
 struct TimingPlan {
   std::uint64_t planId{0U};
-  std::uint64_t generationTimestampNs{0U};
 
   std::uint32_t greenNorthSouthMs{0U};
   std::uint32_t greenEastWestMs{0U};
@@ -98,10 +97,8 @@ struct PlanData {
   std::uint64_t sourcePlanId{0U};
   std::array<Phase, MAX_PHASES> phases{};
   std::uint8_t phaseCount{0U};
-  std::uint32_t totalCycleMs{0U};
   bool isEmergencyNS{false};
   bool isEmergencyEW{false};
-  std::uint64_t receivedAt{0U};
 };
 
 inline PlanData MakeDefaultPlan() {
@@ -123,13 +120,8 @@ inline PlanData MakeDefaultPlan() {
 
   plan.phaseCount = 6U;
 
-  plan.totalCycleMs = plan.phases[0].durationMs + plan.phases[1].durationMs +
-                      plan.phases[2].durationMs + plan.phases[3].durationMs +
-                      plan.phases[4].durationMs + plan.phases[5].durationMs;
-
   plan.isEmergencyNS = false;
   plan.isEmergencyEW = false;
-  plan.receivedAt = 0U;
 
   return plan;
 }
@@ -137,16 +129,6 @@ inline PlanData MakeDefaultPlan() {
 struct SignalDisplay {
   PhaseId phaseId{PhaseId::ALL_RED};
   std::uint32_t remainingTimeMs{0U};
-};
-
-struct HealthStatus {
-  uint64_t cycleId{};
-
-  bool fsmAlive{};
-  bool loggerAlive{};
-  bool analyticsAlive{};
-
-  uint64_t lastHeartbeat{};
 };
 
 #endif  // TRAFFIC_SIGNAL_CONTROLLER_COMMON_CONFIG_H_

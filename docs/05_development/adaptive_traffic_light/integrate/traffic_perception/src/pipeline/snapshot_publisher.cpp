@@ -1,8 +1,5 @@
 #include "traffic_perception/pipeline/snapshot_publisher.h"
 
-#include <chrono>
-#include <iostream>
-
 #include "score/mw/log/logger.h"
 
 namespace {
@@ -38,10 +35,6 @@ bool SnapshotPublisher::broadcastSnapshot(const FrameContext& ctx) {
   }
   // Forward the snapshot to the sender.
   return sender_->send(ctx.snapshot);
-}
-
-void SnapshotPublisher::flush() {
-  // No separate dump needed; logging is immediate
 }
 
 }  // namespace traffic_perception

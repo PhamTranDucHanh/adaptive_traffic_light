@@ -185,10 +185,6 @@ bool PerceptionModule::ConfigureRealtimeThreadAttr(pthread_attr_t& attr,
   return true;
 }
 
-std::chrono::steady_clock::time_point PerceptionModule::getStartTime() {
-  return startTime_;
-}
-
 IModelBackend* PerceptionModule::backend() { return backend_.get(); }
 
 Analyzer& PerceptionModule::analyzer() { return pipelineManager_->analyzer(); }

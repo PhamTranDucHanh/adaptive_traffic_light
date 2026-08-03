@@ -52,7 +52,6 @@ class Analyzer : public IInferenceSink {
         logLaneMetrics(laneStates_[lane].Metrics);
 
         frame->timeline.add(TimelineStage::AnalyzerEnd);
-        latestFrame_ = frame;
         latestTimeline_ = frame->timeline;
 
         // 3. Atomically update the render frame ownership
@@ -81,7 +80,6 @@ class Analyzer : public IInferenceSink {
       return laneStates_[lane].Metrics;
   }
 
-  Frame* latestFrame() const { return latestFrame_; }
   const Timeline& latestTimeline() const { return latestTimeline_; }
 
   // Builder for TrafficSnapshot DTO
@@ -287,7 +285,6 @@ class Analyzer : public IInferenceSink {
   const std::array<Roi, NUM_LANES>& laneRois_;
   std::array<LaneState, NUM_LANES> laneStates_{};
   std::int32_t frameCounter_{0};
-  Frame* latestFrame_{nullptr};
   Timeline latestTimeline_{};
 };
 

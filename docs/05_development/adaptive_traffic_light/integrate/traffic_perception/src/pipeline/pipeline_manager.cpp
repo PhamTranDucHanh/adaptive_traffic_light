@@ -74,7 +74,6 @@ void PipelineManager::runOneCycle(int64_t expectedWakeup,
   TrafficSnapshot snapshot = analyzer_.buildTrafficSnapshot();
 
   FrameContext ctx;
-  ctx.frame = analyzer_.latestFrame();
   ctx.timeline = analyzer_.latestTimeline();
   ctx.snapshot = std::move(snapshot);
 

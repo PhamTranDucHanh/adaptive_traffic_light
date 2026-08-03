@@ -19,14 +19,11 @@ cc_library(
         "src/core/frame_pool.cpp",
         "src/core/runtime_paths.cpp",
         "src/inference/inference_engine.cpp",
-        "src/inference/model_backend.cpp",
         "src/inference/yolov8_backend.cpp",
         "src/inference/yolov8_oiv7_backend.cpp",
         "src/ingestion/atomic_frame_buffer.cpp",
 
-        "src/ingestion/stream_watchdog.cpp",
         "src/ingestion/stream_worker.cpp",
-        "src/io/logger.cpp",
         "src/io/snapshot_sender.cpp",
         "src/perception_module.cpp",
         "src/pipeline/pipeline_manager.cpp",
@@ -116,13 +113,6 @@ cc_binary(
 cc_binary(
     name = "perception_smoke",
     srcs = ["src/perception_smoke.cpp"],
-    copts = OPENCV_COPTS,
-    deps = [":traffic_perception_core"],
-)
-
-cc_binary(
-    name = "module_demo",
-    srcs = ["src/module_demo.cpp"],
     copts = OPENCV_COPTS,
     deps = [":traffic_perception_core"],
 )

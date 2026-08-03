@@ -39,9 +39,4 @@ void FramePool::release(Frame* frame) {
     free_list_.push_back(frame);
 }
 
-uint32_t FramePool::available() const {
-    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(mutex_));
-    return static_cast<uint32_t>(free_list_.size());
-}
-
 }  // namespace traffic_perception

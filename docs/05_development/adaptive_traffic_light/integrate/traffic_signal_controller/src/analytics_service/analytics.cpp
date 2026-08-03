@@ -229,7 +229,6 @@ bool Analytics::LoadDltBinaryLog(const std::string& content) {
 
     if (!message.empty()) {
       LogEntry entry;
-      entry.contextId = contextId;
       entry.timestampNs = ExtractDltStorageTimestampNs(record);
 
       if (entry.timestampNs == 0U) {
@@ -263,12 +262,13 @@ bool Analytics::ParseLogLine(const std::string& line, LogEntry& entry) const {
   std::string messageType;
   std::string ecuId;
   std::string applicationId;
+  std::string contextId;
   std::string logLevel;
   std::string verbose;
   std::string argumentCount;
 
   if (!(stream >> date >> time >> dltTimestamp >> messageCounter >>
-        messageType >> ecuId >> applicationId >> entry.contextId >>
+        messageType >> ecuId >> applicationId >> contextId >>
         messageType >> logLevel >> verbose >> argumentCount)) {
     return false;
   }
@@ -291,27 +291,6 @@ bool Analytics::ParseLogLine(const std::string& line, LogEntry& entry) const {
 }
 
 void Analytics::ParseApplicationMessage(LogEntry& entry) const {
-  if (entry.message == "Traffic signal demonstration started") {
-    entry.eventType = EventType::DemoStarted;
-    return;
-  }
-
-  if (entry.message == "Traffic signal demonstration completed") {
-    entry.eventType = EventType::DemoCompleted;
-    return;
-  }
-
-  if (entry.contextId == "OUT") {
-    const std::string phase = ExtractValue(entry.message, "phase");
-
-    // Chỉ xem đây là trạng thái output khi message thật sự có phase.
-    // Các log lỗi/sự kiện khác của OUT vẫn được parse theo event= bên dưới.
-    if (!phase.empty()) {
-      entry.eventType = EventType::PhaseStatus;
-      return;
-    }
-  }
-
   const std::string eventName = ExtractValue(entry.message, "event");
 
   entry.eventType = EventTypeFromString(eventName);
@@ -342,8 +321,7 @@ Analytics::EventType Analytics::EventTypeFromString(
       {"EMERGENCY_REJECTED", EventType::EmergencyRejected},
       {"EMERGENCY_APPLIED", EventType::EmergencyApplied},
 
-      {"PHASE_ENTER", EventType::PhaseEnter},
-      {"PHASE_EXIT", EventType::PhaseExit}};
+      {"PHASE_ENTER", EventType::PhaseEnter}};
 
   const auto iterator = eventMap.find(eventName);
 
