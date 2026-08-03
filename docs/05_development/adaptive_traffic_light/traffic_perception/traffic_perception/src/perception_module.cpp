@@ -12,19 +12,23 @@
 namespace {
 
 void* StreamThreadEntry(void* arg) {
-  auto* ctx =
-      static_cast<traffic_perception::StreamThreadContext*>(
-          arg);
+  auto* ctx = static_cast<traffic_perception::StreamThreadContext*>(arg);
 
-  ctx->worker->run(*ctx->buffer);
+  char name[16];
+  snprintf(name, sizeof(name), "STRM%d", ctx->worker->getLaneId());
+
+  pthread_setname_np(pthread_self(), name);
+
+  ctx->worker->run(*ctx->buffer, ctx->startTime);
   return nullptr;
 }
 
 void* PipelineThreadEntry(void* arg) {
-  auto* pipeline =
-      static_cast<traffic_perception::PipelineManager*>(arg);
+  auto* ctx = static_cast<traffic_perception::PipelineThreadContext*>(arg);
 
-  pipeline->run();
+  pthread_setname_np(pthread_self(), "PIPE");
+
+  ctx->pipeline->run(ctx->startTime);
   return nullptr;
 }
 
@@ -33,54 +37,45 @@ void* PipelineThreadEntry(void* arg) {
 namespace traffic_perception {
 
 bool PerceptionModule::initModule(const AppConfig& config) {
-  score::mw::log::LogInfo()
-      << "[PERCEPTION_MODULE][INIT]\n";
+  score::mw::log::LogInfo() << "[PERCEPTION_MODULE][INIT]\n";
 
   config_ = config;
+  startTime_ = std::chrono::steady_clock::now();
 
   if (!pool_.init(20)) {
     return false;
   }
 
-  backend_ =
-      std::make_unique<YoloV8OIV7Backend>(config_.modelPath);
+  backend_ = std::make_unique<YoloV8OIV7Backend>(config_.modelPath);
 
   std::array<Roi, NUM_LANES> laneRois{};
   for (std::size_t i = 0; i < NUM_LANES; ++i) {
     laneRois[i] = config_.lanes[i].roi;
   }
 
-pipelineManager_ = std::make_unique<PipelineManager>(
-    *backend_,
-    buffer_,
-    pool_,
-    laneRois,
-    config_.PipelinePeriod,
-    config_.PipelinePhase);
+  pipelineManager_ = std::make_unique<PipelineManager>(
+      *backend_, buffer_, pool_, laneRois, config_.PipelinePeriod,
+      config_.PipelinePhase);
+  pipelineThreadContext_.pipeline = pipelineManager_.get();
 
   for (std::size_t i = 0; i < NUM_LANES; ++i) {
-    workers_[i].initStream(
-        config_.lanes[i].videoSource,
-        static_cast<std::int32_t>(i),
-        &pool_,
-        config_.CapturePeriod,
-        config_.CapturePhase);
+    workers_[i].initStream(config_.lanes[i].videoSource,
+                           static_cast<std::int32_t>(i), &pool_,
+                           config_.CapturePeriod, config_.CapturePhase);
 
     streamThreadContexts_[i].worker = &workers_[i];
     streamThreadContexts_[i].buffer = &buffer_;
   }
 
   for (std::size_t i = 0; i < NUM_LANES; ++i) {
-    if (!ConfigureRealtimeThreadAttr(
-            streamThreadAttrs_[i],
-            config_.Threading.Stream)) {
+    if (!ConfigureRealtimeThreadAttr(streamThreadAttrs_[i],
+                                     config_.Threading.Stream)) {
       return false;
     }
   }
 
-  if (!ConfigureRealtimeThreadAttr(
-          pipelineThreadAttr_,
-          config_.Threading.Pipeline)) {
+  if (!ConfigureRealtimeThreadAttr(pipelineThreadAttr_,
+                                   config_.Threading.Pipeline)) {
     return false;
   }
 
@@ -94,40 +89,32 @@ bool PerceptionModule::startThreads() {
   }
 
   for (std::size_t i = 0; i < NUM_LANES; ++i) {
-    int ret = pthread_create(
-        &streamThreads_[i],
-        &streamThreadAttrs_[i],
-        StreamThreadEntry,
-        &streamThreadContexts_[i]);
+    streamThreadContexts_[i].startTime = startTime_;
+  }
+  pipelineThreadContext_.startTime = startTime_;
+
+  for (std::size_t i = 0; i < NUM_LANES; ++i) {
+    int ret = pthread_create(&streamThreads_[i], &streamThreadAttrs_[i],
+                             StreamThreadEntry, &streamThreadContexts_[i]);
 
     if (ret != 0) {
-        score::mw::log::LogError()
-            << "Failed to create stream thread "
-            << i
-            << " errno="
-            << ret
-            << " "
-            << strerror(ret);
+      score::mw::log::LogError()
+          << "Failed to create stream thread " << i << " errno=" << ret << " "
+          << std::string{strerror(ret)};
 
-        return false;
+      return false;
     }
   }
 
-    int ret = pthread_create(
-        &pipelineThread_,
-        &pipelineThreadAttr_,
-        PipelineThreadEntry,
-        pipelineManager_.get());
+  int ret = pthread_create(&pipelineThread_, &pipelineThreadAttr_,
+                           PipelineThreadEntry, &pipelineThreadContext_);
 
-    if (ret != 0) {
-        score::mw::log::LogError()
-            << "Failed to create pipeline thread "
-            << ret
-            << " "
-            << strerror(ret);
+  if (ret != 0) {
+    score::mw::log::LogError() << "Failed to create pipeline thread " << ret
+                               << " " << std::string{strerror(ret)};
 
-        return false;
-    }
+    return false;
+  }
 
   started_ = true;
   return true;
@@ -160,14 +147,11 @@ void PerceptionModule::stopThreads() {
   }
 }
 
-bool PerceptionModule::ConfigureRealtimeThreadAttr(
-    pthread_attr_t& attr,
-    const ThreadConfig& config) {
+bool PerceptionModule::ConfigureRealtimeThreadAttr(pthread_attr_t& attr,
+                                                   const ThreadConfig& config) {
   pthread_attr_init(&attr);
 
-  pthread_attr_setinheritsched(
-      &attr,
-      PTHREAD_EXPLICIT_SCHED);
+  pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
 
   int policy = SCHED_OTHER;
 
@@ -177,30 +161,33 @@ bool PerceptionModule::ConfigureRealtimeThreadAttr(
     policy = SCHED_RR;
   }
 
-  pthread_attr_setschedpolicy(
-      &attr,
-      policy);
+  pthread_attr_setschedpolicy(&attr, policy);
 
   sched_param param{};
   param.sched_priority = config.Priority;
 
-  pthread_attr_setschedparam(
-      &attr,
-      &param);
+  pthread_attr_setschedparam(&attr, &param);
+
+  // Pin thread to CPU Core 2
+  cpu_set_t cpuset;
+  CPU_ZERO(&cpuset);
+  CPU_SET(2, &cpuset);  // Core Index = 2
+
+  pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpuset);
 
   return true;
 }
 
-IModelBackend* PerceptionModule::backend() {
-    return backend_.get();
+std::chrono::steady_clock::time_point PerceptionModule::getStartTime() {
+  return startTime_;
 }
 
-Analyzer& PerceptionModule::analyzer() {
-    return pipelineManager_->analyzer();
-}
+IModelBackend* PerceptionModule::backend() { return backend_.get(); }
+
+Analyzer& PerceptionModule::analyzer() { return pipelineManager_->analyzer(); }
 
 const Analyzer& PerceptionModule::analyzer() const {
-    return pipelineManager_->analyzer();
+  return pipelineManager_->analyzer();
 }
 
 }  // namespace traffic_perception

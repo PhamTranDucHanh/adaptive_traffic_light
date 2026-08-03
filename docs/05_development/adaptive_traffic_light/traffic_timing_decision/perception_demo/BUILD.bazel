@@ -16,7 +16,7 @@ cc_library(
     ],
     includes = ["include"],
     deps = [
-        "//ipc:traffic_ipc",
+        "@traffic_ipc//:traffic_ipc",
         "@score_baselibs//score/language/futurecpp",
         "@score_baselibs//score/mw/log:frontend",
         "@score_lifecycle//score/launch_manager:lifecycle_cc",
@@ -24,7 +24,7 @@ cc_library(
 )
 
 cc_binary(
-    name = "perception_demo",
+    name = "demo_perception",
     srcs = ["src/main.cpp"],
     linkopts = select({
         "@platforms//os:linux": ["-lpthread"],

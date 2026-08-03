@@ -11,6 +11,8 @@
 #include "traffic_ipc/messages.h"
 
 #define SCENERIO_DETAIL
+// #define SCENARIO_DETAIL_2
+#define END_TO_END_TEST
 
 namespace perception_demo {
 

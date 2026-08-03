@@ -1,0 +1,139 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+COMMON_COPTS = [
+    "-std=c++17",
+    "-Wall",
+    "-Wextra",
+    "-Wpedantic",
+]
+
+OPENCV_COPTS = COMMON_COPTS
+
+# Real perception implementation used by the Lifecycle-managed process.
+cc_library(
+    name = "traffic_perception_core",
+    srcs = [
+        "src/core/config_manager.cpp",
+        "src/core/frame_pool.cpp",
+        "src/core/runtime_paths.cpp",
+        "src/inference/inference_engine.cpp",
+        "src/inference/model_backend.cpp",
+        "src/inference/yolov8_backend.cpp",
+        "src/inference/yolov8_oiv7_backend.cpp",
+        "src/ingestion/atomic_frame_buffer.cpp",
+
+        "src/ingestion/stream_watchdog.cpp",
+        "src/ingestion/stream_worker.cpp",
+        "src/io/logger.cpp",
+        "src/io/snapshot_sender.cpp",
+        "src/perception_module.cpp",
+        "src/pipeline/pipeline_manager.cpp",
+        "src/pipeline/snapshot_publisher.cpp",
+        "src/viewer/opencv_lanes_viewer.cpp",
+    ],
+    hdrs = glob([
+        "include/traffic_perception/core/*.h",
+        "include/traffic_perception/inference/*.h",
+        "include/traffic_perception/ingestion/*.h",
+        "include/traffic_perception/io/*.h",
+        "include/traffic_perception/pipeline/*.h",
+        "include/traffic_perception/viewer/*.h",
+    ]) + ["include/traffic_perception/perception_module.h"],
+    copts = OPENCV_COPTS,
+    includes = ["include"],
+    deps = [
+        "//traffic_perception/lib/onnxruntime:onnxruntime",
+        "@nlohmann_json//:json",
+        "@system_opencv//:opencv",
+        "@traffic_ipc//:traffic_ipc",
+
+        "@score_baselibs//score/mw/log:frontend",
+        "@score_baselibs//src/log/stdout_logger_cpp_init",
+        "@score_logging//score/mw/log/backend:file",
+        "@score_baselibs//score/mw/log:console",
+    ],
+    linkopts = select({
+        "@platforms//os:linux": [
+            "-lpthread",
+            "-lrt",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+cc_library(
+    name = "traffic_perception_health",
+    srcs = ["src/lifecycle_health_reporter.cpp"],
+    hdrs = ["include/traffic_perception/lifecycle_health_reporter.h"],
+    copts = COMMON_COPTS,
+    includes = ["include"],
+    deps = [
+        "@score_lifecycle//score/health_monitor:health_monitoring_cc",
+        "@score_baselibs//score/mw/log",
+    ],
+)
+
+cc_library(
+    name = "traffic_perception_application",
+    srcs = ["src/traffic_perception_application.cpp"],
+    hdrs = ["include/traffic_perception/traffic_perception_application.h"],
+    copts = OPENCV_COPTS,
+    includes = ["include"],
+    deps = [
+        ":traffic_perception_core",
+        ":traffic_perception_health",
+
+        "@score_baselibs//score/concurrency:interruptible_wait",
+        "@score_baselibs//score/mw/log:frontend",
+        "@score_baselibs//src/log/stdout_logger_cpp_init",
+        "@score_logging//score/mw/log/backend:file",
+        "@score_baselibs//score/mw/log:console",
+        "@score_lifecycle//score/launch_manager:lifecycle_cc",
+    ]
+)
+
+cc_binary(
+    name = "traffic_perception",
+    srcs = ["src/main.cpp"],
+    copts = OPENCV_COPTS,
+    linkopts = select({
+        "@platforms//os:linux": [
+            "-lpthread",
+            "-lrt",
+        ],
+        "//conditions:default": [],
+    }),
+    deps = [
+        ":traffic_perception_application",
+        "@score_baselibs//score/mw/log",
+        "@score_lifecycle//score/launch_manager:lifecycle_cc",
+    ],
+)
+
+# Existing direct domain executables are kept for independent development.
+cc_binary(
+    name = "perception_smoke",
+    srcs = ["src/perception_smoke.cpp"],
+    copts = OPENCV_COPTS,
+    deps = [":traffic_perception_core"],
+)
+
+cc_binary(
+    name = "module_demo",
+    srcs = ["src/module_demo.cpp"],
+    copts = OPENCV_COPTS,
+    deps = [":traffic_perception_core"],
+)
+
+# Analyzer binary for log analysis
+cc_binary(
+    name = "analyze_log",
+    srcs = ["src/analyze_log.cpp", "src/io/timeline_analyzer.cpp"],
+    copts = OPENCV_COPTS,
+    deps = [
+        ":traffic_perception_core",
+        "//timeline_analyzer:statistics",
+    ],
+)

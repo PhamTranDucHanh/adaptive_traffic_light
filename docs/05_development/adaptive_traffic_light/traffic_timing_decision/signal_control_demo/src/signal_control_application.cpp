@@ -16,14 +16,20 @@ constexpr std::uint32_t kMaximumGreenMs = 60000U;
 constexpr std::uint32_t kMaximumCycleMs = 100000U;
 constexpr std::uint64_t kMaximumPlanAgeNs = 10000000000ULL;
 constexpr std::uint32_t kMaximumConsecutiveMisses = 3U;
+// Legacy standalone demo channel. The integrated controller exclusively uses
+// TimingPlanMessageV1 on /traffic_timing_plan_v1.
+constexpr char kLegacyTimingPlanDemoQueueName[] =
+    "/timing_plan_legacy_demo_v0";
+constexpr char kLegacyTimingPlanDemoLockName[] =
+    "/timing_plan_legacy_demo_lock_v0";
 
 }  // namespace
 
 namespace signal_control_demo {
 
 SignalControlApplication::SignalControlApplication()
-    : consumer_{traffic_ipc::kTimingPlanQueueName,
-                traffic_ipc::kTimingPlanLockName} {
+    : consumer_{kLegacyTimingPlanDemoQueueName,
+                kLegacyTimingPlanDemoLockName} {
   lastValidPlan_.greenNorthSouthMs = 30000U;
   lastValidPlan_.greenEastWestMs = 30000U;
   lastValidPlan_.yellowMs = 3000U;
@@ -38,7 +44,7 @@ std::int32_t SignalControlApplication::Initialize(
   const auto queueStatus = consumer_.open();
   if (queueStatus != traffic_ipc::QueueStatus::kSuccess) {
     applicationLogger().LogError()
-        << "[INIT][IPC] queue=" << traffic_ipc::kTimingPlanQueueName
+        << "[INIT][IPC] queue=" << kLegacyTimingPlanDemoQueueName
         << "; status="
         << std::string_view{traffic_ipc::queueStatusName(queueStatus)}
         << "; errno=" << consumer_.lastError();
@@ -55,7 +61,7 @@ std::int32_t SignalControlApplication::Initialize(
   initialized_ = true;
   applicationLogger().LogInfo()
       << "[INIT] ready; output_state=all_red_safe; period_ms=" << kPeriodMs
-      << "; queue=" << traffic_ipc::kTimingPlanQueueName
+      << "; queue=" << kLegacyTimingPlanDemoQueueName
       << "; lifecycle_profile=Reporting";
   return EXIT_SUCCESS;
 }

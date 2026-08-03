@@ -12,7 +12,11 @@
 
 namespace {
 
+#ifdef END_TO_END_TEST
+constexpr std::uint32_t kPeriodMs = 2000U;
+#else
 constexpr std::uint32_t kPeriodMs = 3000U;
+#endif
 constexpr std::uint32_t kTargetGreen20sMs = 20000U;
 constexpr std::uint32_t kTargetGreen30sMs = 30000U;
 constexpr std::uint32_t kTargetGreen40sMs = 40000U;
@@ -37,6 +41,7 @@ struct TrafficScenario {
   bool emergencyWest;
   bool expectedValid;
   std::string_view invalidReason;
+  std::string_view controllerExpectation{};
 };
 
 constexpr DirectionTraffic kLightTraffic{20U, 20.0F, 0.20F};
@@ -78,9 +83,109 @@ static_assert(approximatelyEqual(demandScore(kTarget40BoundaryTraffic), 60.0F),
 static_assert(approximatelyEqual(demandScore(kTarget50BoundaryTraffic), 90.0F),
               "Target-50 boundary traffic must produce demand score 90");
 
-// Repeat counts are intentional: one accepted snapshot moves each green time
-// by at most five seconds. The sequence starts from the engine's 30 s / 30 s
-// plan and leaves every scenario at the state described in its log message.
+/*
+ * END_TO_END_TEST is intentionally the switch for the controller-focused
+ * end-to-end suite. It is currently enabled in perception_application.h.
+ * Undefine it to run the original decision-boundary suite kept in the #else
+ * block below.
+ *
+ * This suite uses a 2 s producer period, while Timing Decision runs every
+ * 2.5 s. The original suite keeps its 3 s producer period. The
+ * repeat counts hold each input long enough for the controller's deterministic
+ * 1 s FSM to reach the phase boundary or emergency acceptance window under
+ * test. They do not add sleeps or controller coupling to this publisher.
+ */
+#ifdef END_TO_END_TEST
+constexpr std::array<TrafficScenario, 12U> kScenarios{{
+    {1U, "target_ew_50_until_first_all_red",
+     "Hold NS light/EW saturated from startup. Decision converges from 30/30 "
+     "s to 20/50 s; controller keeps only the newest pending normal plan.",
+     kLightTraffic, kTarget50BoundaryTraffic, 16U, false, false, false, false,
+     true, "",
+     "At the first ALL_RED boundary: PLAN_APPLIED for the newest plan, then "
+     "EW_GREEN starts with 50 s."},
+    {2U, "hold_ew_green_to_emergency_window",
+     "Keep the stable 20/50 s plan while EW_GREEN counts down toward the "
+     "strict emergency window (5 s, 10 s).",
+     kLightTraffic, kTarget50BoundaryTraffic, 21U, false, false, false, false,
+     true, "",
+     "EW_GREEN remains active; repeated normal plans are accepted but only "
+     "the newest stays pending."},
+    {3U, "valid_east_emergency_during_ew_green",
+     "Raise an east emergency while EW_GREEN should have about 6-9 s "
+     "remaining.",
+     kLightTraffic, kTarget50BoundaryTraffic, 1U, false, false, true, false,
+     true, "",
+     "EMERGENCY_ACCEPTED and EMERGENCY_APPLIED; EW_GREEN remaining time is "
+     "reset to 20 s."},
+    {4U, "both_directions_emergency_during_ew_green",
+     "Raise north and east emergencies together while the extended EW_GREEN "
+     "is still active.",
+     kTarget50BoundaryTraffic, kTarget50BoundaryTraffic, 2U, true, false,
+     true, false, true, "",
+     "Timing Decision publishes emergency_ns=true and emergency_ew=true; "
+     "PlanReceiver rejects the plan and the active EW_GREEN is unchanged."},
+    {5U, "clear_emergency_through_ew_all_red",
+     "Clear all emergency flags and hold the stable 20/50 s demand through "
+     "the extended EW_GREEN, YELLOW and ALL_RED.",
+     kLightTraffic, kTarget50BoundaryTraffic, 11U, false, false, false, false,
+     true, "",
+     "The newest normal plan is applied at ALL_RED; the following NS_GREEN "
+     "starts with 20 s."},
+    {6U, "hold_ns_green_to_emergency_window",
+     "Keep the same demand while NS_GREEN approaches its emergency "
+     "acceptance window.",
+     kLightTraffic, kTarget50BoundaryTraffic, 5U, false, false, false, false,
+     true, "",
+     "NS_GREEN remains active and approaches 5-10 s remaining."},
+    {7U, "valid_north_emergency_during_ns_green",
+     "Raise a north emergency while NS_GREEN should have about 6-9 s "
+     "remaining.",
+     kLightTraffic, kTarget50BoundaryTraffic, 1U, true, false, false, false,
+     true, "",
+     "EMERGENCY_ACCEPTED and EMERGENCY_APPLIED; NS_GREEN remaining time is "
+     "reset to 20 s."},
+    {8U, "both_directions_emergency_during_ns_green",
+     "Raise north and east emergencies together while the extended NS_GREEN "
+     "is still active.",
+     kTarget50BoundaryTraffic, kTarget50BoundaryTraffic, 2U, true, false,
+     true, false, true, "",
+     "PlanReceiver rejects the two-direction emergency and keeps the active "
+     "NS_GREEN unchanged."},
+    {9U, "clear_emergency_and_complete_cycle",
+     "Clear emergency flags and keep NS light/EW saturated until the next "
+     "safe phase boundary.",
+     kLightTraffic, kTarget50BoundaryTraffic, 11U, false, false, false, false,
+     true, "",
+     "Normal operation resumes; the newest 20/50 s plan is applied at "
+     "ALL_RED and the following EW_GREEN starts with 50 s."},
+    {10U, "ns_moderate_ew_high_pending",
+     "Use different moderate/high inputs: NS score 30 and EW score 60. "
+     "Decision moves the current 20/50 s plan toward 30/40 s.",
+     kTarget30BoundaryTraffic, kTarget40BoundaryTraffic, 4U, false, false,
+     false, false, true, "",
+     "The resulting 30/40 s normal plan is accepted and held pending; it "
+     "does not interrupt the active EW_GREEN."},
+    {11U, "ns_very_high_ew_moderate_supersedes_pending",
+     "Change to a strongly asymmetric input: NS score 90 and EW score 30. "
+     "Decision moves from 30/40 s toward 50/30 s.",
+     kTarget50BoundaryTraffic, kTarget30BoundaryTraffic, 6U, false, false,
+     false, false, true, "",
+     "The newest 50/30 s normal plan replaces the previous 30/40 s pending "
+     "plan without changing the active phase."},
+    {12U, "ns_high_ew_light_apply_latest_at_all_red",
+     "Change again to NS score 60 and EW score 20. Decision reaches 40/20 s "
+     "and holds this final input through the next ALL_RED.",
+     kTarget40BoundaryTraffic, kLightTraffic, 17U, false, false, false, false,
+     true, "",
+     "Only the final 40/20 s plan is consumed and applied at ALL_RED; the "
+     "following NS_GREEN starts with 40 s."},
+}};
+#else
+// Original decision-boundary suite. Repeat counts are intentional: one
+// accepted snapshot moves each green time by at most five seconds. The
+// sequence starts from the engine's 30 s / 30 s plan and leaves every scenario
+// at the state described in its log message.
 constexpr std::array<TrafficScenario, 14U> kScenarios{{
     {1U, "balanced_light",
      "Both directions are light (score 20): decrease 30 s -> 20 s in two "
@@ -149,6 +254,7 @@ constexpr std::array<TrafficScenario, 14U> kScenarios{{
      kTarget30BoundaryTraffic, kTarget30BoundaryTraffic, 2U, false, false,
      false, false, true, ""},
 }};
+#endif
 
 }  // namespace
 
@@ -255,7 +361,7 @@ std::int32_t PerceptionApplication::Run(
           snapshot.emergencyNorth || snapshot.emergencySouth;
       const bool eastWestEmergency =
           snapshot.emergencyEast || snapshot.emergencyWest;
-
+#ifdef SCENERIO_DETAIL2
       applicationLogger().LogInfo()
           << "[IPC][SNAPSHOT][PUBLISHED] scenario_id=" << scenario.id
           << "; scenario_name=" << scenario.name
@@ -290,6 +396,7 @@ std::int32_t PerceptionApplication::Run(
           << "; emergency_east=" << snapshot.emergencyEast
           << "; emergency_west=" << snapshot.emergencyWest
           << "; emergency_ew=" << eastWestEmergency;
+#endif
       advanceScenario();
     } else if (publishStatus == traffic_ipc::QueueStatus::kDeferred) {
       applicationLogger().LogWarn()
@@ -394,6 +501,11 @@ void PerceptionApplication::logCurrentScenario() const {
         << "; ew_score=" << eastWestScore
         << "; ew_target_green_ms=" << expectedTargetGreenMs(eastWestScore)
         << "; decision_action=step_toward_targets";
+  }
+  if (!scenario.controllerExpectation.empty()) {
+    applicationLogger().LogInfo()
+        << "[SCENARIO][CONTROLLER_EXPECTED] "
+        << scenario.controllerExpectation;
   }
 #endif
 }
