@@ -85,10 +85,13 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
 
   pthread_attr_t attr;
   pthread_attr_init(&attr);
-  // The short-lived VideoCapture opener inherits the stream worker's
-  // SCHED_RR policy and priority. Do not demote it to SCHED_OTHER/0, otherwise
-  // the process would no longer be fully round-robin scheduled.
-  pthread_attr_setinheritsched(&attr, PTHREAD_INHERIT_SCHED);
+  // Run the short-lived VideoCapture opener on SCHED_OTHER so the OS can
+  // place it on any core freely without consuming RT (SCHED_RR) bandwidth.
+  pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
+  struct sched_param sp{};
+  sp.sched_priority = 0;
+  pthread_attr_setschedpolicy(&attr, SCHED_OTHER);
+  pthread_attr_setschedparam(&attr, &sp);
 
   pthread_t tid;
   pthread_create(&tid, &attr, [](void* arg) -> void* {

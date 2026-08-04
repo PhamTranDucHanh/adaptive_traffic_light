@@ -54,8 +54,9 @@ YoloV8OIV7Backend::YoloV8OIV7Backend(const std::string& modelPath)
       memory_info_(
           Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)) {
   try {
+    Ort::SessionOptions sessionOptions;
     session_ = std::make_unique<Ort::Session>(env_, modelPath.c_str(),
-                                              Ort::SessionOptions{nullptr});
+                                              sessionOptions);
 
     Ort::AllocatorWithDefaultOptions allocator;
     auto input_name = session_->GetInputNameAllocated(0, allocator);

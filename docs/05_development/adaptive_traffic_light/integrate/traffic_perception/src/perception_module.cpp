@@ -42,7 +42,7 @@ bool PerceptionModule::initModule(const AppConfig& config) {
   config_ = config;
   startTime_ = std::chrono::steady_clock::now();
 
-  if (!pool_.init(20)) {
+  if (!pool_.init(20, config_.videoResolution.width, config_.videoResolution.height)) {
     return false;
   }
 
@@ -77,7 +77,7 @@ bool PerceptionModule::initModule(const AppConfig& config) {
 
   for (std::size_t i = 0; i < NUM_LANES; ++i) {
     if (!ConfigureRealtimeThreadAttr(streamThreadAttrs_[i],
-                                     config_.Threading.Stream)) {
+                                     config_.Threading.StreamWorkers[i])) {
       return false;
     }
   }
@@ -104,11 +104,31 @@ bool PerceptionModule::startThreads() {
     int ret = pthread_create(&streamThreads_[i], &streamThreadAttrs_[i],
                              StreamThreadEntry, &streamThreadContexts_[i]);
 
+    if (ret == EPERM) {
+      // Insufficient RT scheduling privileges — fall back to SCHED_OTHER
+      // so the system can still run on dev machines without CAP_SYS_NICE.
+      score::mw::log::LogWarn()
+          << "[PerceptionModule] stream thread " << i
+          << " SCHED_RR/FIFO denied (EPERM), retrying with SCHED_OTHER";
+      pthread_attr_t fallbackAttr;
+      pthread_attr_init(&fallbackAttr);
+      ret = pthread_create(&streamThreads_[i], &fallbackAttr,
+                           StreamThreadEntry, &streamThreadContexts_[i]);
+      pthread_attr_destroy(&fallbackAttr);
+    }
+
     if (ret != 0) {
       score::mw::log::LogError()
           << "Failed to create stream thread " << i << " errno=" << ret << " "
           << std::string{strerror(ret)};
 
+      // Join any stream threads that were already started before this failure
+      for (auto& worker : workers_) {
+        worker.stop();
+      }
+      for (std::size_t j = 0; j < i; ++j) {
+        pthread_join(streamThreads_[j], nullptr);
+      }
       return false;
     }
   }
@@ -116,10 +136,28 @@ bool PerceptionModule::startThreads() {
   int ret = pthread_create(&pipelineThread_, &pipelineThreadAttr_,
                            PipelineThreadEntry, &pipelineThreadContext_);
 
+  if (ret == EPERM) {
+    score::mw::log::LogWarn()
+        << "[PerceptionModule] pipeline thread SCHED_RR/FIFO denied (EPERM),"
+           " retrying with SCHED_OTHER";
+    pthread_attr_t fallbackAttr;
+    pthread_attr_init(&fallbackAttr);
+    ret = pthread_create(&pipelineThread_, &fallbackAttr,
+                         PipelineThreadEntry, &pipelineThreadContext_);
+    pthread_attr_destroy(&fallbackAttr);
+  }
+
   if (ret != 0) {
     score::mw::log::LogError() << "Failed to create pipeline thread " << ret
                                << " " << std::string{strerror(ret)};
 
+    // All stream threads were started; stop and join them before returning
+    for (auto& worker : workers_) {
+      worker.stop();
+    }
+    for (auto& thread : streamThreads_) {
+      pthread_join(thread, nullptr);
+    }
     return false;
   }
 
@@ -145,6 +183,11 @@ void PerceptionModule::stopThreads() {
   }
 
   pthread_join(pipelineThread_, nullptr);
+
+  for (auto& attr : streamThreadAttrs_) {
+    pthread_attr_destroy(&attr);
+  }
+  pthread_attr_destroy(&pipelineThreadAttr_);
 
   started_ = false;
 
@@ -175,12 +218,17 @@ bool PerceptionModule::ConfigureRealtimeThreadAttr(pthread_attr_t& attr,
 
   pthread_attr_setschedparam(&attr, &param);
 
-  // Pin thread to CPU Core 2
-  cpu_set_t cpuset;
-  CPU_ZERO(&cpuset);
-  CPU_SET(2, &cpuset);  // Core Index = 2
-
-  pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpuset);
+  if (config.Core >= 0) {
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(config.Core, &cpuset);
+    int affinity_ret = pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpuset);
+    if (affinity_ret != 0) {
+      score::mw::log::LogWarn()
+          << "[PerceptionModule] pthread_attr_setaffinity_np failed for core "
+          << config.Core << " ret=" << affinity_ret;
+    }
+  }
 
   return true;
 }

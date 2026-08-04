@@ -22,14 +22,44 @@ bool ConfigManager::loadConfig() {
   }
   json data = json::parse(f);
 
-  CachedConfig.Threading.Stream.Policy = data["threading"]["stream"]["policy"];
-  CachedConfig.Threading.Stream.Priority =
-      data["threading"]["stream"]["priority"];
+  if (data.contains("video_resolution")) {
+    CachedConfig.videoResolution.width =
+        data["video_resolution"].value("width", 1920);
+    CachedConfig.videoResolution.height =
+        data["video_resolution"].value("height", 1080);
+  }
 
-  CachedConfig.Threading.Pipeline.Policy =
-      data["threading"]["pipeline"]["policy"];
-  CachedConfig.Threading.Pipeline.Priority =
-      data["threading"]["pipeline"]["priority"];
+  if (data["threading"].contains("stream_workers") &&
+      data["threading"]["stream_workers"].is_array()) {
+    auto workersJson = data["threading"]["stream_workers"];
+    for (size_t i = 0; i < NUM_LANES && i < workersJson.size(); ++i) {
+      CachedConfig.Threading.StreamWorkers[i].Core =
+          workersJson[i].value("core", -1);
+      CachedConfig.Threading.StreamWorkers[i].Policy =
+          workersJson[i].value("policy", "SCHED_RR");
+      CachedConfig.Threading.StreamWorkers[i].Priority =
+          workersJson[i].value("priority", 70);
+    }
+  } else if (data["threading"].contains("stream")) {
+    // Fallback for legacy single "stream" config
+    for (size_t i = 0; i < NUM_LANES; ++i) {
+      CachedConfig.Threading.StreamWorkers[i].Core =
+          data["threading"]["stream"].value("core", -1);
+      CachedConfig.Threading.StreamWorkers[i].Policy =
+          data["threading"]["stream"].value("policy", "SCHED_RR");
+      CachedConfig.Threading.StreamWorkers[i].Priority =
+          data["threading"]["stream"].value("priority", 70);
+    }
+  }
+
+  if (data["threading"].contains("pipeline")) {
+    CachedConfig.Threading.Pipeline.Core =
+        data["threading"]["pipeline"].value("core", -1);
+    CachedConfig.Threading.Pipeline.Policy =
+        data["threading"]["pipeline"].value("policy", "SCHED_RR");
+    CachedConfig.Threading.Pipeline.Priority =
+        data["threading"]["pipeline"].value("priority", 70);
+  }
 
   CachedConfig.CapturePeriod =
       std::chrono::milliseconds(data.value("capture_period_ms", 200));

@@ -13,7 +13,7 @@ public:
     FramePool() = default;
     ~FramePool();
 
-    bool init(uint32_t poolSize);
+    bool init(uint32_t poolSize, int width = 0, int height = 0);
     Frame* acquire();
     void release(Frame* frame);
 

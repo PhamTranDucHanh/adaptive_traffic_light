@@ -124,6 +124,5 @@ cc_binary(
     copts = OPENCV_COPTS,
     deps = [
         ":traffic_perception_core",
-        "//timeline_analyzer:statistics",
     ],
 )

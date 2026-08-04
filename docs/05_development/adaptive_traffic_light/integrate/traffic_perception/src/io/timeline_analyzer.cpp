@@ -12,8 +12,6 @@
 #include <string>
 #include <vector>
 
-#include "timeline_analyzer/statistics.h"
-
 namespace traffic_perception {
 
 namespace {
@@ -21,6 +19,15 @@ namespace {
 constexpr double kNanoPerMicro = 1'000.0;
 constexpr double kNanoPerMilli = 1'000'000.0;
 constexpr double kNanoPerSecond = 1'000'000'000.0;
+
+constexpr int64_t kStreamDeadlineNs =
+    100LL * 1000 * 1000;
+
+constexpr int64_t kPipelineDeadlineNs =
+    5LL * 1000 * 1000 * 1000;
+
+constexpr int64_t kViewerDeadlineNs =
+    5LL * 1000 * 1000 * 1000;
 
 constexpr uint32_t kWarmupFramesToSkip = 15;
 
@@ -156,8 +163,7 @@ void PrintHeader(std::ostream& out) {
 
 void PrintRow(std::ostream& out,
               const std::string& name,
-              const timeline_analyzer::Statistics& s,
-              double stddev) {
+              const Statistics& s) {
   if (s.sampleCount == 0) {
     return;
   }
@@ -170,7 +176,7 @@ void PrintRow(std::ostream& out,
       << std::setw(14) << FormatLinuxTime(static_cast<double>(s.p95))
       << std::setw(14) << FormatLinuxTime(static_cast<double>(s.p99))
       << std::setw(14) << FormatLinuxTime(static_cast<double>(s.max))
-      << std::setw(14) << FormatLinuxTime(stddev) << "\n";
+      << std::setw(14) << FormatLinuxTime(s.stddev) << "\n";
 }
 
 void PrintSection(std::ostream& out,
@@ -188,14 +194,15 @@ void PrintSection(std::ostream& out,
       continue;
     }
 
-    const auto stats = timeline_analyzer::ComputeStatistics(*dataset.values);
-    const double stddev = ComputeStdDevInternal(*dataset.values, stats.mean);
-    PrintRow(out, dataset.name, stats, stddev);
+    const auto stats = TimelineAnalyzer::computeStats(*dataset.values);
+    PrintRow(out, dataset.name, stats);
   }
 
   out << "\n";
 }
 }  // namespace
+
+TimelineAnalyzer::TimelineAnalyzer(std::string logPath) : logFile_(std::move(logPath)) {}
 
 bool TimelineAnalyzer::load() {
   timelines_.clear();
@@ -251,17 +258,20 @@ bool TimelineAnalyzer::analyze() {
   for (auto& data : streamData_) {
     data.schedulerLatency.clear();
     data.dispatchLatency.clear();
+    data.responseTime.clear();
     data.executionTime.clear();
     data.period.clear();
     data.deadlineMiss.clear();
   }
   pipelineData_.schedulerLatency.clear();
   pipelineData_.dispatchLatency.clear();
+  pipelineData_.responseTime.clear();
   pipelineData_.executionTime.clear();
   pipelineData_.period.clear();
   pipelineData_.deadlineMiss.clear();
   viewerData_.schedulerLatency.clear();
   viewerData_.dispatchLatency.clear();
+  viewerData_.responseTime.clear();
   viewerData_.executionTime.clear();
   viewerData_.period.clear();
   viewerData_.deadlineMiss.clear();
@@ -281,7 +291,7 @@ bool TimelineAnalyzer::analyze() {
           break;
         }
 
-        if (tl.laneId >= 0 && tl.laneId < NUM_LANES) {
+        if (tl.laneId >= 0 && tl.laneId < static_cast<int>(NUM_LANES)) {
           AnalysisData& data = streamData_[static_cast<size_t>(tl.laneId)];
           const size_t laneIndex = static_cast<size_t>(tl.laneId);
 
@@ -290,7 +300,17 @@ bool TimelineAnalyzer::analyze() {
 
               if (tl.expectedWakeup != 0) {
                   data.schedulerLatency.push_back(tl.begin - tl.expectedWakeup);
-                  data.deadlineMiss.push_back(tl.end - tl.expectedWakeup);
+
+                  const int64_t responseTime =
+                      tl.end - tl.expectedWakeup;
+
+                  data.responseTime.push_back(
+                      responseTime);
+
+                  data.deadlineMiss.push_back(
+                      std::max<int64_t>(
+                          0,
+                          responseTime - kStreamDeadlineNs));
               }
 
               if (lastStreamBegin[laneIndex] != 0 &&
@@ -314,7 +334,17 @@ bool TimelineAnalyzer::analyze() {
 
             if (tl.expectedWakeup != 0) {
                 pipelineData_.schedulerLatency.push_back(tl.begin - tl.expectedWakeup);
-                pipelineData_.deadlineMiss.push_back(tl.end - tl.expectedWakeup);
+
+                const int64_t responseTime =
+                    tl.end - tl.expectedWakeup;
+
+                pipelineData_.responseTime.push_back(
+                    responseTime);
+
+                pipelineData_.deadlineMiss.push_back(
+                    std::max<int64_t>(
+                        0,
+                        responseTime - kPipelineDeadlineNs));
             }
 
             if (lastPipelineBegin != 0 &&
@@ -338,7 +368,17 @@ bool TimelineAnalyzer::analyze() {
 
             if (tl.expectedWakeup != 0) {
                 viewerData_.schedulerLatency.push_back(tl.begin - tl.expectedWakeup);
-                viewerData_.deadlineMiss.push_back(tl.end - tl.expectedWakeup);
+
+                const int64_t responseTime =
+                    tl.end - tl.expectedWakeup;
+
+                viewerData_.responseTime.push_back(
+                    responseTime);
+
+                viewerData_.deadlineMiss.push_back(
+                    std::max<int64_t>(
+                        0,
+                        responseTime - kViewerDeadlineNs));
             }
 
             if (lastViewerBegin != 0 &&
@@ -370,6 +410,9 @@ void TimelineAnalyzer::printReport(std::ostream& out) const {
     streamAll.dispatchLatency.insert(streamAll.dispatchLatency.end(),
                                      laneData.dispatchLatency.begin(),
                                      laneData.dispatchLatency.end());
+    streamAll.responseTime.insert(streamAll.responseTime.end(),
+                                  laneData.responseTime.begin(),
+                                  laneData.responseTime.end());
     streamAll.deadlineMiss.insert(streamAll.deadlineMiss.end(),
                                   laneData.deadlineMiss.begin(),
                                   laneData.deadlineMiss.end());
@@ -400,6 +443,14 @@ void TimelineAnalyzer::printReport(std::ostream& out) const {
                    {"Stream Worker", &streamAll.dispatchLatency},
                    {"Pipeline", &pipelineData_.dispatchLatency},
                    {"Viewer", &viewerData_.dispatchLatency},
+               });
+
+  PrintSection(ss,
+               "Response Time",
+               {
+                   {"Stream Worker", &streamAll.responseTime},
+                   {"Pipeline", &pipelineData_.responseTime},
+                   {"Viewer", &viewerData_.responseTime},
                });
 
   PrintSection(ss,
@@ -437,19 +488,31 @@ void TimelineAnalyzer::printReport(std::ostream& out) const {
   }
 }
 
-TimelineAnalyzer::Statistics TimelineAnalyzer::computeStats(
-    const std::vector<int64_t>& samples) const {
-  auto s = timeline_analyzer::ComputeStatistics(samples);
-  TimelineAnalyzer::Statistics ts;
-  ts.min = s.min;
-  ts.max = s.max;
-  ts.mean = s.mean;
-  ts.median = s.median;
-  ts.p90 = s.p90;
-  ts.p95 = s.p95;
-  ts.p99 = s.p99;
-  ts.sampleCount = s.sampleCount;
-  ts.stddev = computeStdDev(samples, s.mean);
+Statistics TimelineAnalyzer::computeStats(
+    const std::vector<int64_t>& samples) {
+  Statistics ts;
+  if (samples.empty()) {
+    return ts;
+  }
+
+  std::vector<int64_t> sorted = samples;
+  std::sort(sorted.begin(), sorted.end());
+
+  ts.sampleCount = sorted.size();
+  ts.min = sorted.front();
+  ts.max = sorted.back();
+
+  double sum = 0.0;
+  for (int64_t v : sorted) {
+    sum += static_cast<double>(v);
+  }
+  ts.mean = sum / static_cast<double>(ts.sampleCount);
+
+  ts.median = sorted[ts.sampleCount / 2];
+  ts.p90 = sorted[(ts.sampleCount * 90) / 100];
+  ts.p95 = sorted[(ts.sampleCount * 95) / 100];
+  ts.p99 = sorted[(ts.sampleCount * 99) / 100];
+  ts.stddev = computeStdDev(samples, ts.mean);
   return ts;
 }
 
@@ -459,14 +522,14 @@ double TimelineAnalyzer::computeStdDev(const std::vector<int64_t>& samples,
 }
 
 void TimelineAnalyzer::analyzeLane(int laneId) const {
-  if (laneId < 0 || laneId >= NUM_LANES) {
+  if (laneId < 0 || laneId >= static_cast<int>(NUM_LANES)) {
     std::cout << "Invalid lane id: " << laneId << "\n";
     return;
   }
 
   const AnalysisData& data = streamData_[static_cast<size_t>(laneId)];
   if (data.executionTime.empty() && data.schedulerLatency.empty() &&
-      data.deadlineMiss.empty() && data.period.empty()) {
+      data.responseTime.empty() && data.deadlineMiss.empty() && data.period.empty()) {
     std::cout << "No data for lane " << laneId << "\n";
     return;
   }
@@ -476,6 +539,11 @@ void TimelineAnalyzer::analyzeLane(int laneId) const {
                "Scheduler Wake-up Latency",
                {
                    {"Stream Lane " + std::to_string(laneId), &data.schedulerLatency},
+               });
+  PrintSection(std::cout,
+               "Response Time",
+               {
+                   {"Stream Lane " + std::to_string(laneId), &data.responseTime},
                });
   PrintSection(std::cout,
                "Deadline Miss",

@@ -68,17 +68,24 @@ struct LaneConfig {
 
 constexpr std::size_t NUM_LANES = 4;
 
+struct Resolution {
+  std::int32_t width{1920};
+  std::int32_t height{1080};
+};
+
 struct ThreadConfig {
+  std::int32_t Core{-1};  // -1 means no CPU affinity set
   std::string Policy{"SCHED_RR"};
   std::int32_t Priority{0};
 };
 
 struct ThreadingConfig {
-  ThreadConfig Stream;
+  std::array<ThreadConfig, NUM_LANES> StreamWorkers;
   ThreadConfig Pipeline;
 };
 
 struct AppConfig {
+  Resolution videoResolution;
   std::array<LaneConfig, NUM_LANES> lanes{};
   std::string modelPath;
 

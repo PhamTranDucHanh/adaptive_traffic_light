@@ -7,12 +7,35 @@
 
   "viewer_period_ms": 3000,
   "viewer_phase_ms": 260,
+  "video_resolution": {
+    "width": 1920,
+    "height": 1080
+  },
   "threading": {
-    "stream": {
-      "policy": "SCHED_RR",
-      "priority": 70
-    },
+    "stream_workers": [
+      {
+        "core": 0,
+        "policy": "SCHED_RR",
+        "priority": 70
+      },
+      {
+        "core": 1,
+        "policy": "SCHED_RR",
+        "priority": 70
+      },
+      {
+        "core": 2,
+        "policy": "SCHED_RR",
+        "priority": 70
+      },
+      {
+        "core": 3,
+        "policy": "SCHED_RR",
+        "priority": 70
+      }
+    ],
     "pipeline": {
+      "core": 2,
       "policy": "SCHED_RR",
       "priority": 70
     }
