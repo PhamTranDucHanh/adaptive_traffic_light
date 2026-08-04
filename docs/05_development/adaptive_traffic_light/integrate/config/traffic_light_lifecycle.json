@@ -113,7 +113,7 @@
                 "ready_timeout": 60.0,
                 "shutdown_timeout": 60.0,
                 "sandbox": {
-                    "scheduling_policy": "SCHED_RR",
+                    "scheduling_policy": "SCHED_FIFO",
                     "scheduling_priority": 60
                 },
                 "environmental_variables": {
@@ -145,7 +145,7 @@
                 "ready_timeout": 60.0,
                 "shutdown_timeout": 60.0,
                 "sandbox": {
-                    "scheduling_policy": "SCHED_RR",
+                    "scheduling_policy": "SCHED_FIFO",
                     "scheduling_priority": 50
                 },
                 "environmental_variables": {

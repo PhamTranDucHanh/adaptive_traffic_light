@@ -135,7 +135,7 @@ std::int32_t create_rt_thread(pthread_t* const thread,
 
   result = pthread_attr_setinheritsched(&attributes, PTHREAD_EXPLICIT_SCHED);
   if (result == std::int32_t{}) {
-    result = pthread_attr_setschedpolicy(&attributes, SCHED_RR);
+    result = pthread_attr_setschedpolicy(&attributes, SCHED_FIFO);
   }
   if (result == std::int32_t{}) {
     sched_param parameters{};
@@ -188,14 +188,14 @@ bool TimingDecisionApplication::startRtChildThread() noexcept {
     return false;
   }
 
-  if (parentPolicy != SCHED_RR) {
+  if (parentPolicy != SCHED_FIFO) {
     applicationLogger().LogError()
-        << "[RT_THREAD_CHECK][CREATE] parent policy is not SCHED_RR; policy="
+        << "[RT_THREAD_CHECK][CREATE] parent policy is not SCHED_FIFO; policy="
         << parentPolicy;
     return false;
   }
 
-  const std::int32_t minimumPriority = sched_get_priority_min(SCHED_RR);
+  const std::int32_t minimumPriority = sched_get_priority_min(SCHED_FIFO);
   const std::int32_t childPriority =
       parentParameters.sched_priority > minimumPriority
           ? parentParameters.sched_priority -
@@ -211,7 +211,7 @@ bool TimingDecisionApplication::startRtChildThread() noexcept {
     applicationLogger().LogError()
         << "[RT_THREAD_CHECK][CREATE] pthread creation failed: "
         << std::string_view{std::strerror(createResult)}
-        << "; requested_policy=SCHED_RR; requested_priority="
+        << "; requested_policy=SCHED_FIFO; requested_priority="
         << childPriority;
     return false;
   }

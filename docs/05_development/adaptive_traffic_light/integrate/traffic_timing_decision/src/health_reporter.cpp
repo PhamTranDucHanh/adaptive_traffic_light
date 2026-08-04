@@ -36,7 +36,7 @@ constexpr std::chrono::milliseconds kInternalProcessingCycle =
     toDuration(HealthIntervalMilliseconds::kInternalProcessingCycle);
 constexpr std::chrono::milliseconds kSupervisorApiCycle =
     toDuration(HealthIntervalMilliseconds::kSupervisorApiCycle);
-constexpr std::int32_t kHealthMonitorPriority = 60;
+constexpr std::int32_t kHealthMonitorPriority = 50;
 
 const score::mw::health::MonitorTag kDeadlineMonitorTag{
     "timing_decision_deadline_monitor"};
@@ -71,8 +71,7 @@ bool HealthReporter::initialize() {
   score::mw::health::heartbeat::HeartbeatMonitorBuilder heartbeatBuilder =
       HeartbeatMonitorBuilder(TimeRange{kHeartbeatMin, kHeartbeatMax});
   auto healthThreadParameters = ThreadParameters{}.scheduler_parameters(
-      SchedulerParameters{SchedulerPolicy::RoundRobin,
-                          kHealthMonitorPriority});
+SchedulerParameters{SchedulerPolicy::Fifo, kHealthMonitorPriority});
 
   score::cpp::expected<score::mw::health::HealthMonitor,
                        score::mw::health::Error>
@@ -143,7 +142,7 @@ bool HealthReporter::initialize() {
       << kHeartbeatMax.count()
       << "; deadline_ms=" << kDecisionDeadlineMin.count() << ".."
       << kDecisionDeadlineMax.count()
-      << "; worker_policy=SCHED_RR; worker_priority="
+      << "; worker_policy=SCHED_FF; worker_priority="
       << kHealthMonitorPriority;
   traffic_timing_decision::applicationLogger().LogInfo()
       << "[HEALTH][ALIVE] notifications=enabled; "
