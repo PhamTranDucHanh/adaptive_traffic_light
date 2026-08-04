@@ -99,7 +99,44 @@ Lifecycle references:
 MW_LOG_CONFIG_FILE="$PWD/config/logging.json" bazel run --config=x86_64-linux   //traffic_signal_controller:traffic_signal_controller_demo 
 ```
 
-
 ```bash
 ls -lh /tmp/traffic_signal_controller/logs/output
+cat /tmp/linux_rt_application/logs/signal_control_analytics_report.txt 
 ``` 
+
+```bash 
+stress-ng \
+  --cpu 4 \
+  --cpu-load 60 \
+  --vm 1 \
+  --vm-bytes 60% \
+  --vm-keep \
+  --metrics-brief
+```
+
+```bash 
+pgrep -fa traffic_signal_controller
+ 
+ps -T -p 10554 
+ 
+ps -Tp 10554 -o pid,tid,psr,cls,rtprio,pri,ni,comm
+
+
+sudo rtla timerlat top \
+    -c 3 \
+    -P r:50 \
+    -p 1000 \
+    -d 5m \
+    -q 
+
+sudo rtla timerlat top \
+    -c 1-3 \
+    -H 0 \
+    -P r:40 \
+    -p 1000 \
+    -T 1000 \
+    --dump-tasks \
+    -t pipeline_timerlat_trace.txt
+
+ps -eLo pid,tid,cls,rtprio,psr,pcpu,comm | grep RR 
+```
