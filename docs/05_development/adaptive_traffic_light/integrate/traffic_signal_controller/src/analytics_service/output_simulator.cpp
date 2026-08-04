@@ -28,25 +28,26 @@ score::mw::log::Logger& Logger() {
   return logger;
 }
 
-void ConfigureCurrentThreadRoundRobin() noexcept {
+void ConfigureCurrentThreadNonRealtime() noexcept {
   sched_param parameters{};
-  parameters.sched_priority = kOutputSimulatorPriority;
+  parameters.sched_priority = 0;
 
   const int result =
-      pthread_setschedparam(pthread_self(), SCHED_RR, &parameters);
+      pthread_setschedparam(pthread_self(), SCHED_OTHER, &parameters);
 
   if (result == 0) {
     Logger().LogInfo() << "event=THREAD_SCHEDULING_CONFIGURED"
                        << ", thread=output_simulator"
-                       << ", policy=SCHED_RR"
-                       << ", priority=" << kOutputSimulatorPriority;
+                       << ", policy=SCHED_OTHER"
+                       << ", priority=" << parameters.sched_priority
+                       << ", realtime=false";
     return;
   }
 
   Logger().LogWarn() << "event=THREAD_SCHEDULING_FAILED"
                      << ", thread=output_simulator"
-                     << ", policy=SCHED_RR"
-                     << ", priority=" << kOutputSimulatorPriority
+                     << ", policy=SCHED_OTHER"
+                     << ", priority=" << parameters.sched_priority
                      << ", error=" << result
                      << ", reason=" << std::strerror(result);
 }
@@ -150,7 +151,7 @@ void OutputSimulator::run() noexcept {
                        << ", reason=" << std::strerror(nameResult);
   }
 
-  ConfigureCurrentThreadRoundRobin();
+  ConfigureCurrentThreadNonRealtime();
 
   std::cout.setf(std::ios::unitbuf);
 

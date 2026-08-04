@@ -1,15 +1,11 @@
 #include "traffic_signal_controller/signal_control_app.h"
 
 #include <pthread.h>
-#include <sched.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 
-#include <array>
 #include <cerrno>
-#include <charconv>
 #include <chrono>
-#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -39,135 +35,6 @@ score::mw::log::Logger& AnalyticsLogger() {
   return logger;
 }
 
-const char* GetEnvOrDefault(const char* const name,
-                            const char* const defaultValue) {
-  const char* const value = std::getenv(name);
-  return value != nullptr && value[0] != '\0' ? value : defaultValue;
-}
-
-std::int32_t GetIntegerFromEnvOrDefault(const char* const name,
-                                        const std::int32_t defaultValue) {
-  const char* const value = std::getenv(name);
-
-  if (value == nullptr || value[0] == '\0') {
-    return defaultValue;
-  }
-
-  std::int32_t parsedValue{};
-  const char* const valueEnd = value + std::strlen(value);
-  const auto parseResult =
-      std::from_chars(value, valueEnd, parsedValue, kDecimalBase);
-
-  if (parseResult.ec != std::errc{} || parseResult.ptr != valueEnd) {
-    AppLogger().LogWarn() << "event=INTEGER_ENV_INVALID"
-                          << ", variable=" << name << ", value=" << value
-                          << ", fallback=" << defaultValue;
-    return defaultValue;
-  }
-
-  return parsedValue;
-}
-
-std::int32_t GetPriorityFromEnvOrDefault(const char* const name,
-                                         const std::int32_t defaultPriority) {
-  const std::int32_t parsedPriority =
-      GetIntegerFromEnvOrDefault(name, defaultPriority);
-
-  const std::int32_t minimumPriority =
-      static_cast<std::int32_t>(sched_get_priority_min(SCHED_FIFO));
-  const std::int32_t maximumPriority =
-      static_cast<std::int32_t>(sched_get_priority_max(SCHED_FIFO));
-
-  if (parsedPriority < minimumPriority || parsedPriority > maximumPriority) {
-    AppLogger().LogWarn() << "event=THREAD_PRIORITY_ENV_INVALID"
-                          << ", variable=" << name
-                          << ", value=" << parsedPriority
-                          << ", min_priority=" << minimumPriority
-                          << ", max_priority=" << maximumPriority
-                          << ", fallback_priority=" << defaultPriority;
-    return defaultPriority;
-  }
-
-  return parsedPriority;
-}
-
-bool PinCurrentThreadToCpu(const std::int32_t cpu,
-                           const char* const threadName) noexcept {
-  cpu_set_t cpuSet{};
-  CPU_ZERO(&cpuSet);
-  CPU_SET(cpu, &cpuSet);
-
-  const std::int32_t result = static_cast<std::int32_t>(
-      pthread_setaffinity_np(pthread_self(), sizeof(cpuSet), &cpuSet));
-
-  if (result != EXIT_SUCCESS) {
-    AppLogger().LogWarn() << "event=THREAD_AFFINITY_FAILED"
-                          << ", thread=" << threadName << ", cpu=" << cpu
-                          << ", error=" << result
-                          << ", reason=" << std::strerror(result);
-    return false;
-  }
-
-  AppLogger().LogInfo() << "event=THREAD_AFFINITY_CONFIGURED"
-                        << ", thread=" << threadName << ", cpu=" << cpu;
-  return true;
-}
-
-bool ConfigureRealtimeThreadAttributes(pthread_attr_t& attributes,
-                                       const std::int32_t priority,
-                                       const std::int32_t cpu,
-                                       const char* const threadName) noexcept {
-  std::int32_t result =
-      pthread_attr_setinheritsched(&attributes, PTHREAD_EXPLICIT_SCHED);
-  if (result != EXIT_SUCCESS) {
-    AppLogger().LogWarn() << "event=THREAD_ATTRIBUTE_FAILED"
-                          << ", thread=" << threadName
-                          << ", operation=pthread_attr_setinheritsched"
-                          << ", error=" << result
-                          << ", reason=" << std::strerror(result);
-    return false;
-  }
-
-  result = pthread_attr_setschedpolicy(&attributes, SCHED_FIFO);
-  if (result != EXIT_SUCCESS) {
-    AppLogger().LogWarn() << "event=THREAD_ATTRIBUTE_FAILED"
-                          << ", thread=" << threadName
-                          << ", operation=pthread_attr_setschedpolicy"
-                          << ", error=" << result
-                          << ", reason=" << std::strerror(result);
-    return false;
-  }
-
-  sched_param schedulingParameters{};
-  schedulingParameters.sched_priority = static_cast<int>(priority);
-
-  result = pthread_attr_setschedparam(&attributes, &schedulingParameters);
-  if (result != EXIT_SUCCESS) {
-    AppLogger().LogWarn() << "event=THREAD_ATTRIBUTE_FAILED"
-                          << ", thread=" << threadName
-                          << ", operation=pthread_attr_setschedparam"
-                          << ", error=" << result
-                          << ", reason=" << std::strerror(result);
-    return false;
-  }
-
-  cpu_set_t cpuSet{};
-  CPU_ZERO(&cpuSet);
-  CPU_SET(cpu, &cpuSet);
-
-  result = pthread_attr_setaffinity_np(&attributes, sizeof(cpuSet), &cpuSet);
-  if (result != EXIT_SUCCESS) {
-    AppLogger().LogWarn() << "event=THREAD_ATTRIBUTE_FAILED"
-                          << ", thread=" << threadName
-                          << ", operation=pthread_attr_setaffinity_np"
-                          << ", cpu=" << cpu << ", error=" << result
-                          << ", reason=" << std::strerror(result);
-    return false;
-  }
-
-  return true;
-}
-
 void LockProcessMemory() {
   if (::mlockall(MCL_CURRENT | MCL_FUTURE) == EXIT_SUCCESS) {
     AppLogger().LogInfo() << "event=PROCESS_MEMORY_LOCKED"
@@ -180,20 +47,6 @@ void LockProcessMemory() {
                         << ", flags=MCL_CURRENT|MCL_FUTURE"
                         << ", error=" << errorNumber << ", reason="
                         << std::strerror(static_cast<int>(errorNumber));
-}
-
-void PrefaultCurrentThreadStack(const char* const threadName) noexcept {
-  std::array<std::uint8_t, kPrefaultStackBytes> stackPages{};
-  volatile std::uint8_t* const writablePages = stackPages.data();
-
-  for (std::size_t offset{0U}; offset < stackPages.size();
-       offset += kPageSizeBytes) {
-    writablePages[offset] = std::uint8_t{0U};
-  }
-
-  AppLogger().LogInfo() << "event=THREAD_STACK_PREFAULTED"
-                        << ", thread=" << threadName
-                        << ", bytes=" << stackPages.size();
 }
 
 void EnsureRuntimeLogDirectoryExists() {
@@ -251,12 +104,13 @@ std::int32_t SignalControlApplication::Initialize(
 
   // Pin lifecycle_main before starting any application-owned worker.
   // Every worker created afterwards inherits this CPU3 affinity.
-  if (!PinCurrentThreadToCpu(kTrafficSignalControllerCpu, "lifecycle_main")) {
+  if (!PinCurrentThreadToCpu(kTrafficSignalControllerCpu, "lifecycle_main",
+                             AppLogger())) {
     return EXIT_FAILURE;
   }
 
   LockProcessMemory();
-  PrefaultCurrentThreadStack("lifecycle_main");
+  PrefaultCurrentThreadStack("lifecycle_main", AppLogger());
 
   if (!healthReporter_.initialize()) {
     AppLogger().LogWarn() << "event=APP_INIT_FAILED"
@@ -409,7 +263,8 @@ void* SignalControlApplication::PlanReceiverWorkerEntry(
 
 bool SignalControlApplication::StartFsmWorker() noexcept {
   std::int32_t priority = GetPriorityFromEnvOrDefault(
-      "TRAFFIC_SIGNAL_CONTROLLER_FSM_PRIORITY", kDefaultFsmPriority);
+      "TRAFFIC_SIGNAL_CONTROLLER_FSM_PRIORITY", kDefaultFsmPriority,
+      AppLogger());
   if (priority <= kDefaultPlanReceiverPriority) {
     AppLogger().LogWarn() << "event=FSM_PRIORITY_INVALID"
                           << ", configured_priority=" << priority
@@ -427,7 +282,7 @@ bool SignalControlApplication::StartFsmWorker() noexcept {
   }
 
   if (!ConfigureRealtimeThreadAttributes(attributes, priority, cpu,
-                                         "fsm_worker")) {
+                                         "fsm_worker", AppLogger())) {
     (void)pthread_attr_destroy(&attributes);
     return false;
   }
@@ -445,7 +300,7 @@ bool SignalControlApplication::StartFsmWorker() noexcept {
 
   fsmWorkerCreated_ = true;
   AppLogger().LogInfo() << "event=FSM_THREAD_CREATED"
-                        << ", policy=SCHED_FF"
+                        << ", policy=SCHED_FIFO"
                         << ", priority=" << priority << ", cpu=" << cpu;
   return true;
 }
@@ -461,7 +316,7 @@ bool SignalControlApplication::StartPlanReceiverWorker() noexcept {
   }
 
   if (!ConfigureRealtimeThreadAttributes(attributes, priority, cpu,
-                                         "plan_receiver")) {
+                                         "plan_receiver", AppLogger())) {
     (void)pthread_attr_destroy(&attributes);
     return false;
   }
@@ -480,7 +335,7 @@ bool SignalControlApplication::StartPlanReceiverWorker() noexcept {
 
   planReceiverWorkerCreated_ = true;
   AppLogger().LogInfo() << "event=PLAN_RECEIVER_THREAD_CREATED"
-                        << ", policy=SCHED_FF"
+                        << ", policy=SCHED_FIFO"
                         << ", priority=" << priority << ", cpu=" << cpu;
   return true;
 }
@@ -488,7 +343,7 @@ bool SignalControlApplication::StartPlanReceiverWorker() noexcept {
 void SignalControlApplication::RunFsmWorker() noexcept {
   try {
     (void)pthread_setname_np(pthread_self(), "tsc_fsm");
-    PrefaultCurrentThreadStack("fsm_worker");
+    PrefaultCurrentThreadStack("fsm_worker", AppLogger());
 
     while (fsmRunning_.load(std::memory_order_acquire)) {
       const SignalDisplay display = signalFsmEngine_.processTick();
@@ -507,7 +362,7 @@ void SignalControlApplication::RunFsmWorker() noexcept {
 void SignalControlApplication::RunPlanReceiverWorker() noexcept {
   try {
     (void)pthread_setname_np(pthread_self(), "tsc_plan_rx");
-    PrefaultCurrentThreadStack("plan_receiver");
+    PrefaultCurrentThreadStack("plan_receiver", AppLogger());
     if (!mqTimingPlanReceiverWorker_.Run(planReceiverRunning_)) {
       planReceiverFailed_.store(true, std::memory_order_release);
     }
