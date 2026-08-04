@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdint>
 #include <ctime>
+#include <limits>
 
 #include "common/logging_contexts.h"
 #include "score/mw/log/logger.h"
@@ -267,8 +268,8 @@ void SignalFSMEngine::processGreenPhase(const timespec& absoluteDeadline) {
     }
 
     case PlanSyncChannel::WaitResult::TIMEOUT:
-      recordWakeupSample(absoluteDeadline);
-      decrementRemainingTime();
+      decrementRemainingTimeBy(elapsedMillisecondsFromLatency(
+          recordWakeupSample(absoluteDeadline)));
       logFsmExecutionTime(executionStart);
       break;
 
@@ -294,8 +295,8 @@ void SignalFSMEngine::processNonInterruptiblePhase(
   const auto executionStart = std::chrono::steady_clock::now();
 
   if (result == 0) {
-    recordWakeupSample(absoluteDeadline);
-    decrementRemainingTime();
+    decrementRemainingTimeBy(elapsedMillisecondsFromLatency(
+        recordWakeupSample(absoluteDeadline)));
     logFsmExecutionTime(executionStart);
   } else {
     Logger().LogWarn() << "event=FSM_SLEEP_ERROR"
@@ -404,30 +405,33 @@ void SignalFSMEngine::applyEmergencyPlan(const PlanData& emergencyPlan) {
   }
 }
 
-void SignalFSMEngine::decrementRemainingTime() noexcept {
-  if (remainingTimeMs_ <= TIMER_INTERVAL_MS) {
+void SignalFSMEngine::decrementRemainingTimeBy(
+    const std::uint32_t elapsedMs) noexcept {
+  if (remainingTimeMs_ <= elapsedMs) {
     remainingTimeMs_ = 0U;
     return;
   }
 
-  remainingTimeMs_ -= TIMER_INTERVAL_MS;
+  remainingTimeMs_ -= elapsedMs;
 }
 
-void SignalFSMEngine::recordWakeupSample(
+std::uint64_t SignalFSMEngine::recordWakeupSample(
     const timespec& absoluteDeadline) noexcept {
   timespec actualWakeupTime{};
 
   if (clock_gettime(CLOCK_MONOTONIC, &actualWakeupTime) != 0) {
     droppedWakeupSampleCount_.fetch_add(1U, std::memory_order_relaxed);
-    return;
+    return 0U;
   }
 
   const std::uint64_t deadlineNs = timespecToNanoseconds(absoluteDeadline);
   const std::uint64_t actualWakeupNs = timespecToNanoseconds(actualWakeupTime);
 
   if (actualWakeupNs < deadlineNs) {
-    return;
+    return 0U;
   }
+
+  const std::uint64_t latencyNs = actualWakeupNs - deadlineNs;
 
   const std::uint64_t writeSequence =
       wakeupWriteSequence_.load(std::memory_order_relaxed);
@@ -437,15 +441,41 @@ void SignalFSMEngine::recordWakeupSample(
   if ((writeSequence - readSequence) >=
       static_cast<std::uint64_t>(kWakeupSampleCapacity)) {
     droppedWakeupSampleCount_.fetch_add(1U, std::memory_order_relaxed);
-    return;
+    return latencyNs;
   }
 
   const std::size_t index = static_cast<std::size_t>(
       writeSequence % static_cast<std::uint64_t>(kWakeupSampleCapacity));
   wakeupSamples_[index] =
-      WakeupSample{deadlineNs, actualWakeupNs, actualWakeupNs - deadlineNs};
+      WakeupSample{deadlineNs, actualWakeupNs, latencyNs};
 
   wakeupWriteSequence_.store(writeSequence + 1U, std::memory_order_release);
+  return latencyNs;
+}
+
+std::uint32_t SignalFSMEngine::elapsedMillisecondsFromLatency(
+    const std::uint64_t latencyNs) noexcept {
+  constexpr std::uint64_t kTickPeriodNs{
+      static_cast<std::uint64_t>(TIMER_INTERVAL_MS) *
+      kNanosecondsPerMillisecond};
+  const std::uint64_t missedIntervals = latencyNs / kTickPeriodNs;
+  const std::uint64_t elapsedIntervals = missedIntervals + 1U;
+
+  if (missedIntervals > 0U) {
+    const std::uint64_t resyncMs =
+        missedIntervals * static_cast<std::uint64_t>(TIMER_INTERVAL_MS);
+    const std::uint32_t cappedResyncMs =
+        resyncMs > std::numeric_limits<std::uint32_t>::max()
+            ? std::numeric_limits<std::uint32_t>::max()
+            : static_cast<std::uint32_t>(resyncMs);
+    addMilliseconds(nextDeadline_, cappedResyncMs);
+  }
+
+  const std::uint64_t elapsedMs =
+      elapsedIntervals * static_cast<std::uint64_t>(TIMER_INTERVAL_MS);
+  return elapsedMs > std::numeric_limits<std::uint32_t>::max()
+             ? std::numeric_limits<std::uint32_t>::max()
+             : static_cast<std::uint32_t>(elapsedMs);
 }
 
 void SignalFSMEngine::initializeDeadline() {

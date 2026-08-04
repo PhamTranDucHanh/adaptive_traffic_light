@@ -57,9 +57,12 @@ class SignalFSMEngine final {
     
   void applyEmergencyPlan(const PlanData& emergencyPlan);
 
-  void decrementRemainingTime() noexcept;
+  void decrementRemainingTimeBy(std::uint32_t elapsedMs) noexcept;
 
-  void recordWakeupSample(const timespec& absoluteDeadline) noexcept;
+  std::uint64_t recordWakeupSample(const timespec& absoluteDeadline) noexcept;
+
+  std::uint32_t elapsedMillisecondsFromLatency(
+      std::uint64_t latencyNs) noexcept;
 
   void initializeDeadline();
 

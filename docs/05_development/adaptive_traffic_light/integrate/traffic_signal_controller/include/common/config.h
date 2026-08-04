@@ -47,6 +47,7 @@ constexpr unsigned int kRuntimeDirectoryPermissions{0755U};
 
 constexpr std::int32_t kDefaultFsmPriority{80};
 constexpr std::int32_t kDefaultPlanReceiverPriority{70};
+constexpr std::int32_t kOutputSimulatorPriority{60};
 // Keep the health monitor worker below the MQ receiver and FSM, but above the
 // lifecycle/application thread. Without an explicit RT policy it can be starved
 // by the real perception workload.

@@ -12,6 +12,7 @@
 #include <string_view>
 #include <utility>
 
+#include "common/config.h"
 #include "common/logging_contexts.h"
 #include "score/mw/log/logger.h"
 
@@ -28,28 +29,28 @@ score::mw::log::Logger& Logger() {
   return logger;
 }
 
-void ConfigureCurrentThreadNonRealtime() noexcept {
+void ConfigureCurrentThreadRealtime() noexcept {
   sched_param parameters{};
-  parameters.sched_priority = 0;
+  parameters.sched_priority = kOutputSimulatorPriority;
 
   const int result =
-      pthread_setschedparam(pthread_self(), SCHED_OTHER, &parameters);
+      pthread_setschedparam(pthread_self(), SCHED_FIFO, &parameters);
 
   if (result == 0) {
     Logger().LogInfo() << "event=THREAD_SCHEDULING_CONFIGURED"
                        << ", thread=output_simulator"
-                       << ", policy=SCHED_OTHER"
+                       << ", policy=SCHED_FIFO"
                        << ", priority=" << parameters.sched_priority
-                       << ", realtime=false";
+                       << ", realtime=true";
     return;
   }
 
   Logger().LogWarn() << "event=THREAD_SCHEDULING_FAILED"
                      << ", thread=output_simulator"
-                     << ", policy=SCHED_OTHER"
+                     << ", policy=SCHED_FIFO"
                      << ", priority=" << parameters.sched_priority
                      << ", error=" << result
-                     << ", reason=" << std::strerror(result);
+                     << ", reason=" << std::string_view{std::strerror(result)};
 }
 
 }  // namespace
@@ -148,10 +149,11 @@ void OutputSimulator::run() noexcept {
     Logger().LogWarn() << "event=THREAD_NAME_FAILED"
                        << ", thread=tsc_output"
                        << ", error=" << nameResult
-                       << ", reason=" << std::strerror(nameResult);
+                       << ", reason="
+                       << std::string_view{std::strerror(nameResult)};
   }
 
-  ConfigureCurrentThreadNonRealtime();
+  ConfigureCurrentThreadRealtime();
 
   std::cout.setf(std::ios::unitbuf);
 
