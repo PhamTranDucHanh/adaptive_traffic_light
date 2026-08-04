@@ -34,14 +34,14 @@ bool TimingPlanPublisher::initialize() {
       static_cast<mode_t>(0660), &attributes);
   if (descriptor_ == static_cast<mqd_t>(-1)) {
     lastError_ = errno;
-    traffic_timing_decision::applicationLogger().LogError()
+    traffic_timing_decision::ipcLogger().LogError()
         << "[IPC][PLAN][OPEN] queue="
         << traffic_ipc::kTimingPlanQueueName << "; errno=" << lastError_;
     return false;
   }
 
   if (!validateQueueContract()) {
-    traffic_timing_decision::applicationLogger().LogError()
+    traffic_timing_decision::ipcLogger().LogError()
         << "[IPC][PLAN][CONTRACT_MISMATCH] queue="
         << traffic_ipc::kTimingPlanQueueName
         << "; expected_maxmsg=" << traffic_ipc::kTimingPlanQueueMaxMessages
@@ -62,7 +62,7 @@ bool TimingPlanPublisher::initialize() {
   pendingLatestPlan_.reset();
   lastError_ = 0;
 
-  traffic_timing_decision::applicationLogger().LogInfo()
+  traffic_timing_decision::ipcLogger().LogInfo()
       << "[IPC][PLAN][OPEN] queue=" << traffic_ipc::kTimingPlanQueueName
       << "; mode=nonblocking_write_only"
       << "; maxmsg=" << traffic_ipc::kTimingPlanQueueMaxMessages
@@ -139,7 +139,7 @@ bool TimingPlanPublisher::trySendPending() noexcept {
 
   if (descriptor_ == static_cast<mqd_t>(-1)) {
     lastError_ = EBADF;
-    traffic_timing_decision::applicationLogger().LogError()
+    traffic_timing_decision::ipcLogger().LogError()
         << "[IPC][PLAN][SEND] errno=" << lastError_
         << "; plan_id=" << pendingLatest_->planId
         << "; sequence=" << pendingLatest_->sequenceNumber;
@@ -151,7 +151,7 @@ bool TimingPlanPublisher::trySendPending() noexcept {
               sizeof(candidate), 0U) != 0) {
     lastError_ = errno;
     if (lastError_ == EAGAIN || lastError_ == EINTR) {
-      traffic_timing_decision::applicationLogger().LogWarn()
+      traffic_timing_decision::ipcLogger().LogWarn()
           << "[IPC][PLAN][DEFERRED] plan_id=" << candidate.planId
           << "; sequence=" << candidate.sequenceNumber
           << "; errno=" << lastError_
@@ -159,7 +159,7 @@ bool TimingPlanPublisher::trySendPending() noexcept {
       return true;
     }
 
-    traffic_timing_decision::applicationLogger().LogError()
+    traffic_timing_decision::ipcLogger().LogError()
         << "[IPC][PLAN][SEND] errno=" << lastError_
         << "; plan_id=" << candidate.planId
         << "; sequence=" << candidate.sequenceNumber;
@@ -173,7 +173,7 @@ bool TimingPlanPublisher::trySendPending() noexcept {
   pendingLatest_.reset();
   pendingLatestPlan_.reset();
   lastError_ = 0;
-  traffic_timing_decision::applicationLogger().LogInfo()
+  traffic_timing_decision::ipcLogger().LogInfo()
       << "[IPC][PLAN][SENT] plan_id=" << candidate.planId
       << "; publisher_instance_id=" << candidate.publisherInstanceId
       << "; sequence=" << candidate.sequenceNumber;

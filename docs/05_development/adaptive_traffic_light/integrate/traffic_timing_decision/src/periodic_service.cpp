@@ -67,13 +67,13 @@ bool PeriodicService::runDecisionCycle() {
     const traffic_ipc::QueueStatus status = trafficReceiver.lastQueueStatus();
     if (status == traffic_ipc::QueueStatus::kEmpty ||
         status == traffic_ipc::QueueStatus::kBusy) {
-      traffic_timing_decision::applicationLogger().LogWarn()
+      traffic_timing_decision::ipcLogger().LogWarn()
           << "[IPC][SNAPSHOT][NO_NEW_DATA] status="
           << std::string_view{traffic_ipc::queueStatusName(status)}
           << "; consecutive_misses=" << consecutiveSnapshotMisses_
           << "; action=keep_previous_plan";
     } else {
-      traffic_timing_decision::applicationLogger().LogError()
+      traffic_timing_decision::ipcLogger().LogError()
           << "[IPC][SNAPSHOT][RECEIVE] status="
           << std::string_view{traffic_ipc::queueStatusName(status)}
           << "; errno=" << trafficReceiver.lastQueueError()
@@ -82,7 +82,7 @@ bool PeriodicService::runDecisionCycle() {
     cycleSuccessful = timingPublisher.retryPendingTimingPlan();
   } else if (!trafficReceiver.validateSnapshot(snapshot)) {
     ++consecutiveSnapshotMisses_;
-    traffic_timing_decision::applicationLogger().LogWarn()
+    traffic_timing_decision::ipcLogger().LogWarn()
         << "[IPC][SNAPSHOT][REJECTED] frame_id=" << snapshot.frameId
         << "; consecutive_misses=" << consecutiveSnapshotMisses_
         << "; action=keep_previous_plan";
@@ -92,7 +92,7 @@ bool PeriodicService::runDecisionCycle() {
     const TimingPlan plan = decisionEngine.processTrafficMetrics(snapshot);
     cycleSuccessful = timingPublisher.publishTimingPlan(plan);
     if (cycleSuccessful) {
-      traffic_timing_decision::applicationLogger().LogInfo()
+      traffic_timing_decision::decisionLogger().LogInfo()
           << "[DECISION][PUBLISHED] frame_id=" << snapshot.frameId
           << "; plan_id=" << plan.planId
           << "; ns_green_ms=" << plan.greenNorthSouthMs
@@ -105,7 +105,7 @@ bool PeriodicService::runDecisionCycle() {
 
   healthReporter.finishDecisionCycle();
   if (consecutiveSnapshotMisses_ >= maximumConsecutiveSnapshotMisses_) {
-    traffic_timing_decision::applicationLogger().LogError()
+    traffic_timing_decision::ipcLogger().LogError()
         << "[DECISION][INPUT_TIMEOUT] consecutive_misses="
         << consecutiveSnapshotMisses_
         << "; threshold=" << maximumConsecutiveSnapshotMisses_;

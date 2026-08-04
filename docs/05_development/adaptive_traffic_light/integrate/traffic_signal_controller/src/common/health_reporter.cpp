@@ -107,7 +107,7 @@ bool HealthReporter::initialize() {
   Logger().LogInfo() << "event=HEALTH_MONITOR_STARTED"
                      << ", implementation=eclipse_score_health_monitor"
                      << ", evaluation_ms=" << kInternalProcessingCycle.count()
-                     << ", worker_policy=SCHED_FF"
+                     << ", worker_policy=SCHED_FIFO"
                      << ", worker_priority=" << kHealthMonitorPriority
                      << ", heartbeat_min_ms=" << kHeartbeatMin.count()
                      << ", heartbeat_max_ms=" << kHeartbeatMax.count()

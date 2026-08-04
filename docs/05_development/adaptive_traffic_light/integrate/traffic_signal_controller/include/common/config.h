@@ -67,11 +67,11 @@ constexpr std::size_t kPageSizeBytes{4096U};
 // evaluator pass and reject them as MultipleHeartbeats.
 constexpr std::uint64_t kHeartbeatControlCycleInterval{2U};
 constexpr auto kControlDeadlineMin = std::chrono::milliseconds{0U};
-constexpr auto kControlDeadlineMax = std::chrono::milliseconds{1'000U};
+constexpr auto kControlDeadlineMax = std::chrono::milliseconds{5'000U};
 constexpr auto kHeartbeatMin = std::chrono::milliseconds{500U};
-constexpr auto kHeartbeatMax = std::chrono::milliseconds{5'000U};
-constexpr auto kInternalProcessingCycle = std::chrono::milliseconds{100U};
-constexpr auto kSupervisorApiCycle = std::chrono::milliseconds{500U};
+constexpr auto kHeartbeatMax = std::chrono::milliseconds{15'000U};
+constexpr auto kInternalProcessingCycle = std::chrono::milliseconds{500U};
+constexpr auto kSupervisorApiCycle = std::chrono::milliseconds{1'000U};
 
 constexpr std::uint64_t kControlPeriodMilliseconds{1'000U};
 

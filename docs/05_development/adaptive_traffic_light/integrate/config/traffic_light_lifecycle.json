@@ -67,9 +67,9 @@
                     "application_type": "Reporting_And_Supervised",
                     "alive_supervision": {
                         "reporting_cycle": 10.0,
-                        "min_indications": 2,
-                        "max_indications": 6,
-                        "failed_cycles_tolerance": 2
+                        "min_indications": 1,
+                        "max_indications": 8,
+                        "failed_cycles_tolerance": 6
                     }
                 }
             },
@@ -102,10 +102,10 @@
                 "application_profile": {
                     "application_type": "Reporting_And_Supervised",
                     "alive_supervision": {
-                        "reporting_cycle": 2.0,
-                        "min_indications": 2,
-                        "max_indications": 4,
-                        "failed_cycles_tolerance": 1
+                        "reporting_cycle": 5.0,
+                        "min_indications": 1,
+                        "max_indications": 8,
+                        "failed_cycles_tolerance": 6
                     }
                 }
             },
@@ -134,10 +134,10 @@
                 "application_profile": {
                     "application_type": "Reporting_And_Supervised",
                     "alive_supervision": {
-                        "reporting_cycle": 2.0,
-                        "min_indications": 2,
-                        "max_indications": 6,
-                        "failed_cycles_tolerance": 2
+                        "reporting_cycle": 5.0,
+                        "min_indications": 1,
+                        "max_indications": 8,
+                        "failed_cycles_tolerance": 6
                     }
                 }
             },

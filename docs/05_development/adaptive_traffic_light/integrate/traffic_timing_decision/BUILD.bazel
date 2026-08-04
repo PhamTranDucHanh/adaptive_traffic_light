@@ -18,7 +18,10 @@ cc_library(
         "-Wextra",
         "-Wpedantic",
     ],
-    local_defines = ["DECISION_ENGINE_STAT"],
+    local_defines = [
+        "DECISION_ENGINE_STAT",
+        "DECISION_STEPS",
+    ],
     includes = ["include"],
     deps = [
         "@traffic_ipc//:traffic_ipc",

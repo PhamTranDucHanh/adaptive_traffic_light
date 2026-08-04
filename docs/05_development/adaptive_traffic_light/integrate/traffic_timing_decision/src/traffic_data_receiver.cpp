@@ -78,14 +78,14 @@ TrafficDataReceiver::TrafficDataReceiver() = default;
 
 bool TrafficDataReceiver::initialize() {
   if (!snapshotQueue.open()) {
-    traffic_timing_decision::applicationLogger().LogError()
+    traffic_timing_decision::ipcLogger().LogError()
         << "[IPC][SNAPSHOT][OPEN] status="
         << std::string_view{traffic_ipc::queueStatusName(
                snapshotQueue.lastStatus())}
         << "; errno=" << snapshotQueue.lastError();
     return false;
   }
-  traffic_timing_decision::applicationLogger().LogInfo()
+  traffic_timing_decision::ipcLogger().LogInfo()
       << "[IPC][SNAPSHOT][OPEN] queue="
       << traffic_ipc::kTrafficSnapshotQueueName
       << "; mode=nonblocking_consumer";

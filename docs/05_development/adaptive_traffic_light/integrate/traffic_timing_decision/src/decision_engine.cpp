@@ -59,7 +59,7 @@ TimingPlan ConstraintManager::applyTimingConstraints(
             ? maximumCycleLengthMs - intergreenTime
             : std::uint32_t{};
 #ifdef DECISION_STEPS
-    traffic_timing_decision::applicationLogger().LogWarn()
+    traffic_timing_decision::decisionLogger().LogWarn()
         << "[DECISION][CONSTRAINT][PROPORTIONAL_REDUCTION]"
         << " draft_ns_green_ms=" << unconstrained.greenNorthSouthMs
         << "; draft_ew_green_ms=" << unconstrained.greenEastWestMs
@@ -148,7 +148,7 @@ TimingPlan DecisionEngine::processTrafficMetrics(
   TimingPlan nextPlan{};
   if (emergencyActive) {
 #ifdef DECISION_STEPS
-    traffic_timing_decision::applicationLogger().LogWarn()
+    traffic_timing_decision::decisionLogger().LogWarn()
         << "[DECISION][EMERGENCY_OVERRIDE] frame_id=" << snapshot.frameId
         << "; action=keep_previous_green_and_forward_emergency_flags"
         << "; previous_ns_green_ms=" << previousPlan.greenNorthSouthMs
@@ -231,7 +231,7 @@ DemandScore DecisionEngine::calculateDemandScore(
       targetGreenTimeMs(score.northSouthScore);
   const std::uint32_t eastWestTargetMs = targetGreenTimeMs(score.eastWestScore);
 #ifdef DECISION_STEPS
-  traffic_timing_decision::applicationLogger().LogInfo()
+  traffic_timing_decision::decisionLogger().LogInfo()
       << "[DECISION][DEMAND_SCORE] frame_id=" << snapshot.frameId
       << "; ns_score=" << score.northSouthScore
       << "; ns_target_green_ms=" << northSouthTargetMs
@@ -254,7 +254,7 @@ TimingPlan DecisionEngine::assignGreenTime(const DemandScore& score) {
   plan.greenEastWestMs =
       stepToward(previousPlan.greenEastWestMs, eastWestTargetMs);
 #ifdef DECISION_STEPS
-  traffic_timing_decision::applicationLogger().LogInfo()
+  traffic_timing_decision::decisionLogger().LogInfo()
       << "[DECISION][GREEN_ADJUSTMENT]"
       << " ns_current_ms=" << previousPlan.greenNorthSouthMs
       << "; ns_target_ms=" << northSouthTargetMs

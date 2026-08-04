@@ -7,7 +7,19 @@
     "logLevel": "kDebug",
     "contextConfigs": [
         {
-            "name": "DECI",
+            "name": "APP",
+            "logLevel": "kDebug"
+        },
+        {
+            "name": "IPC",
+            "logLevel": "kDebug"
+        },
+        {
+            "name": "DENG",
+            "logLevel": "kDebug"
+        },
+        {
+            "name": "HLTH",
             "logLevel": "kDebug"
         }
     ]
