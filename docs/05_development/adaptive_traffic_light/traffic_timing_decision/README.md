@@ -180,7 +180,7 @@ Then we can copy those .dlt files into our repo at traffic traffic_timing_decisi
 ```bash
 cd traffic_timing_decision/
 mkdir traffic_timing_decision/output/
-cp /tmp/linux_rt_application/logs/{timing_decision,wakeup_latency,execution_time}.dlt   output/
+cp /tmp/linux_rt_application/logs/{timing_decision,wakeup_latency,execution_time}.dlt   traffic_timing_decision/output/
 ```
 
 For easier analytic, use linux tool to convert .dlt file to .txt file:
@@ -198,4 +198,13 @@ After that, the analytic module is ready, run to see statistics from ```wakeup_l
 ```bash
 bazel build --config=x86_64-linux //traffic_timing_decision:analytics
 bazel-bin/traffic_timing_decision/analytics
+```
+
+```bash
+chmod +x traffic_timing_decision/scripts/histogram.sh
+chmod +x traffic_timing_decision/scripts/latency_time.sh
+./traffic_timing_decision/scripts/histogram.sh traffic_timing_decision/output/execution_time.txt
+./traffic_timing_decision/scripts/histogram.sh traffic_timing_decision/output/wakeup_latency.txt
+./traffic_timing_decision/scripts/latency_time.sh traffic_timing_decision/output/execution_time.txt
+./traffic_timing_decision/scripts/latency_time.sh traffic_timing_decision/output/wakeup_latency.txt
 ```

@@ -114,7 +114,7 @@
                 "shutdown_timeout": 60.0,
                 "sandbox": {
                     "scheduling_policy": "SCHED_FIFO",
-                    "scheduling_priority": 60
+                    "scheduling_priority": 80
                 },
                 "environmental_variables": {
                     "PROCESSIDENTIFIER": "timing_decision",

@@ -9,7 +9,9 @@ fi
 
 readonly INPUT_FILE="$1"
 readonly NANOSECONDS_PER_HOUR="3600000000000"
+readonly NANOSECONDS_PER_SECOND="1000000000"
 readonly MICROSECONDS_PER_MILLISECOND="1000"
+readonly BUCKET_SECONDS="60"
 
 if [[ ! -f "$INPUT_FILE" || ! -r "$INPUT_FILE" ]]; then
   echo "Error: input file does not exist or is not readable: $INPUT_FILE" >&2
@@ -83,42 +85,73 @@ if [[ ! -s "$DATA_FILE" ]]; then
   exit 1
 fi
 
-# Normalize the first sample to 0 hours and convert microseconds to
-# milliseconds. No sample is bucketed, filtered, or otherwise discarded.
+# Normalize the first sample to 0 hours, group samples into 60-second time
+# buckets, and convert microseconds to milliseconds. Each plotted point is the
+# average of all samples in its bucket; no input sample is discarded.
 awk -v ns_per_hour="$NANOSECONDS_PER_HOUR" \
+    -v ns_per_second="$NANOSECONDS_PER_SECOND" \
+    -v bucket_seconds="$BUCKET_SECONDS" \
     -v us_per_ms="$MICROSECONDS_PER_MILLISECOND" '
-  NR == 1 {first_timestamp = $1}
-  {
-    elapsed_hours = ($1 - first_timestamp) / ns_per_hour
-    latency_ms = $2 / us_per_ms
-    printf "%.9f %.6f\n", elapsed_hours, latency_ms
+  function flush_bucket() {
+    if (bucket_sample_count == 0) return
+    printf "%.9f %.6f\n", elapsed_hours_sum / bucket_sample_count, \
+           latency_ms_sum / bucket_sample_count
   }
+
+  NR == 1 {
+    first_timestamp = $1
+    current_bucket = 0
+  }
+  {
+    elapsed_nanoseconds = $1 - first_timestamp
+    bucket = int(elapsed_nanoseconds / (bucket_seconds * ns_per_second))
+    latency_ms = $2 / us_per_ms
+
+    if (bucket != current_bucket) {
+      flush_bucket()
+      current_bucket = bucket
+      elapsed_hours_sum = 0
+      latency_ms_sum = 0
+      bucket_sample_count = 0
+    }
+
+    elapsed_hours_sum += elapsed_nanoseconds / ns_per_hour
+    latency_ms_sum += latency_ms
+    ++bucket_sample_count
+  }
+
+  END { flush_bucket() }
 ' "$DATA_FILE" >"$PLOT_DATA_FILE"
 
 read -r SAMPLE_COUNT MIN_VALUE MAX_VALUE < <(
-  awk '
+  awk -v us_per_ms="$MICROSECONDS_PER_MILLISECOND" '
     NR == 1 {
-      minimum = $2
-      maximum = $2
+      minimum = $2 / us_per_ms
+      maximum = $2 / us_per_ms
     }
     {
-      if ($2 < minimum) minimum = $2
-      if ($2 > maximum) maximum = $2
+      value_ms = $2 / us_per_ms
+      if (value_ms < minimum) minimum = value_ms
+      if (value_ms > maximum) maximum = value_ms
     }
     END {
-      print NR, minimum, maximum
+      printf "%d %.6f %.6f\n", NR, minimum, maximum
     }
-  ' "$PLOT_DATA_FILE"
+  ' "$DATA_FILE"
 )
 
 readonly SAMPLE_COUNT
 readonly MIN_VALUE
 readonly MAX_VALUE
-readonly TOTAL_HOURS_EXACT="$(awk 'END {print $1}' "$PLOT_DATA_FILE")"
-readonly TOTAL_HOURS="$(awk 'END {printf "%.3f", $1}' "$PLOT_DATA_FILE")"
+readonly BUCKET_COUNT="$(wc -l < "$PLOT_DATA_FILE")"
+readonly TOTAL_HOURS_EXACT="$(awk -v ns_per_hour="$NANOSECONDS_PER_HOUR" '
+  NR == 1 { first_timestamp = $1 }
+  END { printf "%.9f", ($1 - first_timestamp) / ns_per_hour }
+' "$DATA_FILE")"
+readonly TOTAL_HOURS="$(printf '%.3f' "$TOTAL_HOURS_EXACT")"
 
 gnuplot <<EOF
-set terminal pngcairo size 1600,900 enhanced
+set terminal pngcairo size 1800,900 enhanced
 set output "${OUTPUT_PNG}"
 
 set title "${PLOT_TITLE}"
@@ -133,13 +166,15 @@ set border linewidth 1
 set key top right
 
 plot "${PLOT_DATA_FILE}" using 1:2 \
-with points pointtype 7 pointsize 0.45 linecolor rgb "${POINT_COLOR}" \
-title "${LEGEND_NAME} (${SAMPLE_COUNT} samples, min=${MIN_VALUE} ms, max=${MAX_VALUE} ms)"
+with linespoints linewidth 1.2 pointtype 7 pointsize 0.5 \
+linecolor rgb "${POINT_COLOR}" \
+title "${LEGEND_NAME} (${BUCKET_SECONDS}s average, ${BUCKET_COUNT} buckets; raw min=${MIN_VALUE} ms, raw max=${MAX_VALUE} ms)"
 EOF
 
 echo "Input     : $INPUT_FILE"
 echo "Field     : $FIELD_NAME"
 echo "Samples   : $SAMPLE_COUNT"
+echo "Buckets   : $BUCKET_COUNT (${BUCKET_SECONDS} seconds each)"
 echo "Duration  : 0..$TOTAL_HOURS hours"
 echo "Range     : $MIN_VALUE..$MAX_VALUE ms"
 echo "Generated : $OUTPUT_PNG"

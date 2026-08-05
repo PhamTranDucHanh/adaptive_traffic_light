@@ -1,7 +1,11 @@
 #include "traffic_perception/traffic_perception_application.h"
 
+#include <sched.h>
+
+#include <cerrno>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <filesystem>
 #include <iostream>
@@ -13,6 +17,8 @@
 #include "traffic_perception/core/types.h"
 
 namespace {
+
+constexpr std::int32_t kTrafficPerceptionMainCpu{1};
 
 std::int64_t toNanoseconds(
     const std::chrono::steady_clock::time_point timestamp) {
@@ -118,6 +124,25 @@ std::int32_t TrafficPerceptionApplication::Run(
   if (!initialized_) {
     return EXIT_FAILURE;
   }
+
+  // Pin only the lifecycle/viewer main thread. Stream, pipeline, and health
+  // workers have already been created during Initialize(), so their existing
+  // scheduling policy and CPU-affinity configuration remain unchanged.
+  cpu_set_t affinityMask{};
+  CPU_ZERO(&affinityMask);
+  CPU_SET(kTrafficPerceptionMainCpu, &affinityMask);
+  if (sched_setaffinity(0, sizeof(affinityMask), &affinityMask) != 0) {
+    const std::int32_t affinityError = errno;
+    std::cerr << "[TRAFFIC_PERCEPTION][RUN][CPU_AFFINITY][ERROR] "
+                 "sched_setaffinity failed; cpu="
+              << kTrafficPerceptionMainCpu << "; errno=" << affinityError
+              << "; reason=" << std::strerror(affinityError) << '\n';
+    shutdown();
+    return EXIT_FAILURE;
+  }
+  score::mw::log::LogDebug()
+      << "[TRAFFIC_PERCEPTION][RUN][CPU_AFFINITY] main thread pinned; cpu="
+      << kTrafficPerceptionMainCpu << '\n';
 
   auto nextRelease = std::chrono::steady_clock::now() + viewerPhase_;
   std::int32_t exitCode{EXIT_SUCCESS};
