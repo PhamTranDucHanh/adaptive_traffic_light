@@ -12,7 +12,8 @@ namespace traffic_perception {
 
 class YoloV8OIV7Backend : public IModelBackend {
  public:
-  explicit YoloV8OIV7Backend(const std::string& modelPath);
+  YoloV8OIV7Backend(const std::string& modelPath,
+                    const std::string& emergencyClass);
   ~YoloV8OIV7Backend() override = default;
 
   InferenceResult infer(const Frame& frame) override;
@@ -21,6 +22,8 @@ class YoloV8OIV7Backend : public IModelBackend {
             const InferenceResult& inference) override;
 
  private:
+  std::string emergencyClass_;
+
   Ort::Env env_;
   std::unique_ptr<Ort::Session> session_;
   Ort::MemoryInfo memory_info_;

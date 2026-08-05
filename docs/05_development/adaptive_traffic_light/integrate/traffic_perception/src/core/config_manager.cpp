@@ -73,7 +73,9 @@ bool ConfigManager::loadConfig() {
       std::chrono::milliseconds(data.value("pipeline_phase_ms", 50));
   CachedConfig.ViewerPhase =
       std::chrono::milliseconds(data.value("viewer_phase_ms", 260));
+  CachedConfig.modelBackend = data["model_backend"].get<std::string>();
   CachedConfig.modelPath = data["model"].get<std::string>();
+  CachedConfig.emergencyClass = data["emergency_class"].get<std::string>();
   
 
   auto lanes = data["lanes"];

@@ -87,7 +87,9 @@ struct ThreadingConfig {
 struct AppConfig {
   Resolution videoResolution;
   std::array<LaneConfig, NUM_LANES> lanes{};
+  std::string modelBackend;
   std::string modelPath;
+  std::string emergencyClass;
 
   std::chrono::milliseconds CapturePeriod{200};
   std::chrono::milliseconds PipelinePeriod{3000};

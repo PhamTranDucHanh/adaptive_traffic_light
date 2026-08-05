@@ -41,7 +41,9 @@
     }
   },
 
-  "model": "data/yolov8m-oiv7.onnx",
+  "model_backend": "yolov8",
+  "model": "data/yolov8n.onnx",
+  "emergency_class": "Truck",
   "lanes": [
     {
       "direction": "North",

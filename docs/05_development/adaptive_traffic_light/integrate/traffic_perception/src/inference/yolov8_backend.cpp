@@ -9,8 +9,29 @@
 
 namespace traffic_perception {
 
-YOLOv8Backend::YOLOv8Backend(const std::string& modelPath)
-    : env_(ORT_LOGGING_LEVEL_WARNING, "YOLOv8Backend"),
+static std::string resolveCocoClassName(int classId) {
+  switch (classId) {
+    case 0:
+      return "Person";
+    case 1:
+      return "Bicycle";
+    case 2:
+      return "Car";
+    case 3:
+      return "Motorcycle";
+    case 5:
+      return "Bus";
+    case 7:
+      return "Truck";
+    default:
+      return "Unknown_" + std::to_string(classId);
+  }
+}
+
+YOLOv8Backend::YOLOv8Backend(const std::string& modelPath,
+                             const std::string& emergencyClass)
+    : emergencyClass_(emergencyClass),
+      env_(ORT_LOGGING_LEVEL_WARNING, "YOLOv8Backend"),
       memory_info_(
           Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)) {
   try {
@@ -70,8 +91,7 @@ void YOLOv8Backend::draw(cv::Mat& image,
                          const std::vector<Detection>& detections) {
   for (const auto& det : detections) {
     cv::rectangle(image, det.Box, cv::Scalar(0, 255, 0), 2);
-    std::string label = std::to_string(det.ClassId) + " (" +
-                        std::to_string(det.Confidence) + ")";
+    std::string label = det.ClassName + ": " + std::to_string(det.Confidence);
     cv::putText(image, label, det.Box.tl() - cv::Point(0, 5),
                 cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0), 2);
   }
@@ -375,6 +395,10 @@ void YOLOv8Backend::postprocess(const cv::Mat& frame,
 }
 
 bool YOLOv8Backend::isVehicleClass(int classId) const {
+  if (isEmergencyClass(classId)) {
+    return true;
+  }
+
   // Use CocoClass enum — no magic numbers.
   switch (static_cast<CocoClass>(classId)) {
     case CocoClass::Bicycle:
@@ -388,9 +412,8 @@ bool YOLOv8Backend::isVehicleClass(int classId) const {
   }
 }
 
-bool YOLOv8Backend::isEmergencyClass(int /*classId*/) const {
-  // COCO has no emergency vehicle class.
-  return false;
+bool YOLOv8Backend::isEmergencyClass(int classId) const {
+  return resolveCocoClassName(classId) == emergencyClass_;
 }
 
 Detection YOLOv8Backend::populateDetection(const cv::Rect& box, int classId,
@@ -399,7 +422,7 @@ Detection YOLOv8Backend::populateDetection(const cv::Rect& box, int classId,
   Detection d;
   d.Box = box;
   d.ClassId = classId;
-  d.ClassName = "";  // COCO backend does not produce string names
+  d.ClassName = resolveCocoClassName(classId);
   d.Confidence = confidence;
   d.IsVehicle = isVehicle;
   d.IsEmergency = isEmergency;

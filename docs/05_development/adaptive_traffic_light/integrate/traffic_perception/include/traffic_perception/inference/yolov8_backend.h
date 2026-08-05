@@ -12,7 +12,8 @@ namespace traffic_perception {
 
 class YOLOv8Backend : public IModelBackend {
  public:
-  explicit YOLOv8Backend(const std::string& modelPath);
+  YOLOv8Backend(const std::string& modelPath,
+                const std::string& emergencyClass);
   ~YOLOv8Backend() override = default;
 
   InferenceResult infer(const Frame& frame) override;
@@ -23,6 +24,8 @@ class YOLOv8Backend : public IModelBackend {
             const std::vector<Detection>& detections);
 
  private:
+  std::string emergencyClass_;
+
   // COCO class ID mapping for semantic classification.
   // Only IDs relevant to traffic perception are listed.
   enum class CocoClass : int {

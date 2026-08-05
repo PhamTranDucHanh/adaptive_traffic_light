@@ -19,9 +19,6 @@ static const std::unordered_map<std::string, bool> kOiv7VehicleNames = {
     {"Car", true},        {"Bus", true},     {"Truck", true},
     {"Motorcycle", true}, {"Bicycle", true}, {"Van", true}};
 
-static const std::unordered_map<std::string, bool> kOiv7EmergencyNames = {
-    {"Van", true}};
-
 static const std::vector<std::string> kOiv7Labels = {
     "Accordion", "Adhesive tape", "Aircraft", "Airplane", "Alarm clock",
     "Alpaca",    "Ambulance",     "Animal",   "Ant",      "Antelope",
@@ -49,8 +46,10 @@ static std::string resolveOiv7ClassName(int classId) {
   }
 }
 
-YoloV8OIV7Backend::YoloV8OIV7Backend(const std::string& modelPath)
-    : env_(ORT_LOGGING_LEVEL_WARNING, "YoloV8OIV7Backend"),
+YoloV8OIV7Backend::YoloV8OIV7Backend(
+    const std::string& modelPath, const std::string& emergencyClass)
+    : emergencyClass_(emergencyClass),
+      env_(ORT_LOGGING_LEVEL_WARNING, "YoloV8OIV7Backend"),
       memory_info_(
           Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)) {
   try {
@@ -429,11 +428,12 @@ void YoloV8OIV7Backend::postprocess(
 }
 
 bool YoloV8OIV7Backend::isVehicleClass(const std::string& className) const {
-  return kOiv7VehicleNames.count(className) > 0;
+  return kOiv7VehicleNames.count(className) > 0 ||
+         isEmergencyClass(className);
 }
 
 bool YoloV8OIV7Backend::isEmergencyClass(const std::string& className) const {
-  return kOiv7EmergencyNames.count(className) > 0;
+  return className == emergencyClass_;
 }
 
 Detection YoloV8OIV7Backend::populateDetection(const cv::Rect& box, int classId,

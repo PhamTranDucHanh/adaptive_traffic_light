@@ -46,7 +46,18 @@ bool PerceptionModule::initModule(const AppConfig& config) {
     return false;
   }
 
-  backend_ = std::make_unique<YoloV8OIV7Backend>(config_.modelPath);
+  if (config_.modelBackend == "yolov8") {
+    backend_ = std::make_unique<YOLOv8Backend>(config_.modelPath,
+                                               config_.emergencyClass);
+  } else if (config_.modelBackend == "yolov8_oiv7") {
+    backend_ = std::make_unique<YoloV8OIV7Backend>(config_.modelPath,
+                                                   config_.emergencyClass);
+  } else {
+    score::mw::log::LogError()
+        << "[PERCEPTION_MODULE][INIT] unsupported model backend: "
+        << config_.modelBackend;
+    return false;
+  }
 
   std::array<Roi, NUM_LANES> laneRois{};
   for (std::size_t i = 0; i < NUM_LANES; ++i) {
