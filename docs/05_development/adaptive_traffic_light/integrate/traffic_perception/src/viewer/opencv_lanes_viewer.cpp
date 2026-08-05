@@ -164,6 +164,9 @@ void OpenCVLanesViewer::render(
     Analyzer& analyzer,
     const std::array<cv::Mat, NUM_LANES>& previewFrames,
     int64_t expectedWakeupNs, int64_t renderBeginNs) {
+  static std::atomic<std::int64_t> cycleId{0};
+  const std::int64_t currentCycle = ++cycleId;
+
   auto frames = analyzer.takeRenderFrames();
 
   std::array<cv::Mat, NUM_LANES> canvasLanes{};
@@ -229,7 +232,8 @@ void OpenCVLanesViewer::render(
   const int64_t renderEnd = GetMonotonicTimeNs();
 
   getViewerBenchmarkLogger().LogInfo()
-      << "ExpectedWakeup=" << expectedWakeupNs
+      << "CycleId=" << currentCycle
+      << " ExpectedWakeup=" << expectedWakeupNs
       << " Begin=" << renderBeginNs << " End=" << renderEnd;
 }
 

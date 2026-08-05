@@ -11,6 +11,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <cstdlib>
 
 namespace traffic_perception {
 
@@ -212,27 +213,38 @@ bool TimelineAnalyzer::load() {
   if (std::filesystem::exists(path)) {
     in.open(path);
   } else {
-    auto runfiles_path = std::filesystem::path("runfiles") / logFile_;
-    if (std::filesystem::exists(runfiles_path)) {
-      in.open(runfiles_path);
-      logFile_ = runfiles_path.string();
-    } else {
-      auto current_path = std::filesystem::current_path() / logFile_;
-      if (std::filesystem::exists(current_path)) {
-        in.open(current_path);
-        logFile_ = current_path.string();
+    const char* bazel_wd = std::getenv("BUILD_WORKING_DIRECTORY");
+    if (bazel_wd != nullptr) {
+      auto bazel_path = std::filesystem::path(bazel_wd) / logFile_;
+      if (std::filesystem::exists(bazel_path)) {
+        in.open(bazel_path);
+        logFile_ = bazel_path.string();
+      }
+    }
+
+    if (!in.is_open()) {
+      auto runfiles_path = std::filesystem::path("runfiles") / logFile_;
+      if (std::filesystem::exists(runfiles_path)) {
+        in.open(runfiles_path);
+        logFile_ = runfiles_path.string();
       } else {
-        auto dir = std::filesystem::current_path();
-        while (dir.has_parent_path()) {
-          if (std::filesystem::exists(dir / "WORKSPACE")) {
-            auto workspace_path = dir / logFile_;
-            if (std::filesystem::exists(workspace_path)) {
-              in.open(workspace_path);
-              logFile_ = workspace_path.string();
+        auto current_path = std::filesystem::current_path() / logFile_;
+        if (std::filesystem::exists(current_path)) {
+          in.open(current_path);
+          logFile_ = current_path.string();
+        } else {
+          auto dir = std::filesystem::current_path();
+          while (dir.has_parent_path() && dir != dir.parent_path()) {
+            if (std::filesystem::exists(dir / "WORKSPACE") || std::filesystem::exists(dir / "WORKSPACE.bazel")) {
+              auto workspace_path = dir / logFile_;
+              if (std::filesystem::exists(workspace_path)) {
+                in.open(workspace_path);
+                logFile_ = workspace_path.string();
+              }
+              break;
             }
-            break;
+            dir = dir.parent_path();
           }
-          dir = dir.parent_path();
         }
       }
     }

@@ -62,13 +62,17 @@ void PipelineManager::run(std::chrono::steady_clock::time_point startTime) {
 void PipelineManager::stop() { running_ = false; }
 
 void PipelineManager::runOneCycle(int64_t expectedWakeup,
-                                  int64_t pipelineBegin) {
+                                   int64_t pipelineBegin) {
+  static std::atomic<std::int64_t> cycleId{0};
+  const std::int64_t currentCycle = ++cycleId;
+
   engine_.runOneCycle();
 
   const int64_t pipelineEnd = GetMonotonicTimeNs();
 
   getPipelineBenchmarkLogger().LogInfo()
-      << "ExpectedWakeup=" << expectedWakeup
+      << "CycleId=" << currentCycle
+      << " ExpectedWakeup=" << expectedWakeup
       << " Begin=" << pipelineBegin << " End=" << pipelineEnd;
 
   TrafficSnapshot snapshot = analyzer_.buildTrafficSnapshot();
