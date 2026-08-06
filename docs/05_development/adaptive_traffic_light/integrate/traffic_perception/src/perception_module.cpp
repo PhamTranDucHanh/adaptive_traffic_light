@@ -3,13 +3,103 @@
 #include <pthread.h>
 #include <sched.h>
 
+#include <cerrno>
+#include <cstdio>
+#include <cstring>
+#include <exception>
 #include <memory>
+#include <string>
 
 #include "score/mw/log/logging.h"
 #include "traffic_perception/inference/yolov8_backend.h"
 #include "traffic_perception/inference/yolov8_oiv7_backend.h"
 
 namespace {
+
+constexpr std::int32_t kBackendBootstrapCpu{0};
+
+struct BackendBootstrapContext {
+  const AppConfig* config{nullptr};
+  std::unique_ptr<traffic_perception::IModelBackend> backend{};
+  std::exception_ptr exception{};
+};
+
+void* BackendBootstrapThreadEntry(void* arg) {
+  auto* ctx = static_cast<BackendBootstrapContext*>(arg);
+
+  try {
+    if (ctx->config->modelBackend == "yolov8") {
+      ctx->backend = std::make_unique<traffic_perception::YOLOv8Backend>(
+          ctx->config->modelPath, ctx->config->emergencyClass);
+    } else if (ctx->config->modelBackend == "yolov8_oiv7") {
+      ctx->backend = std::make_unique<traffic_perception::YoloV8OIV7Backend>(
+          ctx->config->modelPath, ctx->config->emergencyClass);
+    }
+  } catch (...) {
+    // Exceptions must not cross the pthread C entry-point boundary. The join
+    // below synchronizes this state before it is rethrown by the caller.
+    ctx->exception = std::current_exception();
+  }
+
+  return nullptr;
+}
+
+bool CreateBackendOnOtherThread(
+    const AppConfig& config,
+    std::unique_ptr<traffic_perception::IModelBackend>& backend) {
+  pthread_attr_t attr;
+  int ret = pthread_attr_init(&attr);
+  if (ret != 0) {
+    return false;
+  }
+
+  ret = pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
+  if (ret == 0) {
+    ret = pthread_attr_setschedpolicy(&attr, SCHED_OTHER);
+  }
+  sched_param schedulingParameters{};
+  schedulingParameters.sched_priority = 0;
+  if (ret == 0) {
+    ret = pthread_attr_setschedparam(&attr, &schedulingParameters);
+  }
+
+  cpu_set_t affinityMask{};
+  CPU_ZERO(&affinityMask);
+  CPU_SET(kBackendBootstrapCpu, &affinityMask);
+  if (ret == 0) {
+    ret = pthread_attr_setaffinity_np(&attr, sizeof(affinityMask),
+                                      &affinityMask);
+  }
+
+  BackendBootstrapContext context{&config};
+  pthread_t thread{};
+  if (ret == 0) {
+    ret = pthread_create(&thread, &attr, BackendBootstrapThreadEntry, &context);
+  }
+  pthread_attr_destroy(&attr);
+
+  if (ret != 0) {
+    score::mw::log::LogError()
+        << "[PERCEPTION_MODULE][INIT] backend bootstrap thread failed; ret="
+        << ret << "; reason=" << std::string{strerror(ret)};
+    return false;
+  }
+
+  ret = pthread_join(thread, nullptr);
+  if (ret != 0) {
+    score::mw::log::LogError()
+        << "[PERCEPTION_MODULE][INIT] backend bootstrap join failed; ret="
+        << ret << "; reason=" << std::string{strerror(ret)};
+    return false;
+  }
+
+  if (context.exception != nullptr) {
+    std::rethrow_exception(context.exception);
+  }
+
+  backend = std::move(context.backend);
+  return backend != nullptr;
+}
 
 void* StreamThreadEntry(void* arg) {
   auto* ctx = static_cast<traffic_perception::StreamThreadContext*>(arg);
@@ -46,16 +136,18 @@ bool PerceptionModule::initModule(const AppConfig& config) {
     return false;
   }
 
-  if (config_.modelBackend == "yolov8") {
-    backend_ = std::make_unique<YOLOv8Backend>(config_.modelPath,
-                                               config_.emergencyClass);
-  } else if (config_.modelBackend == "yolov8_oiv7") {
-    backend_ = std::make_unique<YoloV8OIV7Backend>(config_.modelPath,
-                                                   config_.emergencyClass);
-  } else {
+  if (config_.modelBackend != "yolov8" &&
+      config_.modelBackend != "yolov8_oiv7") {
     score::mw::log::LogError()
         << "[PERCEPTION_MODULE][INIT] unsupported model backend: "
         << config_.modelBackend;
+    return false;
+  }
+
+  // The managed process starts as SCHED_RR. Construct ONNX Runtime from an
+  // explicitly SCHED_OTHER, CPU-0 bootstrap thread so its internal workers
+  // inherit the intended scheduling and affinity at creation time.
+  if (!CreateBackendOnOtherThread(config_, backend_)) {
     return false;
   }
 

@@ -2,7 +2,34 @@ diff --git a/score/health_monitor/src/rust/worker.rs b/score/health_monitor/src/
 index d9fdde1..e2fb82f 100644
 --- a/score/health_monitor/src/rust/worker.rs
 +++ b/score/health_monitor/src/rust/worker.rs
-@@ -133,7 +133,10 @@ impl UniqueThreadRunner {
+@@ -20,6 +20,18 @@ use std::sync::Arc;
+ use std::time::Instant;
+ use thread::{spawn, JoinHandle, ThreadParameters};
+ 
++#[cfg(target_os = "linux")]
++fn set_monitoring_thread_name() {
++    unsafe extern "C" {
++        fn pthread_self() -> usize;
++        fn pthread_setname_np(thread: usize, name: *const core::ffi::c_char) -> i32;
++    }
++
++    // Linux limits pthread names to 15 visible bytes plus the null terminator.
++    // SAFETY: the byte string is static, null-terminated, and within that limit.
++    let _ = unsafe { pthread_setname_np(pthread_self(), c"health_monitor".as_ptr()) };
++}
++
+ pub(super) struct MonitoringLogic<T: SupervisorAPIClient> {
+     monitors: FixedCapacityVec<MonitorEvalHandle>,
+     client: T,
+@@ -119,5 +131,7 @@ impl UniqueThreadRunner {
+             spawn(
+                 move || {
++                    #[cfg(target_os = "linux")]
++                    set_monitoring_thread_name();
+                     info!("Monitoring thread started.");
+                     let hmon_starting_point = Instant::now();
+                     let mut next_sleep_time = interval;
+@@ -133,7 +147,10 @@ impl UniqueThreadRunner {
                              break;
                          }
  

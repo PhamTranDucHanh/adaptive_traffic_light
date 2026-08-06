@@ -54,6 +54,8 @@ YoloV8OIV7Backend::YoloV8OIV7Backend(
           Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)) {
   try {
     Ort::SessionOptions sessionOptions;
+    sessionOptions.SetIntraOpNumThreads(1);
+    sessionOptions.SetInterOpNumThreads(1);
     session_ = std::make_unique<Ort::Session>(env_, modelPath.c_str(),
                                               sessionOptions);
 

@@ -25,6 +25,7 @@ constexpr auto kInternalProcessingCycle = 100ms;
 // vulnerable to scheduler jitter and can land in the adjacent window.
 constexpr auto kSupervisorApiCycle = 2000ms;
 constexpr std::int32_t kHealthMonitorPriority = 70;
+constexpr std::size_t kHealthMonitorCpu = 2U;
 
 const score::mw::health::MonitorTag kDeadlineMonitorTag{
     "perception_deadline_monitor"};
@@ -57,9 +58,11 @@ bool LifecycleHealthReporter::initialize() {
       TimeRange{kPerceptionDeadlineMin, kPerceptionDeadlineMax});
   auto heartbeatBuilder =
       HeartbeatMonitorBuilder(TimeRange{kHeartbeatMin, kHeartbeatMax});
-  auto healthThreadParameters = ThreadParameters{}.scheduler_parameters(
-      SchedulerParameters{SchedulerPolicy::RoundRobin,
-                          kHealthMonitorPriority});
+  auto healthThreadParameters =
+      ThreadParameters{}
+          .scheduler_parameters(SchedulerParameters{
+              SchedulerPolicy::RoundRobin, kHealthMonitorPriority})
+          .affinity(std::vector<std::size_t>{kHealthMonitorCpu});
 
   auto healthResult =
       HealthMonitorBuilder()

@@ -146,7 +146,7 @@
                 "shutdown_timeout": 60.0,
                 "sandbox": {
                     "scheduling_policy": "SCHED_FIFO",
-                    "scheduling_priority": 50
+                    "scheduling_priority": 80
                 },
                 "environmental_variables": {
                     "PROCESSIDENTIFIER": "traffic_signal_controller",
