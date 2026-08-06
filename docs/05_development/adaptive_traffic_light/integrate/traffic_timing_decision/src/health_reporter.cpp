@@ -14,9 +14,9 @@ enum class HealthIntervalMilliseconds : std::int64_t {
   kDecisionDeadlineMinimum = 0,
   kHeartbeatMinimum = 500,
   kInternalProcessingCycle = 500,
-  kSupervisorApiCycle = 2000,
-  kDecisionDeadlineMaximum = 30000,
-  kHeartbeatMaximum = 30000,
+  kSupervisorApiCycle = 1000,
+  kDecisionDeadlineMaximum = 10000,
+  kHeartbeatMaximum = 15000,
 };
 
 constexpr std::chrono::milliseconds toDuration(
@@ -37,7 +37,6 @@ constexpr std::chrono::milliseconds kInternalProcessingCycle =
 constexpr std::chrono::milliseconds kSupervisorApiCycle =
     toDuration(HealthIntervalMilliseconds::kSupervisorApiCycle);
 constexpr std::int32_t kHealthMonitorPriority = 50;
-constexpr std::chrono::milliseconds kHeartbeatReportInterval{2000};
 
 const score::mw::health::MonitorTag kDeadlineMonitorTag{
     "timing_decision_deadline_monitor"};
@@ -67,25 +66,24 @@ bool HealthReporter::initialize() {
 
   score::mw::health::deadline::DeadlineMonitorBuilder deadlineBuilder =
       DeadlineMonitorBuilder().add_deadline(
-          kDecisionCycleDeadlineTag,
-          TimeRange{kDecisionDeadlineMin, kDecisionDeadlineMax});
+      kDecisionCycleDeadlineTag,
+      TimeRange{kDecisionDeadlineMin, kDecisionDeadlineMax});
   score::mw::health::heartbeat::HeartbeatMonitorBuilder heartbeatBuilder =
       HeartbeatMonitorBuilder(TimeRange{kHeartbeatMin, kHeartbeatMax});
   auto healthThreadParameters = ThreadParameters{}.scheduler_parameters(
-      SchedulerParameters{SchedulerPolicy::Fifo, kHealthMonitorPriority});
+SchedulerParameters{SchedulerPolicy::Fifo, kHealthMonitorPriority});
 
   score::cpp::expected<score::mw::health::HealthMonitor,
                        score::mw::health::Error>
       healthMonitorResult =
-          HealthMonitorBuilder()
-              .add_deadline_monitor(kDeadlineMonitorTag,
-                                    std::move(deadlineBuilder))
-              .add_heartbeat_monitor(kHeartbeatMonitorTag,
-                                     std::move(heartbeatBuilder))
-              .with_internal_processing_cycle(kInternalProcessingCycle)
-              .with_supervisor_api_cycle(kSupervisorApiCycle)
-              .thread_parameters(std::move(healthThreadParameters))
-              .build();
+      HealthMonitorBuilder()
+          .add_deadline_monitor(kDeadlineMonitorTag, std::move(deadlineBuilder))
+          .add_heartbeat_monitor(kHeartbeatMonitorTag,
+                                 std::move(heartbeatBuilder))
+          .with_internal_processing_cycle(kInternalProcessingCycle)
+          .with_supervisor_api_cycle(kSupervisorApiCycle)
+          .thread_parameters(std::move(healthThreadParameters))
+          .build();
   if (!healthMonitorResult.has_value()) {
     traffic_timing_decision::healthLogger().LogError()
         << "[HEALTH] could not build official S-CORE HealthMonitor";
@@ -96,7 +94,7 @@ bool HealthReporter::initialize() {
   score::cpp::expected<score::mw::health::deadline::DeadlineMonitor,
                        score::mw::health::Error>
       deadlineMonitorResult =
-          healthMonitor_->get_deadline_monitor(kDeadlineMonitorTag);
+      healthMonitor_->get_deadline_monitor(kDeadlineMonitorTag);
   if (!deadlineMonitorResult.has_value()) {
     traffic_timing_decision::healthLogger().LogError()
         << "[HEALTH] could not obtain deadline monitor";
@@ -108,7 +106,7 @@ bool HealthReporter::initialize() {
   score::cpp::expected<score::mw::health::heartbeat::HeartbeatMonitor,
                        score::mw::health::Error>
       heartbeatMonitorResult =
-          healthMonitor_->get_heartbeat_monitor(kHeartbeatMonitorTag);
+      healthMonitor_->get_heartbeat_monitor(kHeartbeatMonitorTag);
   if (!heartbeatMonitorResult.has_value()) {
     traffic_timing_decision::healthLogger().LogError()
         << "[HEALTH] could not obtain heartbeat monitor";
@@ -120,7 +118,7 @@ bool HealthReporter::initialize() {
   score::cpp::expected<score::mw::health::deadline::Deadline,
                        score::mw::health::Error>
       deadlineResult =
-          deadlineMonitor_->get_deadline(kDecisionCycleDeadlineTag);
+      deadlineMonitor_->get_deadline(kDecisionCycleDeadlineTag);
   if (!deadlineResult.has_value()) {
     traffic_timing_decision::healthLogger().LogError()
         << "[HEALTH] could not obtain decision cycle deadline";
@@ -134,8 +132,6 @@ bool HealthReporter::initialize() {
   // before run_application reports the process as Running after Initialize().
   healthMonitor_->start();
   monitoredCycleCount_ = std::uint64_t{};
-  nextHeartbeatAt_ =
-      std::chrono::steady_clock::now() + kHeartbeatReportInterval;
   initialized_ = true;
 
   traffic_timing_decision::healthLogger().LogInfo()
@@ -171,7 +167,6 @@ void HealthReporter::shutdown() {
         << "[HEALTH][STOP] monitor stopped";
   }
   monitoredCycleCount_ = std::uint64_t{};
-  nextHeartbeatAt_ = std::chrono::steady_clock::time_point{};
   initialized_ = false;
 }
 
@@ -183,29 +178,23 @@ bool HealthReporter::startDecisionCycle() {
     return false;
   }
 
-  // Event arrivals are not periodic and may be bursty. Gate heartbeat by
-  // CLOCK_MONOTONIC time rather than event count so S-CORE never observes
-  // multiple heartbeats in one 500 ms evaluation window. Timeout wake-ups keep
-  // this health path alive even while the input queue is temporarily idle.
+  // One local heartbeat represents one released 2.5-second decision cycle.
+  // It is input to HealthMonitor, not the Alive IPC notification itself. The
+  // HealthMonitor worker emits Alive asynchronously when all local monitors
+  // evaluate as healthy.
   ++monitoredCycleCount_;
   cycleStartedAt_ = std::chrono::steady_clock::now();
-  const bool heartbeatDue = cycleStartedAt_ >= nextHeartbeatAt_;
-  if (heartbeatDue) {
-    heartbeatMonitor_->heartbeat();
-    nextHeartbeatAt_ = cycleStartedAt_ + kHeartbeatReportInterval;
+  heartbeatMonitor_->heartbeat();
 #ifdef LOG_HEALTH_MONITOR
-    traffic_timing_decision::healthLogger().LogDebug()
-        << "[HEALTH][HEARTBEAT] local_notification=recorded; cycle="
-        << monitoredCycleCount_
-        << "; nominal_interval_ms=" << kHeartbeatReportInterval.count()
-        << "; expected_interval_ms=" << kHeartbeatMin.count() << ".."
-        << kHeartbeatMax.count();
+  traffic_timing_decision::healthLogger().LogDebug()
+      << "[HEALTH][HEARTBEAT] local_notification=recorded; cycle="
+      << monitoredCycleCount_
+      << "; expected_interval_ms=" << kHeartbeatMin.count() << ".."
+      << kHeartbeatMax.count();
 #endif
-  }
 
-  // Deadline-monitor every useful decision pipeline execution. Repeated
-  // completed deadlines are valid; unlike heartbeat state, they are not
-  // counted as multiple indications by the S-CORE evaluator.
+  // The deadline covers only the useful decision pipeline, not its periodic
+  // wait between releases.
   score::cpp::expected<score::mw::health::deadline::DeadlineHandle,
                        score::mw::health::Error>
       deadlineResult = cycleDeadline_->start();

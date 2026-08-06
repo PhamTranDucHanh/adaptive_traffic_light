@@ -10,24 +10,6 @@
 #include "application_logger.h"
 #include "common.h"
 
-namespace {
-
-bool HasEmergency(const TimingPlan& plan) noexcept {
-  return plan.emergencyNorthSouth || plan.emergencyEastWest;
-}
-
-bool HasSameSignalOutput(const TimingPlan& lhs,
-                         const TimingPlan& rhs) noexcept {
-  return lhs.greenNorthSouthMs == rhs.greenNorthSouthMs &&
-         lhs.greenEastWestMs == rhs.greenEastWestMs &&
-         lhs.yellowMs == rhs.yellowMs && lhs.allRedMs == rhs.allRedMs &&
-         lhs.cycleLengthMs == rhs.cycleLengthMs &&
-         lhs.emergencyNorthSouth == rhs.emergencyNorthSouth &&
-         lhs.emergencyEastWest == rhs.emergencyEastWest;
-}
-
-}  // namespace
-
 //
 // Constructor
 //
@@ -78,9 +60,6 @@ bool TimingPlanPublisher::initialize() {
   sequenceNumber_ = 0U;
   pendingLatest_.reset();
   pendingLatestPlan_.reset();
-  lastPublishedPlan_ = TimingPlan{};
-  lastPublishTimestampNs_ = std::uint64_t{};
-  lastPlanSuppressed_ = false;
   lastError_ = 0;
 
   traffic_timing_decision::ipcLogger().LogInfo()
@@ -105,34 +84,6 @@ void TimingPlanPublisher::shutdown() {
 // Publish
 //
 bool TimingPlanPublisher::publishTimingPlan(const TimingPlan& plan) {
-  lastPlanSuppressed_ = false;
-
-  // Emergency plans always take the normal immediate publish path, even when
-  // their durations and flags match the previously delivered plan.
-  if (!HasEmergency(plan)) {
-    if (pendingLatestPlan_.has_value() &&
-        HasSameSignalOutput(plan, *pendingLatestPlan_)) {
-      lastPlanSuppressed_ = true;
-      traffic_timing_decision::ipcLogger().LogDebug()
-          << "[IPC][PLAN][UNCHANGED] plan_id=" << plan.planId
-          << "; compared_with=pending_latest; action=retry_pending_only";
-      return trySendPending();
-    }
-
-    if (lastPublishedPlan_.planId != std::uint64_t{} &&
-        HasSameSignalOutput(plan, lastPublishedPlan_)) {
-      // A newer pending value is obsolete when the newest decision has already
-      // returned to the signal output currently held by the controller.
-      pendingLatest_.reset();
-      pendingLatestPlan_.reset();
-      lastPlanSuppressed_ = true;
-      traffic_timing_decision::ipcLogger().LogDebug()
-          << "[IPC][PLAN][UNCHANGED] plan_id=" << plan.planId
-          << "; compared_with=last_published; action=skip_send";
-      return true;
-    }
-  }
-
   pendingLatest_ = makeMessage(plan);
   pendingLatestPlan_ = plan;
   return trySendPending();
@@ -147,10 +98,6 @@ bool TimingPlanPublisher::publishPreviousTimingPlan() {
     return false;
   }
   return publishTimingPlan(lastPublishedPlan_);
-}
-
-bool TimingPlanPublisher::wasLastPlanSuppressed() const noexcept {
-  return lastPlanSuppressed_;
 }
 
 bool TimingPlanPublisher::validateQueueContract() noexcept {

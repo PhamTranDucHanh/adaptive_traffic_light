@@ -7,7 +7,6 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
-#include <limits>
 #include <score/stop_token.hpp>
 #include <string_view>
 
@@ -35,7 +34,6 @@ enum class RealtimeMemoryConfiguration : std::uint32_t {
 };
 
 enum class TimeConversion : std::uint64_t {
-  kNanosecondsPerMicrosecond = 1000ULL,
   kNanosecondsPerMillisecond = 1000000ULL,
   kNanosecondsPerSecond = 1000000000ULL,
 };
@@ -48,6 +46,7 @@ constexpr std::uint32_t toBytes(
     const RealtimeMemoryConfiguration value) noexcept {
   return static_cast<std::uint32_t>(value);
 }
+
 
 void prefaultCurrentThreadStack() noexcept {
   std::array<std::uint8_t,
@@ -68,10 +67,10 @@ std::uint64_t timestampNanoseconds(const timespec& timestamp) noexcept {
          static_cast<std::int64_t>(timestamp.tv_nsec);
 }
 
+
 std::uint64_t durationNanoseconds(const timespec& start,
                                   const timespec& end) noexcept {
-  const std::int64_t duration =
-      timestampNanoseconds(end) - timestampNanoseconds(start);
+  const std::int64_t duration = timestampNanoseconds(end) - timestampNanoseconds(start);
   return duration;
 }
 
@@ -341,6 +340,12 @@ std::int32_t TimingDecisionApplication::Initialize(
   applicationLogger().LogInfo()
       << "[INIT][CPU_AFFINITY] process pinned; cpu=" << kTimingDecisionCpu;
 
+  if (!periodicWait_.valid()) {
+    applicationLogger().LogError()
+        << "[INIT][PERIODIC] condition variable initialization failed";
+    return EXIT_FAILURE;
+  }
+
   if (!timingReportLogger_.initialize(timingReportDirectory())) {
     applicationLogger().LogError()
         << "[INIT][TIMING_REPORT] could not create WKUP/EXEC DLT recorders";
@@ -376,8 +381,7 @@ std::int32_t TimingDecisionApplication::Initialize(
   cycleCount_ = std::uint64_t{};
   deadlineMissCount_ = std::uint64_t{};
   applicationLogger().LogInfo()
-      << "[INIT] service ready; mode=event_driven_snapshot_mq"
-      << "; idle_timeout_ms=" << service_.eventWaitTimeoutMs()
+      << "[INIT] service ready; period_ms=" << service_.periodMs()
       << "; timing_report_dir=" << timingReportDirectory();
   return EXIT_SUCCESS;
 }
@@ -390,148 +394,144 @@ std::int32_t TimingDecisionApplication::Run(
 
   prefaultCurrentThreadStack();
   applicationLogger().LogInfo()
-      << "[RUN][MEMORY_LOCK] event worker stack prefaulted; reserve_bytes="
+      << "[RUN][MEMORY_LOCK] periodic thread stack prefaulted; reserve_bytes="
       << toBytes(RealtimeMemoryConfiguration::kStackPrefaultBytes);
 
   std::int32_t exitCode{EXIT_SUCCESS};
-  {
-    // Destroy the callback before service_.shutdown() closes eventfd, avoiding
-    // any callback/descriptor lifetime race during lifecycle teardown.
-    score::cpp::stop_callback stopWake{
-        stopToken, [this]() noexcept { service_.requestStop(); }};
-    applicationLogger().LogInfo()
-        << "[RUN] event-driven loop started; source=/traffic_snapshot_v1; "
-           "wait=poll(POSIX_MQ,eventfd); delivery=drain_latest";
-
-    std::uint64_t cycleId = 0;
-    bool wakeupTimestampValid = false;
-    timespec actualWakeup{};
-    timespec executionStart{};
-    timespec executionEnd{};
-    bool executionStartValid = false;
-    bool cycleSucceeded = false;
-    bool executionEndTimestampValid = false;
-    std::uint64_t deadlineNs = 0;
-    WakeupTimingRecord wakeupRecord = {};
-    std::uint64_t executionTimeNs = 0;
-    std::uint64_t responseTimeNs = 0;
-    std::uint64_t executionOverrunNs = 0;
-    std::uint64_t cycleOverrunNs = 0;
-    bool executionDeadlineMiss = false;
-    bool cycleDeadlineMiss = false;
-    ExecutionTimingRecord executionRecord = {};
-    TrafficSnapshot snapshot{};
-    SnapshotWaitStatus waitStatus{SnapshotWaitStatus::kTimeout};
-    std::uint64_t eventPublishTimestampNs = 0U;
-    std::uint64_t actualWakeupTimestampNs = 0U;
-    std::uint64_t executionStartTimestampNs = 0U;
-    std::uint64_t executionEndTimestampNs = 0U;
-    bool eventTimestampValid = false;
-
-    while (!stopToken.stop_requested()) {
-      snapshot = TrafficSnapshot{};
-      waitStatus = service_.waitForSnapshot(snapshot);
-      if (waitStatus == SnapshotWaitStatus::kStopped ||
-          stopToken.stop_requested()) {
-        break;
-      }
-
-      cycleId = cycleCount_ + std::uint64_t{1U};
-      // Capture completion of the kernel wake-up and drain-latest receive
-      // before doing any logging or domain work.
-      wakeupTimestampValid = common::monotonicNow(actualWakeup);
-
-      // These timestamps intentionally bracket only health + validate +
-      // decision
-      // + publish. The blocked MQ wait is excluded from execution time.
-      executionStartValid = common::monotonicNow(executionStart);
-      cycleSucceeded = service_.runDecisionCycle(waitStatus, snapshot);
-      executionEndTimestampValid = common::monotonicNow(executionEnd);
-
-      deadlineNs = periodNanoseconds(service_.eventWaitTimeoutMs());
-      actualWakeupTimestampNs =
-          wakeupTimestampValid ? timestampNanoseconds(actualWakeup) : 0U;
-      eventTimestampValid =
-          waitStatus == SnapshotWaitStatus::kReady &&
-          snapshot.timestampUs != 0U &&
-          snapshot.timestampUs <=
-              (std::numeric_limits<std::uint64_t>::max() /
-               toNanoseconds(TimeConversion::kNanosecondsPerMicrosecond));
-      eventPublishTimestampNs =
-          eventTimestampValid
-              ? snapshot.timestampUs *
-                    toNanoseconds(TimeConversion::kNanosecondsPerMicrosecond)
-              : 0U;
-
-      if (eventTimestampValid && wakeupTimestampValid &&
-          actualWakeupTimestampNs >= eventPublishTimestampNs) {
-        wakeupRecord = WakeupTimingRecord{
-            cycleId, eventPublishTimestampNs, actualWakeupTimestampNs,
-            actualWakeupTimestampNs - eventPublishTimestampNs, deadlineNs};
-        if (!timingReportLogger_.logWakeup(wakeupRecord)) {
-          applicationLogger().LogWarn()
-              << "[TIMING_REPORT][WAKEUP] record dropped; cycle=" << cycleId;
-        }
-      } else if (waitStatus == SnapshotWaitStatus::kReady) {
-        applicationLogger().LogError()
-            << "[TIMING_REPORT][WAKEUP] invalid CLOCK_MONOTONIC event "
-               "timestamp; "
-               "cycle="
-            << cycleId << "; frame_id=" << snapshot.frameId;
-      }
-
-      if (executionStartValid && executionEndTimestampValid) {
-        executionStartTimestampNs = timestampNanoseconds(executionStart);
-        executionEndTimestampNs = timestampNanoseconds(executionEnd);
-        executionTimeNs = durationNanoseconds(executionStart, executionEnd);
-        responseTimeNs = eventTimestampValid && executionEndTimestampNs >=
-                                                    eventPublishTimestampNs
-                             ? executionEndTimestampNs - eventPublishTimestampNs
-                             : executionTimeNs;
-        executionOverrunNs =
-            deadlineOverrunNanoseconds(executionTimeNs, deadlineNs);
-        cycleOverrunNs = deadlineOverrunNanoseconds(responseTimeNs, deadlineNs);
-        executionDeadlineMiss = {executionOverrunNs != 0};
-        cycleDeadlineMiss = {cycleOverrunNs != 0};
-        if (cycleDeadlineMiss) {
-          ++deadlineMissCount_;
-        }
-
-        executionRecord = ExecutionTimingRecord{cycleId,
-                                                executionStartTimestampNs,
-                                                executionEndTimestampNs,
-                                                executionTimeNs,
-                                                responseTimeNs,
-                                                deadlineNs,
-                                                executionOverrunNs,
-                                                cycleOverrunNs,
-                                                executionDeadlineMiss,
-                                                cycleDeadlineMiss,
-                                                cycleSucceeded};
-        if (!timingReportLogger_.logExecution(executionRecord)) {
-          applicationLogger().LogWarn()
-              << "[TIMING_REPORT][EXECUTION] record dropped; cycle=" << cycleId;
-        }
-      } else {
-        applicationLogger().LogError()
-            << "[TIMING_REPORT][EXECUTION] "
-               "clock_gettime(CLOCK_MONOTONIC) failed; cycle="
-            << cycleId;
-      }
-
-      if (!cycleSucceeded) {
-        applicationLogger().LogError()
-            << "[RUN] health-monitored event cycle failed";
-        exitCode = EXIT_FAILURE;
-        break;
-      }
-      ++cycleCount_;
-#ifdef LOG_NUMBER_CYCLES
-      applicationLogger().LogDebug()
-          << "[CYCLE] completed; counter=" << cycleCount_ << "; trigger="
-          << (waitStatus == SnapshotWaitStatus::kReady ? "snapshot"
-                                                       : "timeout");
+  timespec nextRelease{};
+  if (!common::monotonicNow(nextRelease)) {
+    applicationLogger().LogError()
+        << "[RUN] clock_gettime(CLOCK_MONOTONIC) failed";
+#ifdef RT_THREAD_CHECKING
+    stopRtChildThread();
 #endif
+    service_.shutdown();
+    timingReportLogger_.shutdown();
+    unlockProcessMemory();
+    initialized_ = false;
+    return EXIT_FAILURE;
+  }
+  common::addMilliseconds(nextRelease, service_.periodMs());
+
+  score::cpp::stop_callback stopWake{
+      stopToken, [this]() noexcept { periodicWait_.requestStop(); }};
+  applicationLogger().LogInfo()
+      << "[RUN] periodic loop started; clock=CLOCK_MONOTONIC; "
+         "wait=pthread_cond_timedwait; deadline=absolute";
+
+  std::uint64_t cycleId = 0;
+  std::int32_t sleepResult = 0;
+  bool wakeupTimestampValid = false;
+  timespec actualWakeup{};
+  timespec executionStart{};
+  timespec executionEnd{};
+  bool executionStartValid = false;
+  bool cycleSucceeded = false;
+  bool executionEndTimestampValid = false;
+  std::uint64_t deadlineNs = 0;
+  WakeupTimingRecord wakeupRecord = {};
+  std::uint64_t executionTimeNs = 0;
+  std::uint64_t responseTimeNs = 0;
+  std::uint64_t executionOverrunNs = 0;
+  std::uint64_t cycleOverrunNs = 0;
+  bool executionDeadlineMiss = false;
+  bool cycleDeadlineMiss = false;
+  ExecutionTimingRecord executionRecord = {};
+  timespec now{};
+  std::uint32_t skipped = 0;
+
+  while (!stopToken.stop_requested()) {
+    cycleId = cycleCount_ + std::uint64_t{1U};
+    sleepResult = periodicWait_.waitUntil(nextRelease);
+    if (sleepResult == ECANCELED || stopToken.stop_requested()) {
+      break;
+    }
+    if (sleepResult != std::int32_t{}) {
+      applicationLogger().LogError()
+          << "[RUN] periodic wait failed: "
+          << std::string_view{std::strerror(sleepResult)};
+      exitCode = EXIT_FAILURE;
+      break;
+    }
+    // Capture the actual wake-up before doing any logging or domain work.
+    wakeupTimestampValid = common::monotonicNow(actualWakeup);
+
+    // These two timestamps intentionally bracket only runDecisionCycle().
+    executionStartValid = common::monotonicNow(executionStart);
+    cycleSucceeded = service_.runDecisionCycle();
+    executionEndTimestampValid = common::monotonicNow(executionEnd);
+
+    deadlineNs = periodNanoseconds(service_.periodMs());
+    if (wakeupTimestampValid) {
+      wakeupRecord = WakeupTimingRecord {
+        cycleId, timestampNanoseconds(nextRelease),
+        timestampNanoseconds(actualWakeup),
+        durationNanoseconds(nextRelease, actualWakeup), deadlineNs};
+      if (!timingReportLogger_.logWakeup(wakeupRecord)) {
+        applicationLogger().LogWarn()
+            << "[TIMING_REPORT][WAKEUP] record dropped; cycle=" << cycleId;
+      }
+    } else {
+      applicationLogger().LogError()
+          << "[TIMING_REPORT][WAKEUP] clock_gettime(CLOCK_MONOTONIC) failed; "
+             "cycle="
+          << cycleId;
+    }
+
+    if (executionStartValid && executionEndTimestampValid) {
+      executionTimeNs = durationNanoseconds(executionStart, executionEnd);
+      responseTimeNs = durationNanoseconds(nextRelease, executionEnd);
+      executionOverrunNs = deadlineOverrunNanoseconds(executionTimeNs, deadlineNs);
+      cycleOverrunNs = deadlineOverrunNanoseconds(responseTimeNs, deadlineNs);
+      executionDeadlineMiss = { executionOverrunNs != 0 };
+      cycleDeadlineMiss = { cycleOverrunNs != 0 };
+      if (cycleDeadlineMiss) {
+        ++deadlineMissCount_;
+      }
+
+      executionRecord = ExecutionTimingRecord {
+          cycleId,
+          timestampNanoseconds(executionStart),
+          timestampNanoseconds(executionEnd),
+          executionTimeNs,
+          responseTimeNs,
+          deadlineNs,
+          executionOverrunNs,
+          cycleOverrunNs,
+          executionDeadlineMiss,
+          cycleDeadlineMiss,
+          cycleSucceeded};
+      if (!timingReportLogger_.logExecution(executionRecord)) {
+        applicationLogger().LogWarn()
+            << "[TIMING_REPORT][EXECUTION] record dropped; cycle=" << cycleId;
+      }
+    } else {
+      applicationLogger().LogError()
+          << "[TIMING_REPORT][EXECUTION] "
+             "clock_gettime(CLOCK_MONOTONIC) failed; cycle="
+          << cycleId;
+    }
+
+    if (!cycleSucceeded) {
+      applicationLogger().LogError()
+          << "[RUN] health-monitored decision cycle failed";
+      exitCode = EXIT_FAILURE;
+      break;
+    }
+    ++cycleCount_;
+#ifdef LOG_NUMBER_CYCLES
+    applicationLogger().LogDebug()
+        << "[CYCLE] completed; counter=" << cycleCount_
+        << "; period_ms=" << service_.periodMs();
+#endif
+
+    common::addMilliseconds(nextRelease, service_.periodMs());
+    if (common::monotonicNow(now)) {
+      skipped = common::advancePastNow(nextRelease, service_.periodMs(), now);
+      if (skipped != 0) {
+        applicationLogger().LogWarn()
+            << "[RUN][OVERRUN] skipped_releases=" << skipped;
+      }
     }
   }
 

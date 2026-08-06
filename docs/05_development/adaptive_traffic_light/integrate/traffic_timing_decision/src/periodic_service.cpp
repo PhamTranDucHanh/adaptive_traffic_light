@@ -46,25 +46,12 @@ void PeriodicService::shutdown() {
   running_ = false;
 }
 
-SnapshotWaitStatus PeriodicService::waitForSnapshot(
-    TrafficSnapshot& snapshot) noexcept {
-  if (!running_) {
-    return SnapshotWaitStatus::kError;
-  }
-  return trafficReceiver.waitForSnapshot(snapshot, eventWaitTimeoutMs_);
-}
-
-void PeriodicService::requestStop() noexcept { trafficReceiver.requestStop(); }
-
-std::uint32_t PeriodicService::eventWaitTimeoutMs() const noexcept {
-  return eventWaitTimeoutMs_;
-}
+std::uint32_t PeriodicService::periodMs() const { return periodMs_; }
 
 //
 // Decision Pipeline
 //
-bool PeriodicService::runDecisionCycle(const SnapshotWaitStatus waitStatus,
-                                       const TrafficSnapshot& snapshot) {
+bool PeriodicService::runDecisionCycle() {
   if (!running_) {
     return false;
   }
@@ -74,25 +61,23 @@ bool PeriodicService::runDecisionCycle(const SnapshotWaitStatus waitStatus,
   }
 
   bool cycleSuccessful{true};
-  if (waitStatus != SnapshotWaitStatus::kReady) {
+  TrafficSnapshot snapshot{};
+  if (!trafficReceiver.requestSnapshot(snapshot)) {
     ++consecutiveSnapshotMisses_;
     const traffic_ipc::QueueStatus status = trafficReceiver.lastQueueStatus();
-    if (waitStatus == SnapshotWaitStatus::kTimeout ||
-        waitStatus == SnapshotWaitStatus::kRetry) {
+    if (status == traffic_ipc::QueueStatus::kEmpty ||
+        status == traffic_ipc::QueueStatus::kBusy) {
       traffic_timing_decision::ipcLogger().LogWarn()
           << "[IPC][SNAPSHOT][NO_NEW_DATA] status="
           << std::string_view{traffic_ipc::queueStatusName(status)}
           << "; consecutive_misses=" << consecutiveSnapshotMisses_
           << "; action=keep_previous_plan";
-    } else if (waitStatus == SnapshotWaitStatus::kError) {
+    } else {
       traffic_timing_decision::ipcLogger().LogError()
           << "[IPC][SNAPSHOT][RECEIVE] status="
           << std::string_view{traffic_ipc::queueStatusName(status)}
           << "; errno=" << trafficReceiver.lastQueueError()
           << "; consecutive_misses=" << consecutiveSnapshotMisses_;
-    } else {
-      healthReporter.finishDecisionCycle();
-      return true;
     }
     cycleSuccessful = timingPublisher.retryPendingTimingPlan();
   } else if (!trafficReceiver.validateSnapshot(snapshot)) {
@@ -110,21 +95,14 @@ bool PeriodicService::runDecisionCycle(const SnapshotWaitStatus waitStatus,
     plan.perceptionPublishTimestampUs = snapshot.timestampUs;
     cycleSuccessful = timingPublisher.publishTimingPlan(plan);
     if (cycleSuccessful) {
-      if (timingPublisher.wasLastPlanSuppressed()) {
-        traffic_timing_decision::decisionLogger().LogDebug()
-            << "[DECISION][UNCHANGED] frame_id=" << snapshot.frameId
-            << "; plan_id=" << plan.planId
-            << "; action=no_new_transport_message";
-      } else {
-        traffic_timing_decision::decisionLogger().LogInfo()
-            << "[DECISION][PUBLISHED] frame_id=" << snapshot.frameId
-            << "; plan_id=" << plan.planId
-            << "; ns_green_ms=" << plan.greenNorthSouthMs
-            << "; ew_green_ms=" << plan.greenEastWestMs
-            << "; cycle_ms=" << plan.cycleLengthMs
-            << "; emergency_ns=" << plan.emergencyNorthSouth
-            << "; emergency_ew=" << plan.emergencyEastWest;
-      }
+      traffic_timing_decision::decisionLogger().LogInfo()
+          << "[DECISION][PUBLISHED] frame_id=" << snapshot.frameId
+          << "; plan_id=" << plan.planId
+          << "; ns_green_ms=" << plan.greenNorthSouthMs
+          << "; ew_green_ms=" << plan.greenEastWestMs
+          << "; cycle_ms=" << plan.cycleLengthMs
+          << "; emergency_ns=" << plan.emergencyNorthSouth
+          << "; emergency_ew=" << plan.emergencyEastWest;
     }
   }
 

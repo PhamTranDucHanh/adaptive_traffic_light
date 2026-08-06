@@ -15,24 +15,19 @@ class PeriodicService {
 
   bool initialize();
   void shutdown();
-  SnapshotWaitStatus waitForSnapshot(TrafficSnapshot& snapshot) noexcept;
-  bool runDecisionCycle(SnapshotWaitStatus waitStatus,
-                        const TrafficSnapshot& snapshot);
-  void requestStop() noexcept;
-  std::uint32_t eventWaitTimeoutMs() const noexcept;
+  bool runDecisionCycle();
+  std::uint32_t periodMs() const;
 
  private:
   enum class Configuration : std::uint32_t {
-    // The MQ readiness event normally wakes the worker immediately. This
-    // bounded timeout only services health/lifecycle and input-loss detection.
-    kEventWaitTimeoutMilliseconds = 250U,
-    // 240 timeout/retry wake-ups x 250 ms = 60 seconds. Preserve the existing
-    // wall-clock input timeout without polling the queue for normal input.
-    kMaximumConsecutiveSnapshotMisses = 240U,
+    kPeriodMilliseconds = 2500U,
+    // 24 cycles x 2500 ms = 60 seconds. Keep the existing timeout logic, but
+    // allow a slower CPU to finish four sequential YOLO inferences.
+    kMaximumConsecutiveSnapshotMisses = 24U,
   };
 
-  std::uint32_t eventWaitTimeoutMs_{
-      static_cast<std::uint32_t>(Configuration::kEventWaitTimeoutMilliseconds)};
+  std::uint32_t periodMs_{
+      static_cast<std::uint32_t>(Configuration::kPeriodMilliseconds)};
   std::uint32_t consecutiveSnapshotMisses_{};
   std::uint32_t maximumConsecutiveSnapshotMisses_{static_cast<std::uint32_t>(
       Configuration::kMaximumConsecutiveSnapshotMisses)};

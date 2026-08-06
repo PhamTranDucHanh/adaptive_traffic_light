@@ -102,7 +102,7 @@
                 "application_profile": {
                     "application_type": "Reporting_And_Supervised",
                     "alive_supervision": {
-                        "reporting_cycle": 10.0,
+                        "reporting_cycle": 5.0,
                         "min_indications": 1,
                         "max_indications": 8,
                         "failed_cycles_tolerance": 6
