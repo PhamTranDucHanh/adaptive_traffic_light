@@ -85,7 +85,7 @@ fi
       if (record <= guard || record > total - guard) next
 
       if (match($0, /cycle_id= *([0-9]+)/, cycle) &&
-          match($0, /scheduled_release_ns= *([0-9]+)/, scheduled) &&
+          match($0, /event_publish_ns= *([0-9]+)/, scheduled) &&
           match($0, /actual_wakeup_ns= *([0-9]+)/, actual) &&
           match($0, /wakeup_latency_us= *([0-9]+)/, latency)) {
         printf "%s\t%s\t%.9f\t%.9f\t%d\n", cycle[1], latency[1],
@@ -100,7 +100,7 @@ while IFS=$'\t' read -r cycle latency scheduled actual dlt_line; do
   {
     echo "cycle_id=$cycle"
     echo "wakeup_latency_us=$latency"
-    echo "scheduled_release_s=$scheduled"
+    echo "event_publish_s=$scheduled"
     echo "actual_wakeup_s=$actual"
     echo
     echo "WAKE-UP RECORD"

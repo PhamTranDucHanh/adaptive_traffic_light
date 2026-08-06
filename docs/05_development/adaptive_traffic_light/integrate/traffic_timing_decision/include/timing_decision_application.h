@@ -34,7 +34,6 @@ class TimingDecisionApplication final
   void unlockProcessMemory() noexcept;
 
   PeriodicService service_;
-  common::PeriodicWait periodicWait_;
   TimingReportLogger timingReportLogger_;
 #ifdef RT_THREAD_CHECKING
   static void* childThreadEntry(void* application);

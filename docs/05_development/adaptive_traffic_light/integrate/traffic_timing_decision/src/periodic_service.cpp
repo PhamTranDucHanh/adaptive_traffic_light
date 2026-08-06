@@ -46,12 +46,25 @@ void PeriodicService::shutdown() {
   running_ = false;
 }
 
-std::uint32_t PeriodicService::periodMs() const { return periodMs_; }
+SnapshotWaitStatus PeriodicService::waitForSnapshot(
+    TrafficSnapshot& snapshot) noexcept {
+  if (!running_) {
+    return SnapshotWaitStatus::kError;
+  }
+  return trafficReceiver.waitForSnapshot(snapshot, eventWaitTimeoutMs_);
+}
+
+void PeriodicService::requestStop() noexcept { trafficReceiver.requestStop(); }
+
+std::uint32_t PeriodicService::eventWaitTimeoutMs() const noexcept {
+  return eventWaitTimeoutMs_;
+}
 
 //
 // Decision Pipeline
 //
-bool PeriodicService::runDecisionCycle() {
+bool PeriodicService::runDecisionCycle(const SnapshotWaitStatus waitStatus,
+                                       const TrafficSnapshot& snapshot) {
   if (!running_) {
     return false;
   }
@@ -61,23 +74,25 @@ bool PeriodicService::runDecisionCycle() {
   }
 
   bool cycleSuccessful{true};
-  TrafficSnapshot snapshot{};
-  if (!trafficReceiver.requestSnapshot(snapshot)) {
+  if (waitStatus != SnapshotWaitStatus::kReady) {
     ++consecutiveSnapshotMisses_;
     const traffic_ipc::QueueStatus status = trafficReceiver.lastQueueStatus();
-    if (status == traffic_ipc::QueueStatus::kEmpty ||
-        status == traffic_ipc::QueueStatus::kBusy) {
+    if (waitStatus == SnapshotWaitStatus::kTimeout ||
+        waitStatus == SnapshotWaitStatus::kRetry) {
       traffic_timing_decision::ipcLogger().LogWarn()
           << "[IPC][SNAPSHOT][NO_NEW_DATA] status="
           << std::string_view{traffic_ipc::queueStatusName(status)}
           << "; consecutive_misses=" << consecutiveSnapshotMisses_
           << "; action=keep_previous_plan";
-    } else {
+    } else if (waitStatus == SnapshotWaitStatus::kError) {
       traffic_timing_decision::ipcLogger().LogError()
           << "[IPC][SNAPSHOT][RECEIVE] status="
           << std::string_view{traffic_ipc::queueStatusName(status)}
           << "; errno=" << trafficReceiver.lastQueueError()
           << "; consecutive_misses=" << consecutiveSnapshotMisses_;
+    } else {
+      healthReporter.finishDecisionCycle();
+      return true;
     }
     cycleSuccessful = timingPublisher.retryPendingTimingPlan();
   } else if (!trafficReceiver.validateSnapshot(snapshot)) {

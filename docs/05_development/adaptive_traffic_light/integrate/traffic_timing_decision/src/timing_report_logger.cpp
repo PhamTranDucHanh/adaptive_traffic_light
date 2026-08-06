@@ -98,8 +98,8 @@ bool TimingReportLogger::logWakeup(const WakeupTimingRecord& record) noexcept {
   const score::mw::log::SlotHandle& handle = slot.value();
   wakeupRecorder_->Log(handle, std::string_view{"cycle_id="});
   wakeupRecorder_->Log(handle, record.cycleId);
-  wakeupRecorder_->Log(handle, std::string_view{"; scheduled_release_ns="});
-  wakeupRecorder_->Log(handle, record.scheduledReleaseNs);
+  wakeupRecorder_->Log(handle, std::string_view{"; event_publish_ns="});
+  wakeupRecorder_->Log(handle, record.eventPublishNs);
   wakeupRecorder_->Log(handle, std::string_view{"; actual_wakeup_ns="});
   wakeupRecorder_->Log(handle, record.actualWakeupNs);
   wakeupRecorder_->Log(handle, std::string_view{"; wakeup_latency_us="});
