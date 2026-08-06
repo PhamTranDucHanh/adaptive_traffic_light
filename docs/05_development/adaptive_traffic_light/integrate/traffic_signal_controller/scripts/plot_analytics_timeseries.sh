@@ -15,7 +15,7 @@ set -o pipefail
 
 METRIC=${1:-both}
 
-ANALYTICS_LOG_FILE="/tmp/CTRL.dlt"
+ANALYTICS_LOG_FILE="/tmp/linux_rt_application/logs/CTRL.dlt"
 DEFAULT_INPUT_FILE="${ANALYTICS_LOG_FILE}.txt"
 
 RUNTIME_DIRECTORY="/tmp/traffic_signal_controller"
@@ -340,18 +340,18 @@ EOF
 case "$METRIC" in
     both)
         cat >> "$GNUPLOT_FILE" << EOF
-plot "$WAKEUP_PLOT_DATA" using 1:2 with points pt 7 ps 0.8 title "Wakeup latency", \\
-     "$EXECUTION_PLOT_DATA" using 1:2 with points pt 5 ps 0.8 title "Execution time"
+plot "$WAKEUP_PLOT_DATA" using 1:2 with linespoints lw 1 pt 7 ps 0.8 title "Wakeup latency", \\
+     "$EXECUTION_PLOT_DATA" using 1:2 with linespoints lw 1 pt 5 ps 0.8 title "Execution time"
 EOF
         ;;
     wakeup)
         cat >> "$GNUPLOT_FILE" << EOF
-plot "$WAKEUP_PLOT_DATA" using 1:2 with points pt 7 ps 0.8 title "Wakeup latency"
+plot "$WAKEUP_PLOT_DATA" using 1:2 with linespoints lw 1 pt 7 ps 0.8 title "Wakeup latency"
 EOF
         ;;
     execution)
         cat >> "$GNUPLOT_FILE" << EOF
-plot "$EXECUTION_PLOT_DATA" using 1:2 with points pt 5 ps 0.8 title "Execution time"
+plot "$EXECUTION_PLOT_DATA" using 1:2 with linespoints lw 1 pt 5 ps 0.8 title "Execution time"
 EOF
         ;;
 esac

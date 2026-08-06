@@ -11,7 +11,7 @@ set -o pipefail
 
 METRIC=${1:-wakeup}
 
-ANALYTICS_LOG_FILE="/tmp/CTRL.dlt"
+ANALYTICS_LOG_FILE="/tmp/linux_rt_application/logs/CTRL.dlt"
 DEFAULT_INPUT_FILE="${ANALYTICS_LOG_FILE}.txt"
 
 RUNTIME_DIRECTORY="/tmp/traffic_signal_controller"
