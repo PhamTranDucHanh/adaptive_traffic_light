@@ -27,24 +27,32 @@ case "$METRIC" in
         EVENT_NAME="FSM_WAKEUP"
         VALUE_KEY="latency_ns"
         TITLE="FSM Wakeup Latency Histogram"
+        X_AXIS_NAME="FSM Wakeup Latency"
+        LEGEND_NAME="Wakeup Latency"
         DEFAULT_OUTPUT_IMAGE="${RUNTIME_LOG_DIRECTORY}/fsm_wakeup_latency_histogram.png"
         ;;
     execution)
         EVENT_NAME="FSM_EXECUTION"
         VALUE_KEY="execution_time_ns"
         TITLE="FSM Execution Time Histogram"
+        X_AXIS_NAME="FSM Execution Time"
+        LEGEND_NAME="Execution Time"
         DEFAULT_OUTPUT_IMAGE="${RUNTIME_LOG_DIRECTORY}/fsm_execution_time_histogram.png"
         ;;
     end_to_end)
         EVENT_NAME="PLAN_PUBLISH_TO_RECEIVE"
         VALUE_KEY="latency_ns"
         TITLE="Plan Publish-to-Receive Latency Histogram"
+        X_AXIS_NAME="Plan Publish-to-Receive Latency"
+        LEGEND_NAME="Publish-to-Receive Latency"
         DEFAULT_OUTPUT_IMAGE="${RUNTIME_LOG_DIRECTORY}/plan_publish_to_receive_latency_histogram.png"
         ;;
     emergency)
         EVENT_NAME="EMERGENCY_RECEIVE_TO_APPLY"
         VALUE_KEY="latency_ns"
         TITLE="Emergency Receive-to-Apply Latency Histogram"
+        X_AXIS_NAME="Emergency Receive-to-Apply Latency"
+        LEGEND_NAME="Receive-to-Apply Latency"
         DEFAULT_OUTPUT_IMAGE="${RUNTIME_LOG_DIRECTORY}/emergency_receive_to_apply_latency_histogram.png"
         ;;
     *)
@@ -295,70 +303,29 @@ END {
 }
 ' "$SCALED_DATA" | sort -n > "$HIST_DATA"
 
-# Main x-range: 125% of P95 or P99, depending on tail shape.
-XRANGE=$(awk -v anchor="$RANGE_ANCHOR" -v bw="$BIN_WIDTH" '
-BEGIN {
-    range = anchor * 1.25
-
-    if (range < 5.0 * bw) {
-        range = 5.0 * bw
-    }
-
-    printf "%.9f", range
-}
-')
-
-CLIPPED_SAMPLES=$(awk -v limit="$XRANGE" '
-$1 > limit {
-    count++
-}
-END {
-    print count + 0
-}
-' "$SCALED_DATA")
-
 #-------------------------------------------------------
 # Generate Gnuplot script
 #-------------------------------------------------------
 
 cat > "$GNUPLOT_FILE" << EOF
-set terminal pngcairo size 1280,720 enhanced font "Arial,10"
+set terminal pngcairo size 1600,900 enhanced
 set output "$OUTPUT_IMAGE"
 
 set title "$TITLE"
-set xlabel "Time ($UNIT)"
-set ylabel "Number of samples"
+set xlabel "$X_AXIS_NAME ($UNIT), Samples = $SAMPLE_COUNT, Min = $MIN_VALUE $UNIT, Max = $MAX_VALUE $UNIT, Bucket = $BIN_WIDTH $UNIT"
+set ylabel "Number of Samples"
 
-set grid
+set xrange [0:*]
+set yrange [0.9:*]
 set logscale y
-set yrange [1:*]
-set xrange [0:${XRANGE}]
 
-set key outside
+set grid xtics ytics
+set border linewidth 1
 set key top right
-set border lw 1
-set tics out
-
-set label 1 sprintf("Samples: %d", ${SAMPLE_COUNT}) at graph 0.02,0.95
-set label 2 sprintf("Unit: %s", "$UNIT") at graph 0.02,0.90
-set label 3 sprintf("Mean: %.3f $UNIT", ${MEAN_VALUE}) at graph 0.02,0.85
-set label 4 sprintf("P50: %.3f $UNIT", ${P50_VALUE}) at graph 0.02,0.80
-set label 5 sprintf("P95: %.3f $UNIT", ${P95_VALUE}) at graph 0.02,0.75
-set label 6 sprintf("P99: %.3f $UNIT", ${P99_VALUE}) at graph 0.02,0.70
-set label 7 sprintf("Max: %.3f $UNIT", ${MAX_VALUE}) at graph 0.02,0.65
-set label 8 sprintf("Range based on: %s", "$RANGE_PERCENTILE") at graph 0.02,0.60
-set label 9 sprintf("Clipped above x-range: %d", ${CLIPPED_SAMPLES}) at graph 0.02,0.55
-
-set arrow 1 from ${MEAN_VALUE},graph 0 to ${MEAN_VALUE},graph 1 \
-    nohead dashtype 2 lw 2
-
-if (${P99_VALUE} <= ${XRANGE}) {
-    set arrow 2 from ${P99_VALUE},graph 0 to ${P99_VALUE},graph 1 \
-        nohead dashtype 3 lw 2
-}
 
 plot "$HIST_DATA" using 1:2 \
-with impulses lw 2 title "$METRIC samples"
+with impulses linewidth 1 linecolor rgb "#b000ff" \
+title "$LEGEND_NAME"
 
 EOF
 
@@ -386,6 +353,4 @@ echo "  P95             : $P95_VALUE $UNIT"
 echo "  P99             : $P99_VALUE $UNIT"
 echo "  Maximum         : $MAX_VALUE $UNIT"
 echo "  Tail ratio      : P99/P95 = $OUTLIER_RATIO"
-echo "  Range based on  : $RANGE_PERCENTILE"
-echo "  X-axis maximum  : $XRANGE $UNIT"
-echo "  Clipped samples : $CLIPPED_SAMPLES"
+echo "  Bin based on    : $RANGE_PERCENTILE"

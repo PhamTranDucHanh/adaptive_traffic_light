@@ -105,4 +105,3 @@ bash traffic_perception/scripts/setup_deps.sh
 sudo prlimit --pid $$ --rtprio=99:99 --memlock=unlimited:unlimited
 bazel shutdown
 bazel run --config=x86_64-linux //deployment:traffic_light_system
-```
