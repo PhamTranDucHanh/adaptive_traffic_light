@@ -49,6 +49,7 @@ TimingPlan DecodePlan(
     const traffic_ipc::TimingPlanMessageV1& message) noexcept {
   TimingPlan plan{};
   plan.planId = message.planId;
+  plan.generationTimestampNs = message.generationTimestampNs;
   plan.perceptionPublishTimestampUs = message.perceptionPublishTimestampUs;
   plan.greenNorthSouthMs = message.greenNorthSouthMs;
   plan.greenEastWestMs = message.greenEastWestMs;

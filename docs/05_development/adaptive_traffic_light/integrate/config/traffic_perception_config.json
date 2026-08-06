@@ -43,11 +43,16 @@
 
   "model_backend": "yolov8_oiv7",
   "model": "data/yolov8m-oiv7.onnx",
-  "emergency_class": "Truck",
+  "emergency_class": "Van",
   "lanes": [
     {
       "direction": "North",
       "video": "data/traffic.mp4",
+      "roi": [[280,0], [1280,0], [1919,620], [1919,1079], [0,1079], [0,520]]
+    },
+    {
+      "direction": "South",
+      "video": "data/traffic2.mp4",
       "roi": [[280,0], [1280,0], [1919,620], [1919,1079], [0,1079], [0,520]]
     },
     {
@@ -58,11 +63,6 @@
     {
       "direction": "West",
       "video": "data/traffic4.mp4",
-      "roi": [[280,0], [1280,0], [1919,620], [1919,1079], [0,1079], [0,520]]
-    },
-    {
-      "direction": "South",
-      "video": "data/traffic2.mp4",
       "roi": [[280,0], [1280,0], [1919,620], [1919,1079], [0,1079], [0,520]]
     }
   ]

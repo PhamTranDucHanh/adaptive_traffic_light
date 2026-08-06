@@ -77,6 +77,7 @@ constexpr std::uint64_t kControlPeriodMilliseconds{1'000U};
 
 struct TimingPlan {
   std::uint64_t planId{0U};
+  std::uint64_t generationTimestampNs{0U};
   std::uint64_t perceptionPublishTimestampUs{0U};
 
   std::uint32_t greenNorthSouthMs{0U};
@@ -103,6 +104,7 @@ struct Phase {
 
 struct PlanData {
   std::uint64_t sourcePlanId{0U};
+  std::uint64_t controllerReceiveTimestampNs{0U};
   std::array<Phase, MAX_PHASES> phases{};
   std::uint8_t phaseCount{0U};
   bool isEmergencyNS{false};

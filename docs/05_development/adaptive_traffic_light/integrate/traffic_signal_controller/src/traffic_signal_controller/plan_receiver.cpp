@@ -1,5 +1,6 @@
 #include "traffic_signal_controller/plan_receiver.h"
 
+#include <ctime>
 #include <limits>
 
 #include "common/logging_contexts.h"
@@ -18,6 +19,16 @@ PlanReceiver::PlanReceiver(PlanSyncChannel& syncChannel)
     : syncChannel_{syncChannel} {}
 
 bool PlanReceiver::ReceivePlan(const TimingPlan& plan) {
+  timespec receiveTime{};
+  const bool receiveTimestampValid =
+      clock_gettime(CLOCK_MONOTONIC, &receiveTime) == 0;
+  const std::uint64_t receiveTimestampNs =
+      receiveTimestampValid
+          ? (static_cast<std::uint64_t>(receiveTime.tv_sec) *
+             kNanosecondsPerSecond) +
+                static_cast<std::uint64_t>(receiveTime.tv_nsec)
+          : 0U;
+
   Logger().LogInfo() << "event=PLAN_RECEIVED"
                      << ", plan_id=" << plan.planId
                      << ", emergency_ns=" << plan.emergencyNorthSouth
@@ -33,13 +44,33 @@ bool PlanReceiver::ReceivePlan(const TimingPlan& plan) {
   Logger().LogInfo() << "event=PLAN_VALIDATED"
                      << ", plan_id=" << plan.planId;
 
-  const PlanData translatedPlan = TranslatePlan(plan);
+  PlanData translatedPlan = TranslatePlan(plan);
+  translatedPlan.controllerReceiveTimestampNs = receiveTimestampNs;
 
   const bool result = syncChannel_.PublishPlan(translatedPlan);
 
   Logger().LogInfo() << "event=PLAN_PUBLISHED"
                      << ", plan_id=" << plan.planId
                      << ", result=" << (result ? "SUCCESS" : "FAILED");
+
+  constexpr std::uint64_t kMicrosecondsToNanoseconds{1'000U};
+  if (result && receiveTimestampValid &&
+      plan.perceptionPublishTimestampUs > 0U &&
+      plan.perceptionPublishTimestampUs <=
+          (std::numeric_limits<std::uint64_t>::max() /
+           kMicrosecondsToNanoseconds)) {
+    const std::uint64_t publishTimestampNs =
+        plan.perceptionPublishTimestampUs * kMicrosecondsToNanoseconds;
+
+    if (receiveTimestampNs >= publishTimestampNs) {
+      Logger().LogInfo()
+          << "event=PLAN_PUBLISH_TO_RECEIVE"
+          << ", plan_id=" << plan.planId
+          << ", publish_timestamp_ns=" << publishTimestampNs
+          << ", receive_timestamp_ns=" << receiveTimestampNs
+          << ", latency_ns=" << (receiveTimestampNs - publishTimestampNs);
+    }
+  }
 
   return result;
 }

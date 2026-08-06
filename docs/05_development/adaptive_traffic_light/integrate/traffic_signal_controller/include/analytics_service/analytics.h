@@ -35,7 +35,10 @@ class Analytics {
     EmergencyConsumed,
     EmergencyAccepted,
     EmergencyRejected,
-    EmergencyApplied
+    EmergencyApplied,
+
+    PlanPublishToReceive,
+    EmergencyReceiveToApply
   };
 
   struct LogEntry {
@@ -61,8 +64,8 @@ class Analytics {
     std::uint32_t consumed{};
     std::uint32_t applied{};
 
-    long double totalReceiveToApplyLatencyNs{};
-    std::uint32_t latencySampleCount{};
+    std::vector<std::int64_t> publishToReceiveLatencySamplesNs;
+    std::vector<std::int64_t> emergencyReceiveToApplyLatencySamplesNs;
 
     std::set<std::uint64_t> allPlanIds;
     std::set<std::uint64_t> normalPlanIds;

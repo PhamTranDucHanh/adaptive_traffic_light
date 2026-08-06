@@ -6,6 +6,8 @@
 # metric:
 #   wakeup
 #   execution
+#   end_to_end
+#   emergency
 
 set -o pipefail
 
@@ -33,9 +35,21 @@ case "$METRIC" in
         TITLE="FSM Execution Time Histogram"
         DEFAULT_OUTPUT_IMAGE="${RUNTIME_LOG_DIRECTORY}/fsm_execution_time_histogram.png"
         ;;
+    end_to_end)
+        EVENT_NAME="PLAN_PUBLISH_TO_RECEIVE"
+        VALUE_KEY="latency_ns"
+        TITLE="Plan Publish-to-Receive Latency Histogram"
+        DEFAULT_OUTPUT_IMAGE="${RUNTIME_LOG_DIRECTORY}/plan_publish_to_receive_latency_histogram.png"
+        ;;
+    emergency)
+        EVENT_NAME="EMERGENCY_RECEIVE_TO_APPLY"
+        VALUE_KEY="latency_ns"
+        TITLE="Emergency Receive-to-Apply Latency Histogram"
+        DEFAULT_OUTPUT_IMAGE="${RUNTIME_LOG_DIRECTORY}/emergency_receive_to_apply_latency_histogram.png"
+        ;;
     *)
         echo "Error: Unsupported metric: $METRIC"
-        echo "Supported metrics: wakeup, execution"
+        echo "Supported metrics: wakeup, execution, end_to_end, emergency"
         exit 1
         ;;
 esac

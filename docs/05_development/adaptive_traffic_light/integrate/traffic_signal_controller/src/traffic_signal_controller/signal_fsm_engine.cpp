@@ -384,6 +384,7 @@ SignalFSMEngine::evaluateEmergencyPlan(const PlanData& emergencyPlan) const {
 void SignalFSMEngine::applyEmergencyPlan(const PlanData& emergencyPlan) {
   const PhaseId phaseId = currentPhaseId();
   const std::uint32_t oldRemainingTimeMs = remainingTimeMs_;
+  bool applied{false};
 
   if (phaseId == PhaseId::NS_GREEN && emergencyPlan.isEmergencyNS) {
     remainingTimeMs_ = kEmergencyGreenDurationMs;
@@ -392,7 +393,7 @@ void SignalFSMEngine::applyEmergencyPlan(const PlanData& emergencyPlan) {
                        << ", phase=" << phaseToString(phaseId)
                        << ", old_remaining_ms=" << oldRemainingTimeMs
                        << ", new_remaining_ms=" << remainingTimeMs_;
-    return;
+    applied = true;
   }
 
   if (phaseId == PhaseId::EW_GREEN && emergencyPlan.isEmergencyEW) {
@@ -402,6 +403,23 @@ void SignalFSMEngine::applyEmergencyPlan(const PlanData& emergencyPlan) {
                        << ", phase=" << phaseToString(phaseId)
                        << ", old_remaining_ms=" << oldRemainingTimeMs
                        << ", new_remaining_ms=" << remainingTimeMs_;
+    applied = true;
+  }
+
+  timespec applyTime{};
+  if (applied && emergencyPlan.controllerReceiveTimestampNs > 0U &&
+      clock_gettime(CLOCK_MONOTONIC, &applyTime) == 0) {
+    const std::uint64_t applyTimestampNs = timespecToNanoseconds(applyTime);
+    if (applyTimestampNs >= emergencyPlan.controllerReceiveTimestampNs) {
+      Logger().LogInfo()
+          << "event=EMERGENCY_RECEIVE_TO_APPLY"
+          << ", plan_id=" << emergencyPlan.sourcePlanId
+          << ", receive_timestamp_ns="
+          << emergencyPlan.controllerReceiveTimestampNs
+          << ", apply_timestamp_ns=" << applyTimestampNs
+          << ", latency_ns="
+          << (applyTimestampNs - emergencyPlan.controllerReceiveTimestampNs);
+    }
   }
 }
 

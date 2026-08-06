@@ -321,6 +321,9 @@ Analytics::EventType Analytics::EventTypeFromString(
       {"EMERGENCY_REJECTED", EventType::EmergencyRejected},
       {"EMERGENCY_APPLIED", EventType::EmergencyApplied},
 
+      {"PLAN_PUBLISH_TO_RECEIVE", EventType::PlanPublishToReceive},
+      {"EMERGENCY_RECEIVE_TO_APPLY", EventType::EmergencyReceiveToApply},
+
       {"PHASE_ENTER", EventType::PhaseEnter}};
 
   const auto iterator = eventMap.find(eventName);
@@ -485,6 +488,7 @@ std::string Analytics::ConvertDltRecordToTextMessage(const std::string& record,
        "PLAN_PUBLISHED", "PLAN_CONSUMED", "PLAN_APPLIED", "EMERGENCY_QUEUED",
        "EMERGENCY_CONSUMED", "EMERGENCY_ACCEPTED", "EMERGENCY_REJECTED",
        "EMERGENCY_APPLIED", "EMERGENCY_DROPPED", "PHASE_ENTER", "PHASE_EXIT",
+       "PLAN_PUBLISH_TO_RECEIVE", "EMERGENCY_RECEIVE_TO_APPLY",
        "ANALYTICS_FAILED", "ANALYTICS_REPORT_FAILED",
        "ANALYTICS_REPORT_WRITTEN", "FSM_WAKEUP", "FSM_EXECUTION"});
 
@@ -639,8 +643,6 @@ std::string Analytics::ExtractKnownValue(
 }
 
 void Analytics::ComputePlanStatistics() {
-  std::unordered_map<std::uint64_t, std::uint64_t> receivedTimestamps;
-
   for (const auto& entry : logEntries_) {
     switch (entry.eventType) {
       case EventType::PlanReceived:
@@ -653,7 +655,6 @@ void Analytics::ComputePlanStatistics() {
           planStatistics_.normalPlanIds.insert(entry.planId);
         }
 
-        receivedTimestamps[entry.planId] = entry.timestampNs;
         break;
 
       case EventType::PlanValidated:
@@ -681,17 +682,21 @@ void Analytics::ComputePlanStatistics() {
         planStatistics_.appliedPlanIds.insert(entry.planId);
         break;
 
-      case EventType::EmergencyApplied: {
-        const auto receivedIterator = receivedTimestamps.find(entry.planId);
-
-        if (receivedIterator != receivedTimestamps.end() &&
-            entry.timestampNs >= receivedIterator->second) {
-          const auto latency = entry.timestampNs - receivedIterator->second;
-          planStatistics_.totalReceiveToApplyLatencyNs +=
-              static_cast<long double>(latency);
-          ++planStatistics_.latencySampleCount;
+      case EventType::PlanPublishToReceive:
+      case EventType::EmergencyReceiveToApply: {
+        std::uint64_t latencyNs{};
+        if (!ParseUint64(ExtractValue(entry.message, "latency_ns"),
+                         latencyNs) ||
+            latencyNs > static_cast<std::uint64_t>(
+                            std::numeric_limits<std::int64_t>::max())) {
+          break;
         }
 
+        auto& samples =
+            entry.eventType == EventType::PlanPublishToReceive
+                ? planStatistics_.publishToReceiveLatencySamplesNs
+                : planStatistics_.emergencyReceiveToApplyLatencySamplesNs;
+        samples.push_back(static_cast<std::int64_t>(latencyNs));
         break;
       }
 
@@ -904,19 +909,56 @@ bool Analytics::WriteReport(const std::string& outputPath) const {
   output << "Consumed: " << planStatistics_.consumed << '\n';
   output << "Applied: " << planStatistics_.applied << '\n';
 
-  if (planStatistics_.latencySampleCount > 0U) {
-    const double averageLatencyMs =
-        static_cast<double>(
-            planStatistics_.totalReceiveToApplyLatencyNs /
-            static_cast<long double>(planStatistics_.latencySampleCount) /
-            1'000'000.0L);
+  const auto writeLatencyStatistics = [&output](
+      const std::string& title,
+      const std::vector<std::int64_t>& samples) {
+    output << '\n' << title << "\n";
+    output << std::string(title.size(), '-') << "\n";
+    output << "Samples: " << samples.size() << '\n';
 
-    output << "Average emergency receive-to-apply latency: " << std::fixed
-           << std::setprecision(3) << averageLatencyMs << " ms\n";
-  } else {
-    output << "Average emergency receive-to-apply latency: unavailable "
-              "(no emergency plan was applied)\n";
-  }
+    if (samples.empty()) {
+      output << "Latency: unavailable (no valid samples)\n";
+      return;
+    }
+
+    const auto [minimumIterator, maximumIterator] =
+        std::minmax_element(samples.begin(), samples.end());
+    long double totalLatencyNs{};
+    for (const auto latencyNs : samples) {
+      totalLatencyNs += latencyNs;
+    }
+
+    const double averageLatencyMs = static_cast<double>(
+        totalLatencyNs / static_cast<long double>(samples.size()) /
+        1'000'000.0L);
+    output << std::fixed << std::setprecision(3);
+    output << "Min latency: "
+           << Analytics::NanosecondsToMilliseconds(*minimumIterator)
+           << " ms\n";
+    output << "Max latency: "
+           << Analytics::NanosecondsToMilliseconds(*maximumIterator)
+           << " ms\n";
+    output << "Average latency: " << averageLatencyMs << " ms\n";
+    output << "P50 latency: "
+           << Analytics::NanosecondsToMilliseconds(
+                  Analytics::Percentile(samples, 50.0)) << " ms\n";
+    output << "P90 latency: "
+           << Analytics::NanosecondsToMilliseconds(
+                  Analytics::Percentile(samples, 90.0)) << " ms\n";
+    output << "P95 latency: "
+           << Analytics::NanosecondsToMilliseconds(
+                  Analytics::Percentile(samples, 95.0)) << " ms\n";
+    output << "P99 latency: "
+           << Analytics::NanosecondsToMilliseconds(
+                  Analytics::Percentile(samples, 99.0)) << " ms\n";
+  };
+
+  writeLatencyStatistics(
+      "PLAN PUBLISH-TO-RECEIVE LATENCY",
+      planStatistics_.publishToReceiveLatencySamplesNs);
+  writeLatencyStatistics(
+      "EMERGENCY RECEIVE-TO-APPLY LATENCY",
+      planStatistics_.emergencyReceiveToApplyLatencySamplesNs);
 
   output << "\nPLAN INVENTORY\n";
   output << "--------------\n";
