@@ -95,14 +95,21 @@ bool PeriodicService::runDecisionCycle() {
     plan.perceptionPublishTimestampUs = snapshot.timestampUs;
     cycleSuccessful = timingPublisher.publishTimingPlan(plan);
     if (cycleSuccessful) {
-      traffic_timing_decision::decisionLogger().LogInfo()
-          << "[DECISION][PUBLISHED] frame_id=" << snapshot.frameId
-          << "; plan_id=" << plan.planId
-          << "; ns_green_ms=" << plan.greenNorthSouthMs
-          << "; ew_green_ms=" << plan.greenEastWestMs
-          << "; cycle_ms=" << plan.cycleLengthMs
-          << "; emergency_ns=" << plan.emergencyNorthSouth
-          << "; emergency_ew=" << plan.emergencyEastWest;
+      if (timingPublisher.wasLastPlanSuppressed()) {
+        traffic_timing_decision::decisionLogger().LogDebug()
+            << "[DECISION][UNCHANGED] frame_id=" << snapshot.frameId
+            << "; plan_id=" << plan.planId
+            << "; action=no_new_transport_message";
+      } else {
+        traffic_timing_decision::decisionLogger().LogInfo()
+            << "[DECISION][PUBLISHED] frame_id=" << snapshot.frameId
+            << "; plan_id=" << plan.planId
+            << "; ns_green_ms=" << plan.greenNorthSouthMs
+            << "; ew_green_ms=" << plan.greenEastWestMs
+            << "; cycle_ms=" << plan.cycleLengthMs
+            << "; emergency_ns=" << plan.emergencyNorthSouth
+            << "; emergency_ew=" << plan.emergencyEastWest;
+      }
     }
   }
 

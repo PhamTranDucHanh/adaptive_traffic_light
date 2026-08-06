@@ -25,6 +25,7 @@ class TimingPlanPublisher {
   bool publishTimingPlan(const TimingPlan& plan);
   bool retryPendingTimingPlan();
   bool publishPreviousTimingPlan();
+  bool wasLastPlanSuppressed() const noexcept;
 
  private:
   bool validateQueueContract() noexcept;
@@ -41,6 +42,7 @@ class TimingPlanPublisher {
   std::uint64_t sequenceNumber_{};
   std::uint64_t lastPublishTimestampNs_{};
   std::int32_t lastError_{};
+  bool lastPlanSuppressed_{false};
 };
 
 #endif  // !TIMING_PLAN_PUBLISHER_H
