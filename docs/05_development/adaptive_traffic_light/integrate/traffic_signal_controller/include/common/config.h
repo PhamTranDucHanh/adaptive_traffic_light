@@ -28,8 +28,8 @@ constexpr std::uint32_t kMaxYellowDurationMs{10'000U};
 constexpr std::uint32_t kMinAllRedDurationMs{500U};
 constexpr std::uint32_t kMaxAllRedDurationMs{10'000U};
 
-constexpr std::uint32_t kEmergencyLowerThresholdMs{2'000U};
-constexpr std::uint32_t kEmergencyUpperThresholdMs{15'000U};
+constexpr std::uint32_t kEmergencyLowerThresholdMs{5'000U};
+constexpr std::uint32_t kEmergencyUpperThresholdMs{10'000U};
 constexpr std::uint32_t kEmergencyGreenDurationMs{20'000U};
 
 constexpr long kTimingPlanOpenRetryNanoseconds{100'000'000L};
@@ -97,6 +97,11 @@ enum class PhaseId : std::uint8_t {
   EW_GREEN,
 };
 
+enum class SignalGroup : std::uint8_t {
+  NORTH_SOUTH,
+  EAST_WEST,
+};
+
 struct Phase {
   PhaseId phaseId{PhaseId::ALL_RED};
   std::uint32_t durationMs{0U};
@@ -139,6 +144,9 @@ inline PlanData MakeDefaultPlan() {
 struct SignalDisplay {
   PhaseId phaseId{PhaseId::ALL_RED};
   std::uint32_t remainingTimeMs{0U};
+  SignalGroup activeGroup{SignalGroup::NORTH_SOUTH};
+  std::uint32_t northSouthRemainingTimeMs{0U};
+  std::uint32_t eastWestRemainingTimeMs{0U};
 };
 
 inline const char* GetEnvOrDefault(const char* const name,

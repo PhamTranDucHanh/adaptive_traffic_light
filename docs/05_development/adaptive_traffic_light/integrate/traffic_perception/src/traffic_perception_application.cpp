@@ -19,6 +19,7 @@
 namespace {
 
 constexpr std::int32_t kTrafficPerceptionMainCpu{1};
+constexpr auto kSignalDisplayRefreshPeriod = std::chrono::milliseconds{250};
 
 std::int64_t toNanoseconds(
     const std::chrono::steady_clock::time_point timestamp) {
@@ -145,6 +146,7 @@ std::int32_t TrafficPerceptionApplication::Run(
       << kTrafficPerceptionMainCpu << '\n';
 
   auto nextRelease = std::chrono::steady_clock::now() + viewerPhase_;
+  auto nextContentRelease = nextRelease;
   std::int32_t exitCode{EXIT_SUCCESS};
 
   score::mw::log::LogDebug()
@@ -158,33 +160,40 @@ std::int32_t TrafficPerceptionApplication::Run(
       }
 
       const auto wakeup = std::chrono::steady_clock::now();
-      if (!healthReporter_.startPerceptionCycle()) {
-        std::cerr << "[TRAFFIC_PERCEPTION][RUN][ERROR] could not start "
-                     "health-monitored perception cycle\n";
-        exitCode = EXIT_FAILURE;
-        break;
-      }
+      if (scheduledRelease >= nextContentRelease) {
+        if (!healthReporter_.startPerceptionCycle()) {
+          std::cerr << "[TRAFFIC_PERCEPTION][RUN][ERROR] could not start "
+                       "health-monitored perception cycle\n";
+          exitCode = EXIT_FAILURE;
+          break;
+        }
 
-      // The capture and inference pipeline is already running in the tested
-      // PerceptionModule threads. The lifecycle thread owns only the periodic
-      // viewer work, matching pipeline_manager_test.
-      const auto previewFrames = perceptionModule_.latestPreviewFrames();
-      viewer_.render(perceptionModule_.analyzer(), previewFrames,
-                     toNanoseconds(scheduledRelease), toNanoseconds(wakeup));
-      static_cast<void>(cv::waitKey(1));
-      healthReporter_.finishPerceptionCycle();
+        // Capture/inference frames remain on their configured, slower viewer
+        // cadence. Signal countdown refreshes below never clone 1080p input.
+        const auto previewFrames = perceptionModule_.latestPreviewFrames();
+        viewer_.render(perceptionModule_.analyzer(), previewFrames,
+                       toNanoseconds(scheduledRelease), toNanoseconds(wakeup));
+        healthReporter_.finishPerceptionCycle();
 
-      ++cycleCount_;
-      score::mw::log::LogDebug()
-          << "[TRAFFIC_PERCEPTION][CYCLE] viewer rendered; counter="
-          << cycleCount_ << "; period_ms=" << viewerPeriod_.count() << '\n';
+        ++cycleCount_;
+        score::mw::log::LogDebug()
+            << "[TRAFFIC_PERCEPTION][CYCLE] viewer content rendered; counter="
+            << cycleCount_ << "; period_ms=" << viewerPeriod_.count() << '\n';
 
-      // Preserve the test's absolute schedule and discard a stale backlog if
-      // the thread woke more than one complete period late.
-      if (wakeup > scheduledRelease + viewerPeriod_) {
-        nextRelease = wakeup + viewerPeriod_;
+        do {
+          nextContentRelease += viewerPeriod_;
+        } while (nextContentRelease <= scheduledRelease);
       } else {
-        nextRelease = scheduledRelease + viewerPeriod_;
+        viewer_.refreshSignalOverlay(toNanoseconds(wakeup));
+      }
+      static_cast<void>(cv::waitKey(1));
+
+      const auto releaseCheckTime = std::chrono::steady_clock::now();
+      if (releaseCheckTime >
+          scheduledRelease + kSignalDisplayRefreshPeriod) {
+        nextRelease = releaseCheckTime + kSignalDisplayRefreshPeriod;
+      } else {
+        nextRelease = scheduledRelease + kSignalDisplayRefreshPeriod;
       }
     }
   } catch (const std::exception& error) {

@@ -3,6 +3,7 @@
 #include <semaphore.h>
 
 #include "traffic_ipc/messages.h"
+#include "traffic_ipc/signal_state_message_v1.h"
 #include "traffic_ipc/timing_plan_message_v1.h"
 
 namespace {
@@ -22,11 +23,16 @@ int main() {
       unlinkQueue(traffic_ipc::kTrafficSnapshotQueueName);
   const bool timingPlanQueueRemoved =
       unlinkQueue(traffic_ipc::kTimingPlanQueueName);
+  const bool signalStateQueueRemoved =
+      unlinkQueue(traffic_ipc::kSignalStateQueueName);
   const bool snapshotLockRemoved =
       unlinkSemaphore(traffic_ipc::kTrafficSnapshotLockName);
+  const bool signalStateLockRemoved =
+      unlinkSemaphore(traffic_ipc::kSignalStateLockName);
 
   return snapshotQueueRemoved && timingPlanQueueRemoved &&
-                 snapshotLockRemoved
+                 signalStateQueueRemoved && snapshotLockRemoved &&
+                 signalStateLockRemoved
              ? 0
              : 1;
 }

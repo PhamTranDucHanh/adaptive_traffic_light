@@ -8,6 +8,8 @@
 #include <thread>
 
 #include "traffic_signal_controller/signal_fsm_engine.h"
+#include "traffic_ipc/latest_value_queue.h"
+#include "traffic_ipc/signal_state_message_v1.h"
 
 class OutputSimulator final {
  public:
@@ -24,21 +26,38 @@ class OutputSimulator final {
   void submit(const SignalDisplay& display) noexcept;
 
  private:
-  static constexpr std::uint64_t kRemainingMask{0xFFFF'FFFFULL};
+  // Controller limits keep a complete lamp countdown below 2^20 ms.
+  static constexpr std::uint64_t kCountdownMask{0xF'FFFFULL};
   static constexpr std::uint64_t kPhaseMask{0x3ULL};
-  static constexpr std::uint64_t kSequenceMask{0x3FFF'FFFFULL};
+  static constexpr std::uint64_t kGroupMask{0x1ULL};
+  static constexpr std::uint64_t kSequenceMask{0x1F'FFFFULL};
 
-  static constexpr std::uint32_t kPhaseShift{32U};
-  static constexpr std::uint32_t kSequenceShift{34U};
+  static constexpr std::uint32_t kEastWestCountdownShift{20U};
+  static constexpr std::uint32_t kPhaseShift{40U};
+  static constexpr std::uint32_t kGroupShift{42U};
+  static constexpr std::uint32_t kSequenceShift{43U};
+
+  static_assert(static_cast<std::uint64_t>(kMaxGreenDurationMs) +
+                        kMaxYellowDurationMs +
+                        (2ULL * kMaxAllRedDurationMs) <=
+                    kCountdownMask,
+                "Packed output countdown is too small for configured phases");
 
   void run() noexcept;
-  void publish(const SignalDisplay& display) const;
+  void publish(const SignalDisplay& display) noexcept;
   static const char* phaseName(PhaseId phaseId) noexcept;
 
   std::atomic<bool> running_{false};
   std::atomic<std::uint64_t> mailbox_{0U};
   std::atomic<bool> notificationPending_{false};
   std::atomic<std::uint64_t> notificationFailureCount_{0U};
+
+  traffic_ipc::LatestValuePublisher<traffic_ipc::SignalStateMessageV1>
+      signalStatePublisher_{traffic_ipc::kSignalStateQueueName,
+                            traffic_ipc::kSignalStateLockName};
+  std::uint64_t signalStateSequence_{0U};
+  std::uint64_t signalStatePublishFailureCount_{0U};
+  bool signalStatePublisherOpen_{false};
 
   // submit() is called by one producer: the FSM worker.
   std::uint64_t nextSequence_{0U};

@@ -70,6 +70,7 @@ class SignalFSMEngine final {
                               std::uint32_t milliseconds) noexcept;
 
   PhaseId currentPhaseId() const noexcept;
+  std::uint32_t remainingForSignalGroup(SignalGroup group) const noexcept;
 
   static PlanData createDefaultPlan();
 
@@ -78,6 +79,7 @@ class SignalFSMEngine final {
   PlanData currentPlan_{};
   std::uint32_t remainingTimeMs_{0U};
   std::uint8_t currentPhaseIndex_{0U};
+  SignalGroup activeGroup_{SignalGroup::NORTH_SOUTH};
   bool hasActivePlan_{false};
 
   timespec nextDeadline_{};

@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <ctime>
 #include <iostream>
 #include <stdexcept>
 #include <string_view>
@@ -77,6 +78,20 @@ void OutputSimulator::start() {
   }
 
   notificationPending_.store(false, std::memory_order_release);
+  signalStateSequence_ = 0U;
+  signalStatePublishFailureCount_ = 0U;
+
+  const auto openStatus = signalStatePublisher_.open();
+  signalStatePublisherOpen_ =
+      openStatus == traffic_ipc::QueueStatus::kSuccess;
+  if (!signalStatePublisherOpen_) {
+    Logger().LogWarn() << "event=SIGNAL_STATE_QUEUE_OPEN_FAILED"
+                       << ", status="
+                       << std::string_view{
+                              traffic_ipc::queueStatusName(openStatus)}
+                       << ", error=" << signalStatePublisher_.lastError();
+  }
+
   for (;;) {
     if (sem_trywait(&notificationSemaphore_) == 0) {
       continue;
@@ -91,6 +106,8 @@ void OutputSimulator::start() {
     worker_ = std::thread{&OutputSimulator::run, this};
   } catch (...) {
     running_.store(false, std::memory_order_release);
+    signalStatePublisher_.close();
+    signalStatePublisherOpen_ = false;
     throw;
   }
 }
@@ -107,11 +124,19 @@ void OutputSimulator::stop() noexcept {
     worker_.join();
   }
 
+  signalStatePublisher_.close();
+  signalStatePublisherOpen_ = false;
+
   const std::uint64_t notificationFailures =
       notificationFailureCount_.exchange(0U, std::memory_order_acq_rel);
   if (notificationFailures > 0U) {
     Logger().LogWarn() << "event=OUTPUT_NOTIFICATION_FAILED"
                        << ", count=" << notificationFailures;
+  }
+
+  if (signalStatePublishFailureCount_ > 0U) {
+    Logger().LogWarn() << "event=SIGNAL_STATE_PUBLISH_FAILED"
+                       << ", count=" << signalStatePublishFailureCount_;
   }
 }
 
@@ -127,9 +152,15 @@ void OutputSimulator::submit(const SignalDisplay& display) noexcept {
 
   const std::uint64_t packed =
       (sequence << kSequenceShift) |
+      ((static_cast<std::uint64_t>(display.activeGroup) & kGroupMask)
+       << kGroupShift) |
       ((static_cast<std::uint64_t>(display.phaseId) & kPhaseMask)
        << kPhaseShift) |
-      (static_cast<std::uint64_t>(display.remainingTimeMs) & kRemainingMask);
+      ((static_cast<std::uint64_t>(display.eastWestRemainingTimeMs) &
+        kCountdownMask)
+       << kEastWestCountdownShift) |
+      (static_cast<std::uint64_t>(display.northSouthRemainingTimeMs) &
+       kCountdownMask);
 
   mailbox_.store(packed, std::memory_order_release);
 
@@ -195,15 +226,78 @@ void OutputSimulator::run() noexcept {
     SignalDisplay display{};
     display.phaseId = static_cast<PhaseId>(
         (packed >> kPhaseShift) & kPhaseMask);
-    display.remainingTimeMs = static_cast<std::uint32_t>(
-        packed & kRemainingMask);
+    display.activeGroup = static_cast<SignalGroup>(
+        (packed >> kGroupShift) & kGroupMask);
+    display.northSouthRemainingTimeMs =
+        static_cast<std::uint32_t>(packed & kCountdownMask);
+    display.eastWestRemainingTimeMs = static_cast<std::uint32_t>(
+        (packed >> kEastWestCountdownShift) & kCountdownMask);
+    if (display.phaseId == PhaseId::ALL_RED) {
+      display.remainingTimeMs =
+          display.northSouthRemainingTimeMs < display.eastWestRemainingTimeMs
+              ? display.northSouthRemainingTimeMs
+              : display.eastWestRemainingTimeMs;
+    } else {
+      display.remainingTimeMs =
+          display.activeGroup == SignalGroup::NORTH_SOUTH
+              ? display.northSouthRemainingTimeMs
+              : display.eastWestRemainingTimeMs;
+    }
 
     lastSequence = sequence;
     publish(display);
   }
 }
 
-void OutputSimulator::publish(const SignalDisplay& display) const {
+void OutputSimulator::publish(const SignalDisplay& display) noexcept {
+  traffic_ipc::SignalStateMessageV1 state{};
+  state.sequenceNumber = ++signalStateSequence_;
+  if (state.sequenceNumber == 0U) {
+    state.sequenceNumber = ++signalStateSequence_;
+  }
+  state.northSouthRemainingTimeMs = display.northSouthRemainingTimeMs;
+  state.eastWestRemainingTimeMs = display.eastWestRemainingTimeMs;
+
+  switch (display.phaseId) {
+    case PhaseId::NS_GREEN:
+      state.northSouthLamp = traffic_ipc::SignalLamp::kGreen;
+      state.phase = traffic_ipc::SignalPhase::kNorthSouthGreen;
+      break;
+    case PhaseId::EW_GREEN:
+      state.eastWestLamp = traffic_ipc::SignalLamp::kGreen;
+      state.phase = traffic_ipc::SignalPhase::kEastWestGreen;
+      break;
+    case PhaseId::YELLOW:
+      state.phase = traffic_ipc::SignalPhase::kYellow;
+      if (display.activeGroup == SignalGroup::NORTH_SOUTH) {
+        state.northSouthLamp = traffic_ipc::SignalLamp::kYellow;
+      } else {
+        state.eastWestLamp = traffic_ipc::SignalLamp::kYellow;
+      }
+      break;
+    case PhaseId::ALL_RED:
+      state.phase = traffic_ipc::SignalPhase::kAllRed;
+      break;
+  }
+
+  timespec publishTime{};
+  if (clock_gettime(CLOCK_MONOTONIC, &publishTime) == 0) {
+    state.publishTimestampNs =
+        static_cast<std::uint64_t>(publishTime.tv_sec) *
+            kNanosecondsPerSecond +
+        static_cast<std::uint64_t>(publishTime.tv_nsec);
+
+    if (signalStatePublisherOpen_) {
+      const auto status = signalStatePublisher_.publish(state);
+      if (status != traffic_ipc::QueueStatus::kSuccess &&
+          status != traffic_ipc::QueueStatus::kDeferred) {
+        ++signalStatePublishFailureCount_;
+      }
+    }
+  } else {
+    ++signalStatePublishFailureCount_;
+  }
+
   std::cout << "Phase: " << phaseName(display.phaseId)
             << ", Remaining: "
             << (display.remainingTimeMs / kMillisecondsPerSecond)
