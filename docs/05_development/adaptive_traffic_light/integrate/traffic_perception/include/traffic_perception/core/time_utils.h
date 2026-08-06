@@ -1,15 +1,27 @@
 #pragma once
 
+#include <cerrno>
 #include <cstdint>
 #include <ctime>
 
 namespace traffic_perception {
 
-inline int64_t GetMonotonicTimeNs() {
-    timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
+inline int64_t GetMonotonicTimeNs() noexcept {
+    timespec ts{};
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        return 0;
+    }
     return static_cast<int64_t>(ts.tv_sec) * 1000000000LL +
            static_cast<int64_t>(ts.tv_nsec);
+}
+
+inline std::uint64_t GetMonotonicTimeUs() noexcept {
+    constexpr std::int64_t kNanosecondsPerMicrosecond{1000LL};
+    const std::int64_t timestampNs = GetMonotonicTimeNs();
+    return timestampNs > 0
+               ? static_cast<std::uint64_t>(timestampNs /
+                                            kNanosecondsPerMicrosecond)
+               : 0U;
 }
 
 inline timespec ToTimespec(int64_t ns) {

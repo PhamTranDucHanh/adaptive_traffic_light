@@ -11,7 +11,8 @@ readonly INPUT_FILE="$1"
 readonly NANOSECONDS_PER_HOUR="3600000000000"
 readonly NANOSECONDS_PER_SECOND="1000000000"
 readonly MICROSECONDS_PER_MILLISECOND="1000"
-readonly BUCKET_SECONDS="60"
+readonly BUCKET_SECONDS="30"
+readonly BOUNDARY_CYCLES="15"
 
 if [[ ! -f "$INPUT_FILE" || ! -r "$INPUT_FILE" ]]; then
   echo "Error: input file does not exist or is not readable: $INPUT_FILE" >&2
@@ -52,11 +53,13 @@ readonly OUTPUT_PNG="${PLOT_DIRECTORY}/${OUTPUT_BASENAME}_by_time.png"
 
 mkdir -p "$PLOT_DIRECTORY"
 
+RAW_DATA_FILE="$(mktemp)"
 DATA_FILE="$(mktemp)"
 PLOT_DATA_FILE="$(mktemp)"
+readonly RAW_DATA_FILE
 readonly DATA_FILE
 readonly PLOT_DATA_FILE
-trap 'rm -f "$DATA_FILE" "$PLOT_DATA_FILE"' EXIT
+trap 'rm -f "$RAW_DATA_FILE" "$DATA_FILE" "$PLOT_DATA_FILE"' EXIT
 
 # Extract the monotonic event timestamp and selected metric from every record.
 # CLOCK_MONOTONIC is used so elapsed time is unaffected by wall-clock changes.
@@ -78,16 +81,30 @@ awk -v time_field="$TIME_FIELD_NAME" -v value_field="$FIELD_NAME" '
       print timestamp, value
     }
   }
-' "$INPUT_FILE" >"$DATA_FILE"
+' "$INPUT_FILE" >"$RAW_DATA_FILE"
 
-if [[ ! -s "$DATA_FILE" ]]; then
+if [[ ! -s "$RAW_DATA_FILE" ]]; then
   echo "Error: failed to extract timestamp and $FIELD_NAME from $INPUT_FILE" >&2
   exit 1
 fi
 
-# Normalize the first sample to 0 hours, group samples into 60-second time
+readonly RAW_SAMPLE_COUNT="$(wc -l < "$RAW_DATA_FILE")"
+if (( RAW_SAMPLE_COUNT <= BOUNDARY_CYCLES * 2 )); then
+  echo "Error: need more than $((BOUNDARY_CYCLES * 2)) samples to exclude startup and shutdown guard bands." >&2
+  exit 1
+fi
+
+# The periodic application is not yet in steady state immediately after
+# activation, and coordinated shutdown can deschedule its CPU before the stop
+# token reaches this process. Exclude only these fixed boundary windows; all
+# samples occurring during the steady-state run, including outliers, remain.
+awk -v boundary="$BOUNDARY_CYCLES" -v total="$RAW_SAMPLE_COUNT" '
+  NR > boundary && NR <= total - boundary
+' "$RAW_DATA_FILE" >"$DATA_FILE"
+
+# Normalize the first sample to 0 hours, group samples into 30-second time
 # buckets, and convert microseconds to milliseconds. Each plotted point is the
-# average of all samples in its bucket; no input sample is discarded.
+# average of all retained samples in its bucket.
 awk -v ns_per_hour="$NANOSECONDS_PER_HOUR" \
     -v ns_per_second="$NANOSECONDS_PER_SECOND" \
     -v bucket_seconds="$BUCKET_SECONDS" \
@@ -168,12 +185,13 @@ set key top right
 plot "${PLOT_DATA_FILE}" using 1:2 \
 with linespoints linewidth 1.2 pointtype 7 pointsize 0.5 \
 linecolor rgb "${POINT_COLOR}" \
-title "${LEGEND_NAME} (${BUCKET_SECONDS}s average, ${BUCKET_COUNT} buckets; raw min=${MIN_VALUE} ms, raw max=${MAX_VALUE} ms)"
+title "${LEGEND_NAME} (${BUCKET_SECONDS}s average, ${BUCKET_COUNT} buckets; first/last ${BOUNDARY_CYCLES} cycles excluded; raw min=${MIN_VALUE} ms, raw max=${MAX_VALUE} ms)"
 EOF
 
 echo "Input     : $INPUT_FILE"
 echo "Field     : $FIELD_NAME"
 echo "Samples   : $SAMPLE_COUNT"
+echo "Excluded  : first $BOUNDARY_CYCLES + last $BOUNDARY_CYCLES cycles ($RAW_SAMPLE_COUNT raw samples)"
 echo "Buckets   : $BUCKET_COUNT (${BUCKET_SECONDS} seconds each)"
 echo "Duration  : 0..$TOTAL_HOURS hours"
 echo "Range     : $MIN_VALUE..$MAX_VALUE ms"

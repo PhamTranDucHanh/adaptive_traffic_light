@@ -122,6 +122,7 @@ traffic_ipc::TimingPlanMessageV1 TimingPlanPublisher::makeMessage(
   message.sequenceNumber = nextSequenceNumber();
   message.planId = plan.planId;
   message.generationTimestampNs = plan.generationTimestampNs;
+  message.perceptionPublishTimestampUs = plan.perceptionPublishTimestampUs;
   message.greenNorthSouthMs = plan.greenNorthSouthMs;
   message.greenEastWestMs = plan.greenEastWestMs;
   message.yellowMs = plan.yellowMs;
@@ -176,7 +177,9 @@ bool TimingPlanPublisher::trySendPending() noexcept {
   traffic_timing_decision::ipcLogger().LogInfo()
       << "[IPC][PLAN][SENT] plan_id=" << candidate.planId
       << "; publisher_instance_id=" << candidate.publisherInstanceId
-      << "; sequence=" << candidate.sequenceNumber;
+      << "; sequence=" << candidate.sequenceNumber
+      << "; perception_publish_timestamp_us="
+      << candidate.perceptionPublishTimestampUs;
   return true;
 }
 

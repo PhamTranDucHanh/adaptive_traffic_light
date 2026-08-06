@@ -77,6 +77,7 @@ constexpr std::uint64_t kControlPeriodMilliseconds{1'000U};
 
 struct TimingPlan {
   std::uint64_t planId{0U};
+  std::uint64_t perceptionPublishTimestampUs{0U};
 
   std::uint32_t greenNorthSouthMs{0U};
   std::uint32_t greenEastWestMs{0U};

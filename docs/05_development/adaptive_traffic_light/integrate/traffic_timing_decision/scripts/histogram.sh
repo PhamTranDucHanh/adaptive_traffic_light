@@ -11,6 +11,7 @@ fi
 readonly INPUT_FILE="$1"
 readonly BUCKET_WIDTH_US="${BUCKET_WIDTH_US:-1}"
 readonly MICROSECONDS_PER_MILLISECOND="1000"
+readonly BOUNDARY_CYCLES="15"
 
 if [[ ! -f "$INPUT_FILE" ]]; then
   echo "Error: file not found: $INPUT_FILE" >&2
@@ -57,11 +58,13 @@ readonly OUTPUT_PNG="${PLOT_DIRECTORY}/${OUTPUT_BASENAME}.png"
 
 mkdir -p "$PLOT_DIRECTORY"
 
+RAW_VALUES_FILE="$(mktemp)"
 VALUES_FILE="$(mktemp)"
 HISTOGRAM_FILE="$(mktemp)"
+readonly RAW_VALUES_FILE
 readonly VALUES_FILE
 readonly HISTOGRAM_FILE
-trap 'rm -f "$VALUES_FILE" "$HISTOGRAM_FILE"' EXIT
+trap 'rm -f "$RAW_VALUES_FILE" "$VALUES_FILE" "$HISTOGRAM_FILE"' EXIT
 
 # Extract the integer value following the selected DLT field. This tolerates
 # arbitrary spaces around '=' while ignoring all unrelated fields.
@@ -74,12 +77,22 @@ awk -v field="$FIELD_NAME" '
       print value
     }
   }
-' "$INPUT_FILE" >"$VALUES_FILE"
+' "$INPUT_FILE" >"$RAW_VALUES_FILE"
 
-if [[ ! -s "$VALUES_FILE" ]]; then
+if [[ ! -s "$RAW_VALUES_FILE" ]]; then
   echo "Error: failed to extract $FIELD_NAME samples from $INPUT_FILE" >&2
   exit 1
 fi
+
+readonly RAW_SAMPLE_COUNT="$(wc -l < "$RAW_VALUES_FILE")"
+if (( RAW_SAMPLE_COUNT <= BOUNDARY_CYCLES * 2 )); then
+  echo "Error: need more than $((BOUNDARY_CYCLES * 2)) samples to exclude startup and shutdown guard bands." >&2
+  exit 1
+fi
+
+awk -v boundary="$BOUNDARY_CYCLES" -v total="$RAW_SAMPLE_COUNT" '
+  NR > boundary && NR <= total - boundary
+' "$RAW_VALUES_FILE" >"$VALUES_FILE"
 
 read -r SAMPLE_COUNT MIN_VALUE MAX_VALUE < <(
   awk '
@@ -133,7 +146,7 @@ set terminal pngcairo size 1600,900 enhanced
 set output "${OUTPUT_PNG}"
 
 set title "${PLOT_TITLE}"
-set xlabel "${X_AXIS_NAME} (ms), Samples = ${SAMPLE_COUNT}, Min = ${MIN_VALUE_MS} ms, Max = ${MAX_VALUE_MS} ms, Bucket = ${BUCKET_WIDTH_MS} ms"
+set xlabel "${X_AXIS_NAME} (ms), Samples = ${SAMPLE_COUNT}, first/last ${BOUNDARY_CYCLES} cycles excluded, Min = ${MIN_VALUE_MS} ms, Max = ${MAX_VALUE_MS} ms, Bucket = ${BUCKET_WIDTH_MS} ms"
 set ylabel "Number of Samples"
 
 set xrange [0:*]
@@ -153,6 +166,7 @@ EOF
 echo "Input    : $INPUT_FILE"
 echo "Field    : $FIELD_NAME"
 echo "Samples  : $SAMPLE_COUNT"
+echo "Excluded : first $BOUNDARY_CYCLES + last $BOUNDARY_CYCLES cycles ($RAW_SAMPLE_COUNT raw samples)"
 echo "Range    : $MIN_VALUE_MS..$MAX_VALUE_MS ms"
 echo "Bucket   : $BUCKET_WIDTH_MS ms ($BUCKET_WIDTH_US us, unchanged)"
 echo "Generated: $OUTPUT_PNG"

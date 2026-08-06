@@ -30,6 +30,7 @@ constexpr std::string_view kDefaultOutputDirectory{
     "traffic_timing_decision/output"};
 constexpr std::string_view kNestedOutputDirectory{
     "traffic_timing_decision/traffic_timing_decision/output"};
+constexpr std::size_t kBoundaryCycleCount{10U};
 
 enum class ExitCode : std::int32_t {
   kSuccess = 0,
@@ -177,6 +178,24 @@ bool calculateStatistics(std::vector<Integer> values, Statistics& statistics,
   return true;
 }
 
+template <typename Value>
+bool excludeBoundaryCycles(std::vector<Value>& values, std::string& error) {
+  constexpr std::size_t excludedCycleCount = kBoundaryCycleCount * 2U;
+  if (values.size() <= excludedCycleCount) {
+    error = "not enough timing samples after excluding " +
+            std::to_string(kBoundaryCycleCount) +
+            " startup and shutdown cycles";
+    return false;
+  }
+
+  values.erase(values.end() - static_cast<std::ptrdiff_t>(kBoundaryCycleCount),
+               values.end());
+  values.erase(values.begin(),
+               values.begin() +
+                   static_cast<std::ptrdiff_t>(kBoundaryCycleCount));
+  return true;
+}
+
 bool parseWakeupText(const std::filesystem::path& textPath,
                      std::vector<std::int64_t>& wakeupLatencies,
                      std::string& error) {
@@ -216,6 +235,8 @@ bool parseWakeupText(const std::filesystem::path& textPath,
 bool parseExecutionText(
     const std::filesystem::path& textPath,
     std::vector<std::uint64_t>& executionTimes,
+    std::vector<bool>& executionDeadlineMisses,
+    std::vector<bool>& cycleDeadlineMisses,
     traffic_timing_decision::analytics::TimingAnalyticsReport& report,
     std::string& error) {
   std::ifstream input{textPath};
@@ -256,12 +277,8 @@ bool parseExecutionText(
     }
 
     executionTimes.push_back(executionTime);
-    if (executionDeadlineMiss) {
-      ++report.executionDeadlineMisses;
-    }
-    if (cycleDeadlineMiss) {
-      ++report.cycleDeadlineMisses;
-    }
+    executionDeadlineMisses.push_back(executionDeadlineMiss);
+    cycleDeadlineMisses.push_back(cycleDeadlineMiss);
   }
 
   if (input.bad()) {
@@ -293,7 +310,10 @@ void printStatistics(const Statistics& statistics, std::ostream& output) {
 void printReport(
     const traffic_timing_decision::analytics::TimingAnalyticsReport& report,
     std::ostream& output) {
-  output << "Deadline Misses (" << report.deadlineMs
+  output << "Analysis window: excluded first and last "
+         << kBoundaryCycleCount
+         << " cycles (startup/shutdown guard bands)\n"
+         << "Deadline Misses (" << report.deadlineMs
          << " ms): cycle=" << report.cycleDeadlineMisses << " / "
          << report.executionTimeUs.sampleCount
          << ", execution=" << report.executionDeadlineMisses << " / "
@@ -352,13 +372,27 @@ std::int32_t Run(const std::filesystem::path& wakeupDltPath,
   TimingAnalyticsReport report{};
   std::vector<std::int64_t> wakeupLatencies{};
   std::vector<std::uint64_t> executionTimes{};
+  std::vector<bool> executionDeadlineMisses{};
+  std::vector<bool> cycleDeadlineMisses{};
   if (!parseWakeupText(wakeupTextPath, wakeupLatencies, error) ||
-      !parseExecutionText(executionTextPath, executionTimes, report, error) ||
+      !parseExecutionText(executionTextPath, executionTimes,
+                          executionDeadlineMisses, cycleDeadlineMisses, report,
+                          error) ||
+      !excludeBoundaryCycles(wakeupLatencies, error) ||
+      !excludeBoundaryCycles(executionTimes, error) ||
+      !excludeBoundaryCycles(executionDeadlineMisses, error) ||
+      !excludeBoundaryCycles(cycleDeadlineMisses, error) ||
       !calculateStatistics(wakeupLatencies, report.wakeupLatencyUs, error) ||
       !calculateStatistics(executionTimes, report.executionTimeUs, error)) {
     errorOutput << "[ANALYTICS][ERROR] " << error << '\n';
     return toValue(ExitCode::kFailure);
   }
+
+  report.executionDeadlineMisses = static_cast<std::uint64_t>(
+      std::count(executionDeadlineMisses.begin(),
+                 executionDeadlineMisses.end(), true));
+  report.cycleDeadlineMisses = static_cast<std::uint64_t>(
+      std::count(cycleDeadlineMisses.begin(), cycleDeadlineMisses.end(), true));
 
   printReport(report, output);
   output << "\nDecoded text files:\n"

@@ -10,13 +10,13 @@ namespace traffic_ipc {
 
 inline constexpr char kTimingPlanQueueName[] = "/traffic_timing_plan_v1";
 inline constexpr long kTimingPlanQueueMaxMessages = 8L;
-inline constexpr long kTimingPlanQueueMessageSize = 64L;
+inline constexpr long kTimingPlanQueueMessageSize = 72L;
 inline constexpr std::uint32_t kTimingPlanMagic = 0x54504C31U;  // "TPL1"
 inline constexpr std::uint16_t kTimingPlanVersion = 1U;
 
 // Stable POSIX-MQ wire contract shared by Timing Decision and Signal Control.
 // Boolean values are encoded as uint8_t and are valid only when equal to 0 or
-// 1. The final reserved bytes keep the v1 message exactly 64 bytes.
+// 1. The final reserved bytes keep the v1 message exactly 72 bytes.
 struct TimingPlanMessageV1 final {
   std::uint32_t magic{kTimingPlanMagic};
   std::uint16_t version{kTimingPlanVersion};
@@ -27,6 +27,7 @@ struct TimingPlanMessageV1 final {
   std::uint64_t sequenceNumber{0U};
   std::uint64_t planId{0U};
   std::uint64_t generationTimestampNs{0U};
+  std::uint64_t perceptionPublishTimestampUs{0U};
 
   std::uint32_t greenNorthSouthMs{0U};
   std::uint32_t greenEastWestMs{0U};
@@ -67,7 +68,7 @@ constexpr bool HasValidTimingPlanEnvelope(
 
 static_assert(sizeof(TimingPlanMessageV1) ==
                   static_cast<std::size_t>(kTimingPlanQueueMessageSize),
-              "TimingPlanMessageV1 must remain exactly 64 bytes");
+              "TimingPlanMessageV1 must remain exactly 72 bytes");
 static_assert(std::is_standard_layout<TimingPlanMessageV1>::value,
               "TimingPlanMessageV1 must have a stable standard layout");
 static_assert(std::is_trivially_copyable<TimingPlanMessageV1>::value,

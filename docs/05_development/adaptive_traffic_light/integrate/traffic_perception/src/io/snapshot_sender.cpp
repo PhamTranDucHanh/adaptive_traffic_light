@@ -1,11 +1,11 @@
 #include "traffic_perception/io/snapshot_sender.h"
 
 #include <algorithm>
-#include <chrono>
 #include <cstdint>
 #include <string_view>
 
 #include "score/mw/log/logging.h"
+#include "traffic_perception/core/time_utils.h"
 
 namespace {
 
@@ -18,10 +18,7 @@ traffic_ipc::TrafficSnapshot ToWireSnapshot(
   traffic_ipc::TrafficSnapshot wire{};
   wire.frameId = source.frameId > 0 ? static_cast<std::uint64_t>(source.frameId)
                                     : 0U;
-  wire.timestampUs = static_cast<std::uint64_t>(
-      std::chrono::duration_cast<std::chrono::microseconds>(
-          std::chrono::steady_clock::now().time_since_epoch())
-          .count());
+  wire.timestampUs = traffic_perception::GetMonotonicTimeUs();
 
   wire.vehicleCountNorth = ToWireCount(source.vehicleCountNorth);
   wire.vehicleCountSouth = ToWireCount(source.vehicleCountSouth);

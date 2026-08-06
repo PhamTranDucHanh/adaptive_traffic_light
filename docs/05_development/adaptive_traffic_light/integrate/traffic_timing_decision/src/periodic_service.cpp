@@ -89,7 +89,10 @@ bool PeriodicService::runDecisionCycle() {
     cycleSuccessful = timingPublisher.retryPendingTimingPlan();
   } else {
     consecutiveSnapshotMisses_ = std::uint32_t{};
-    const TimingPlan plan = decisionEngine.processTrafficMetrics(snapshot);
+    TimingPlan plan = decisionEngine.processTrafficMetrics(snapshot);
+    // Preserve the exact CLOCK_MONOTONIC-domain timestamp captured by
+    // Perception immediately before publishing this source snapshot.
+    plan.perceptionPublishTimestampUs = snapshot.timestampUs;
     cycleSuccessful = timingPublisher.publishTimingPlan(plan);
     if (cycleSuccessful) {
       traffic_timing_decision::decisionLogger().LogInfo()
