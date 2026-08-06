@@ -7,6 +7,8 @@
 #   both
 #   wakeup
 #   execution
+#   end_to_end
+#   emergency
 #
 # Benchmark input data is archived by the analytics code after each run under:
 #   /tmp/traffic_signal_controller/logs/output/*_analytics_input.txt
@@ -35,9 +37,15 @@ case "$METRIC" in
     execution)
         TITLE="FSM Execution Time Over Time"
         ;;
+    end_to_end)
+        TITLE="Plan Publish-to-Receive Latency Over Time"
+        ;;
+    emergency)
+        TITLE="Emergency Receive-to-Apply Latency Over Time"
+        ;;
     *)
         echo "Error: Unsupported metric: $METRIC"
-        echo "Supported metrics: both, wakeup, execution"
+        echo "Supported metrics: both, wakeup, execution, end_to_end, emergency"
         exit 1
         ;;
 esac
@@ -70,7 +78,7 @@ for existing_file in "$OUTPUT_DIRECTORY"/[0-9][0-9][0-9]_*; do
     esac
 
     if [ "$existing_number" -ge "$NEXT_RUN_NUMBER" ]; then
-        NEXT_RUN_NUMBER=$((existing_number + 1))
+        NEXT_RUN_NUMBER=$((10#$existing_number + 1))
     fi
 done
 
@@ -80,6 +88,8 @@ RUN_BASENAME="${RUN_ID}_${METRIC}_timeseries"
 DATA_CSV="${PLOT_WORK_DIRECTORY}/${RUN_BASENAME}.csv"
 WAKEUP_PLOT_DATA="${PLOT_WORK_DIRECTORY}/${RUN_BASENAME}_wakeup.dat"
 EXECUTION_PLOT_DATA="${PLOT_WORK_DIRECTORY}/${RUN_BASENAME}_execution.dat"
+END_TO_END_PLOT_DATA="${PLOT_WORK_DIRECTORY}/${RUN_BASENAME}_end_to_end.dat"
+EMERGENCY_PLOT_DATA="${PLOT_WORK_DIRECTORY}/${RUN_BASENAME}_emergency.dat"
 VALUE_DATA_NS="${PLOT_WORK_DIRECTORY}/${RUN_BASENAME}_values_ns.dat"
 GNUPLOT_FILE="${PLOT_WORK_DIRECTORY}/${RUN_BASENAME}.gnu"
 DEFAULT_OUTPUT_IMAGE="${OUTPUT_DIRECTORY}/${RUN_BASENAME}.png"
@@ -163,6 +173,32 @@ index($0, "event=FSM_EXECUTION") {
     remember_sample("execution", execution_count, value_ns, dlt_timestamp_ns($0), "")
 }
 
+index($0, "event=PLAN_PUBLISH_TO_RECEIVE") {
+    if (metric != "end_to_end") {
+        next
+    }
+
+    value_ns = extract_uint($0, "latency_ns")
+    if (value_ns != "") {
+        ++end_to_end_count
+        remember_sample("end_to_end", end_to_end_count, value_ns,
+                        dlt_timestamp_ns($0), extract_uint($0, "receive_timestamp_ns"))
+    }
+}
+
+index($0, "event=EMERGENCY_RECEIVE_TO_APPLY") {
+    if (metric != "emergency") {
+        next
+    }
+
+    value_ns = extract_uint($0, "latency_ns")
+    if (value_ns != "") {
+        ++emergency_count
+        remember_sample("emergency", emergency_count, value_ns,
+                        dlt_timestamp_ns($0), extract_uint($0, "apply_timestamp_ns"))
+    }
+}
+
 END {
     print "run_id,metric,sample_index,x_kind,x_raw_ns,elapsed_s,value_ns,value_us,value_ms,input_file"
 
@@ -186,6 +222,14 @@ END {
                    wakeup_actual_ns[sample_index[i]] != "") {
             x_kind = "monotonic_wakeup_aligned_ns"
             x_raw_ns = wakeup_actual_ns[sample_index[i]]
+        } else if (sample_kind[i] == "end_to_end" &&
+                   sample_fallback_ns[i] != "") {
+            x_kind = "monotonic_receive_timestamp_ns"
+            x_raw_ns = sample_fallback_ns[i]
+        } else if (sample_kind[i] == "emergency" &&
+                   sample_fallback_ns[i] != "") {
+            x_kind = "monotonic_apply_timestamp_ns"
+            x_raw_ns = sample_fallback_ns[i]
         }
 
         resolved_x_raw_ns[i] = x_raw_ns
@@ -282,8 +326,18 @@ NR > 1 && $2 == "execution" {
 }
 ' "$DATA_CSV" > "$EXECUTION_PLOT_DATA"
 
+awk -F, -v scale="$SCALE" '
+NR > 1 && $2 == "end_to_end" {printf "%.9f %.9f\n", $6, $7 / scale}
+' "$DATA_CSV" > "$END_TO_END_PLOT_DATA"
+
+awk -F, -v scale="$SCALE" '
+NR > 1 && $2 == "emergency" {printf "%.9f %.9f\n", $6, $7 / scale}
+' "$DATA_CSV" > "$EMERGENCY_PLOT_DATA"
+
 WAKEUP_COUNT=$(wc -l < "$WAKEUP_PLOT_DATA")
 EXECUTION_COUNT=$(wc -l < "$EXECUTION_PLOT_DATA")
+END_TO_END_COUNT=$(wc -l < "$END_TO_END_PLOT_DATA")
+EMERGENCY_COUNT=$(wc -l < "$EMERGENCY_PLOT_DATA")
 
 X_KIND_SUMMARY=$(awk -F, '
 NR > 1 {
@@ -332,8 +386,10 @@ set tics out
 set label 1 sprintf("Samples: %d", ${SAMPLE_COUNT}) at graph 0.02,0.95
 set label 2 sprintf("Wakeup: %d", ${WAKEUP_COUNT}) at graph 0.02,0.90
 set label 3 sprintf("Execution: %d", ${EXECUTION_COUNT}) at graph 0.02,0.85
-set label 4 sprintf("Unit: %s", "$UNIT") at graph 0.02,0.80
-set label 5 sprintf("X source: %s", "$X_KIND_SUMMARY") at graph 0.02,0.75
+set label 4 sprintf("End-to-end: %d", ${END_TO_END_COUNT}) at graph 0.02,0.80
+set label 5 sprintf("Emergency: %d", ${EMERGENCY_COUNT}) at graph 0.02,0.75
+set label 6 sprintf("Unit: %s", "$UNIT") at graph 0.02,0.70
+set label 7 sprintf("X source: %s", "$X_KIND_SUMMARY") at graph 0.02,0.65
 
 EOF
 
@@ -354,6 +410,16 @@ EOF
 plot "$EXECUTION_PLOT_DATA" using 1:2 with linespoints lw 1 pt 5 ps 0.8 title "Execution time"
 EOF
         ;;
+    end_to_end)
+        cat >> "$GNUPLOT_FILE" << EOF
+plot "$END_TO_END_PLOT_DATA" using 1:2 with linespoints lw 1 pt 7 ps 0.8 title "Publish-to-receive latency"
+EOF
+        ;;
+    emergency)
+        cat >> "$GNUPLOT_FILE" << EOF
+plot "$EMERGENCY_PLOT_DATA" using 1:2 with linespoints lw 1 pt 7 ps 0.8 title "Receive-to-apply latency"
+EOF
+        ;;
 esac
 
 gnuplot "$GNUPLOT_FILE"
@@ -371,6 +437,8 @@ echo "  Output image    : $OUTPUT_IMAGE"
 echo "  Samples         : $SAMPLE_COUNT"
 echo "  Wakeup samples  : $WAKEUP_COUNT"
 echo "  Execution samples: $EXECUTION_COUNT"
+echo "  End-to-end samples: $END_TO_END_COUNT"
+echo "  Emergency samples: $EMERGENCY_COUNT"
 echo "  Display unit    : $UNIT"
 echo "  X-axis          : $X_LABEL"
 echo "  X source        : $X_KIND_SUMMARY"

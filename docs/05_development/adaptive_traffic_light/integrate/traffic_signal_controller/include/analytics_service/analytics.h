@@ -120,6 +120,8 @@ class Analytics {
   static std::uint64_t ExtractDltStorageTimestampNs(
       const std::string& record);
   static double NanosecondsToMilliseconds(std::int64_t nanoseconds);
+  static double StandardDeviationNanoseconds(
+      const std::vector<std::int64_t>& samples);
   static std::int64_t Percentile(
       std::vector<std::int64_t> samples,
       double percentile);

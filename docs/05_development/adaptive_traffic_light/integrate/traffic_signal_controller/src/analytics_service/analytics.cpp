@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <dirent.h>
@@ -397,6 +398,26 @@ double Analytics::NanosecondsToMilliseconds(const std::int64_t nanoseconds) {
   return static_cast<double>(nanoseconds) / 1'000'000.0;
 }
 
+double Analytics::StandardDeviationNanoseconds(
+    const std::vector<std::int64_t>& samples) {
+  long double mean{};
+  long double squaredDifferenceSum{};
+  std::size_t count{};
+
+  for (const auto sample : samples) {
+    ++count;
+    const long double delta = static_cast<long double>(sample) - mean;
+    mean += delta / static_cast<long double>(count);
+    squaredDifferenceSum +=
+        delta * (static_cast<long double>(sample) - mean);
+  }
+
+  return count == 0U
+             ? 0.0
+             : std::sqrt(static_cast<double>(
+                   squaredDifferenceSum / static_cast<long double>(count)));
+}
+
 std::int64_t Analytics::Percentile(std::vector<std::int64_t> samples,
                                    const double percentile) {
   if (samples.empty()) {
@@ -530,6 +551,15 @@ std::string Analytics::ConvertDltRecordToTextMessage(const std::string& record,
 
   if (record.find("latency_ns=") != std::string::npos) {
     message << ", latency_ns=" << ExtractDltUint64(record, "latency_ns");
+  }
+
+  for (const auto* const timestampKey :
+       {"publish_timestamp_ns", "receive_timestamp_ns",
+        "apply_timestamp_ns"}) {
+    if (record.find(std::string{timestampKey} + "=") != std::string::npos) {
+      message << ", " << timestampKey << '='
+              << ExtractDltUint64(record, timestampKey);
+    }
   }
 
   if (record.find("execution_time_ns=") != std::string::npos) {
@@ -939,6 +969,9 @@ bool Analytics::WriteReport(const std::string& outputPath) const {
            << Analytics::NanosecondsToMilliseconds(*maximumIterator)
            << " ms\n";
     output << "Average latency: " << averageLatencyMs << " ms\n";
+    output << "Standard deviation: "
+           << Analytics::StandardDeviationNanoseconds(samples) / 1'000'000.0
+           << " ms\n";
     output << "P50 latency: "
            << Analytics::NanosecondsToMilliseconds(
                   Analytics::Percentile(samples, 50.0)) << " ms\n";
@@ -1012,6 +1045,10 @@ bool Analytics::WriteReport(const std::string& outputPath) const {
     output << "Max latency: " << NanosecondsToMilliseconds(*maximumIterator)
            << " ms\n";
     output << "Average latency: " << averageLatencyMs << " ms\n";
+    output << "Standard deviation: "
+           << StandardDeviationNanoseconds(
+                  wakeupStatistics_.latencySamplesNs) / 1'000'000.0
+           << " ms\n";
     output << "P50 latency: "
            << NanosecondsToMilliseconds(
                   Percentile(wakeupStatistics_.latencySamplesNs, 50.0))
@@ -1081,6 +1118,10 @@ bool Analytics::WriteReport(const std::string& outputPath) const {
            << static_cast<double>(*maximumIterator) / 1'000.0 << " us)\n";
     output << "Average execution time: " << averageExecutionTimeNs << " ns ("
            << averageExecutionTimeNs / 1'000.0 << " us)\n";
+    const double executionStandardDeviationNs =
+        StandardDeviationNanoseconds(executionSamplesNs);
+    output << "Standard deviation: " << executionStandardDeviationNs
+           << " ns (" << executionStandardDeviationNs / 1'000.0 << " us)\n";
     output << "P50 execution time: "
            << Percentile(executionSamplesNs, 50.0) << " ns\n";
     output << "P90 execution time: "
