@@ -6,7 +6,7 @@
   "pipeline_phase_ms": 50,
 
   "viewer_period_ms": 5000,
-  "viewer_phase_ms": 70,
+  "viewer_phase_ms": 260,
   "video_resolution": {
     "width": 1920,
     "height": 1080
@@ -35,7 +35,7 @@
       }
     ],
     "pipeline": {
-      "core": 0,
+      "core": 2,
       "policy": "SCHED_RR",
       "priority": 70
     }
