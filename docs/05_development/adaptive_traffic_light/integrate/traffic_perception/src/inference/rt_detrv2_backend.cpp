@@ -98,8 +98,10 @@ void RtDetrv2Backend::inspectModelContract() {
   boxesOutputIndex_ = FindName(outputNamesStorage_, "boxes");
   scoresOutputIndex_ = FindName(outputNamesStorage_, "scores");
 
-  const auto inputInfo =
-      session_->GetInputTypeInfo(imagesIndex).GetTensorTypeAndShapeInfo();
+  // TensorTypeAndShapeInfo borrows storage from TypeInfo in this ORT API.
+  // Keep TypeInfo alive until all tensor metadata has been consumed.
+  const auto inputTypeInfo = session_->GetInputTypeInfo(imagesIndex);
+  const auto inputInfo = inputTypeInfo.GetTensorTypeAndShapeInfo();
   const auto inputShape = inputInfo.GetShape();
   if (inputInfo.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT ||
       inputShape.size() != 4U ||

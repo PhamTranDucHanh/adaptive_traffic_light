@@ -54,7 +54,7 @@ class RtDetrv2Backend final : public IModelBackend {
   std::size_t labelsOutputIndex_{0};
   std::size_t boxesOutputIndex_{1};
   std::size_t scoresOutputIndex_{2};
-  float confidenceThreshold_{0.2F};
+  float confidenceThreshold_{0.5F};
 };
 
 }  // namespace traffic_perception

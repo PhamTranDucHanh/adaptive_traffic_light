@@ -5,8 +5,8 @@
   "pipeline_period_ms": 5000,
   "pipeline_phase_ms": 50,
 
-  "viewer_period_ms": 3000,
-  "viewer_phase_ms": 260,
+  "viewer_period_ms": 5000,
+  "viewer_phase_ms": 70,
   "video_resolution": {
     "width": 1920,
     "height": 1080
@@ -16,22 +16,22 @@
       {
         "core": 0,
         "policy": "SCHED_RR",
-        "priority": 50
+        "priority": 40
       },
       {
         "core": 1,
         "policy": "SCHED_RR",
-        "priority": 50
+        "priority": 40
       },
       {
         "core": 2,
         "policy": "SCHED_RR",
-        "priority": 50
+        "priority": 40
       },
       {
         "core": 3,
         "policy": "SCHED_RR",
-        "priority": 50
+        "priority": 40
       }
     ],
     "pipeline": {
@@ -41,9 +41,9 @@
     }
   },
 
-  "model_backend": "yolov8_oiv7",
-  "model": "data/yolov8m-oiv7.onnx",
-  "emergency_class": "Van",
+  "model_backend": "rt_detrv2",
+  "model": "data/rt-detrv2-s.onnx",
+  "emergency_class": "Truck",
   "lanes": [
     {
       "direction": "North",
