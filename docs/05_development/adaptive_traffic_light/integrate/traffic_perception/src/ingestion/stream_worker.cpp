@@ -27,12 +27,14 @@ namespace traffic_perception {
 
 bool StreamWorker::initStream(std::string sourceUri, int32_t streamId,
                               FramePool* pool, std::chrono::milliseconds period,
-                              std::chrono::milliseconds phase) {
+                              std::chrono::milliseconds phase,
+                              int32_t decodeCore) {
   SourceUri = std::move(sourceUri);
   LaneId = streamId;
   Pool = pool;
   AcquisitionPeriod = period;
   phase_ = phase;
+  DecodeCore = decodeCore;
 
   getBenchmarkLogger().LogDebug()
       << "[StreamWorker] Init lane " << LaneId << " source=" << SourceUri
@@ -72,11 +74,11 @@ void StreamWorker::stop() { running_.store(false, std::memory_order_relaxed); }
 void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
                        std::chrono::steady_clock::time_point startTime) {
   cv::VideoCapture cap;
-  
+
   struct ThreadTask {
     std::function<void()> func;
   };
-  
+
   ThreadTask task;
   task.func = [&]() {
     setenv("OPENCV_FFMPEG_THREADS", "1", 1);
@@ -85,13 +87,19 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
 
   pthread_attr_t attr;
   pthread_attr_init(&attr);
-  // Run the short-lived VideoCapture opener on SCHED_OTHER so the OS can
-  // place it on any core freely without consuming RT (SCHED_RR) bandwidth.
+  // Decoder helpers inherit SCHED_OTHER and this stream's configured core.
   pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
-  struct sched_param sp{};
+  struct sched_param sp {};
   sp.sched_priority = 0;
   pthread_attr_setschedpolicy(&attr, SCHED_OTHER);
   pthread_attr_setschedparam(&attr, &sp);
+
+  if (DecodeCore >= 0) {
+    cpu_set_t affinityMask{};
+    CPU_ZERO(&affinityMask);
+    CPU_SET(DecodeCore, &affinityMask);
+    pthread_attr_setaffinity_np(&attr, sizeof(affinityMask), &affinityMask);
+  }
 
   pthread_t tid;
   pthread_create(&tid, &attr, [](void* arg) -> void* {

@@ -29,15 +29,16 @@ static std::string resolveCocoClassName(int classId) {
 }
 
 YOLOv8Backend::YOLOv8Backend(const std::string& modelPath,
-                             const std::string& emergencyClass)
+                             const std::string& emergencyClass,
+                             int inferenceCallerCpu)
     : emergencyClass_(emergencyClass),
       env_(ORT_LOGGING_LEVEL_WARNING, "YOLOv8Backend"),
+      ortThreadPoolConfig_(inferenceCallerCpu),
       memory_info_(
           Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)) {
   try {
     Ort::SessionOptions sessionOptions;
-    sessionOptions.SetIntraOpNumThreads(1);
-    sessionOptions.SetInterOpNumThreads(1);
+    ConfigureOrtThreadPool(sessionOptions, ortThreadPoolConfig_);
     session_ = std::make_unique<Ort::Session>(env_, modelPath.c_str(),
                                               sessionOptions);
 

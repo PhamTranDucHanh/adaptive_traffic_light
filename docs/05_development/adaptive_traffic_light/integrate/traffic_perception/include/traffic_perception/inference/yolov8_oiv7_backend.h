@@ -7,13 +7,15 @@
 #include <memory>
 #include <onnxruntime_cxx_api.h>
 #include "traffic_perception/inference/imodel_backend.h"
+#include "traffic_perception/inference/onnx_thread_pool.h"
 
 namespace traffic_perception {
 
 class YoloV8OIV7Backend : public IModelBackend {
  public:
   YoloV8OIV7Backend(const std::string& modelPath,
-                    const std::string& emergencyClass);
+                    const std::string& emergencyClass,
+                    int inferenceCallerCpu = 2);
   ~YoloV8OIV7Backend() override = default;
 
   InferenceResult infer(const Frame& frame) override;
@@ -25,6 +27,7 @@ class YoloV8OIV7Backend : public IModelBackend {
   std::string emergencyClass_;
 
   Ort::Env env_;
+  OrtThreadPoolConfig ortThreadPoolConfig_;
   std::unique_ptr<Ort::Session> session_;
   Ort::MemoryInfo memory_info_;
 

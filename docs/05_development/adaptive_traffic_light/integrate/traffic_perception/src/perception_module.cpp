@@ -16,7 +16,8 @@
 
 namespace {
 
-constexpr std::int32_t kBackendBootstrapCpu{0};
+constexpr std::int32_t kBackendBootstrapFirstCpu{0};
+constexpr std::int32_t kBackendBootstrapCpuCount{4};
 
 struct BackendBootstrapContext {
   const AppConfig* config{nullptr};
@@ -30,10 +31,12 @@ void* BackendBootstrapThreadEntry(void* arg) {
   try {
     if (ctx->config->modelBackend == "yolov8") {
       ctx->backend = std::make_unique<traffic_perception::YOLOv8Backend>(
-          ctx->config->modelPath, ctx->config->emergencyClass);
+          ctx->config->modelPath, ctx->config->emergencyClass,
+          ctx->config->Threading.Pipeline.Core);
     } else if (ctx->config->modelBackend == "yolov8_oiv7") {
       ctx->backend = std::make_unique<traffic_perception::YoloV8OIV7Backend>(
-          ctx->config->modelPath, ctx->config->emergencyClass);
+          ctx->config->modelPath, ctx->config->emergencyClass,
+          ctx->config->Threading.Pipeline.Core);
     }
   } catch (...) {
     // Exceptions must not cross the pthread C entry-point boundary. The join
@@ -65,7 +68,12 @@ bool CreateBackendOnOtherThread(
 
   cpu_set_t affinityMask{};
   CPU_ZERO(&affinityMask);
-  CPU_SET(kBackendBootstrapCpu, &affinityMask);
+  // Session construction may run on any available CPU. The ORT worker threads
+  // themselves receive one-CPU masks in the custom thread creation callback.
+  for (std::int32_t cpu = kBackendBootstrapFirstCpu;
+       cpu < kBackendBootstrapFirstCpu + kBackendBootstrapCpuCount; ++cpu) {
+    CPU_SET(cpu, &affinityMask);
+  }
   if (ret == 0) {
     ret = pthread_attr_setaffinity_np(&attr, sizeof(affinityMask),
                                       &affinityMask);
@@ -172,7 +180,8 @@ bool PerceptionModule::initModule(const AppConfig& config) {
   for (std::size_t i = 0; i < NUM_LANES; ++i) {
     workers_[i].initStream(config_.lanes[i].videoSource,
                            static_cast<std::int32_t>(i), &pool_,
-                           config_.CapturePeriod, config_.CapturePhase);
+                           config_.CapturePeriod, config_.CapturePhase,
+                           config_.Threading.StreamWorkers[i].Core);
 
     streamThreadContexts_[i].worker = &workers_[i];
     streamThreadContexts_[i].buffer = &buffer_;

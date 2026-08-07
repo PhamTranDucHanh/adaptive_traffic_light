@@ -19,6 +19,7 @@ cc_library(
         "src/core/frame_pool.cpp",
         "src/core/runtime_paths.cpp",
         "src/inference/inference_engine.cpp",
+        "src/inference/onnx_thread_pool.cpp",
         "src/inference/yolov8_backend.cpp",
         "src/inference/yolov8_oiv7_backend.cpp",
         "src/ingestion/atomic_frame_buffer.cpp",
