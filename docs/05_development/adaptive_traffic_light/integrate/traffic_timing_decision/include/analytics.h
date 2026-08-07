@@ -11,6 +11,7 @@ struct Statistics final {
   std::uint64_t sampleCount{};
   std::int64_t minimum{};
   double average{};
+  double standardDeviation{};
   std::int64_t maximum{};
   std::int64_t p50{};
   std::int64_t p90{};

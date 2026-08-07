@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <fstream>
@@ -171,6 +172,17 @@ bool calculateStatistics(std::vector<Integer> values, Statistics& statistics,
   statistics.minimum = values.front();
   statistics.average =
       static_cast<double>(total) / static_cast<double>(statistics.sampleCount);
+
+  long double squaredDeviationTotal{};
+  const long double average = static_cast<long double>(statistics.average);
+  for (const Integer value : values) {
+    const long double deviation = static_cast<long double>(value) - average;
+    squaredDeviationTotal += deviation * deviation;
+  }
+  statistics.standardDeviation = static_cast<double>(
+      std::sqrt(squaredDeviationTotal /
+                static_cast<long double>(statistics.sampleCount)));
+
   statistics.maximum = values.back();
   statistics.p50 = nearestRankPercentile(values, Percentile::kP50);
   statistics.p90 = nearestRankPercentile(values, Percentile::kP90);
@@ -190,9 +202,8 @@ bool excludeBoundaryCycles(std::vector<Value>& values, std::string& error) {
 
   values.erase(values.end() - static_cast<std::ptrdiff_t>(kBoundaryCycleCount),
                values.end());
-  values.erase(values.begin(),
-               values.begin() +
-                   static_cast<std::ptrdiff_t>(kBoundaryCycleCount));
+  values.erase(values.begin(), values.begin() + static_cast<std::ptrdiff_t>(
+                                                    kBoundaryCycleCount));
   return true;
 }
 
@@ -301,6 +312,7 @@ void printStatistics(const Statistics& statistics, std::ostream& output) {
          << "Avg     : " << std::fixed
          << std::setprecision(toValue(OutputFormat::kAveragePrecision))
          << statistics.average << '\n'
+         << "Std Dev : " << statistics.standardDeviation << '\n'
          << "Max     : " << statistics.maximum << '\n'
          << "P50     : " << statistics.p50 << '\n'
          << "P90     : " << statistics.p90 << '\n'
@@ -310,8 +322,7 @@ void printStatistics(const Statistics& statistics, std::ostream& output) {
 void printReport(
     const traffic_timing_decision::analytics::TimingAnalyticsReport& report,
     std::ostream& output) {
-  output << "Analysis window: excluded first and last "
-         << kBoundaryCycleCount
+  output << "Analysis window: excluded first and last " << kBoundaryCycleCount
          << " cycles (startup/shutdown guard bands)\n"
          << "Deadline Misses (" << report.deadlineMs
          << " ms): cycle=" << report.cycleDeadlineMisses << " / "
@@ -388,9 +399,8 @@ std::int32_t Run(const std::filesystem::path& wakeupDltPath,
     return toValue(ExitCode::kFailure);
   }
 
-  report.executionDeadlineMisses = static_cast<std::uint64_t>(
-      std::count(executionDeadlineMisses.begin(),
-                 executionDeadlineMisses.end(), true));
+  report.executionDeadlineMisses = static_cast<std::uint64_t>(std::count(
+      executionDeadlineMisses.begin(), executionDeadlineMisses.end(), true));
   report.cycleDeadlineMisses = static_cast<std::uint64_t>(
       std::count(cycleDeadlineMisses.begin(), cycleDeadlineMisses.end(), true));
 
