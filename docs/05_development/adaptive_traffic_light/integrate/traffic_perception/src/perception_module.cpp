@@ -11,6 +11,7 @@
 #include <string>
 
 #include "score/mw/log/logging.h"
+#include "traffic_perception/inference/rt_detrv2_backend.h"
 #include "traffic_perception/inference/yolov8_backend.h"
 #include "traffic_perception/inference/yolov8_oiv7_backend.h"
 
@@ -35,6 +36,10 @@ void* BackendBootstrapThreadEntry(void* arg) {
           ctx->config->Threading.Pipeline.Core);
     } else if (ctx->config->modelBackend == "yolov8_oiv7") {
       ctx->backend = std::make_unique<traffic_perception::YoloV8OIV7Backend>(
+          ctx->config->modelPath, ctx->config->emergencyClass,
+          ctx->config->Threading.Pipeline.Core);
+    } else if (ctx->config->modelBackend == "rt_detrv2") {
+      ctx->backend = std::make_unique<traffic_perception::RtDetrv2Backend>(
           ctx->config->modelPath, ctx->config->emergencyClass,
           ctx->config->Threading.Pipeline.Core);
     }
@@ -145,7 +150,8 @@ bool PerceptionModule::initModule(const AppConfig& config) {
   }
 
   if (config_.modelBackend != "yolov8" &&
-      config_.modelBackend != "yolov8_oiv7") {
+      config_.modelBackend != "yolov8_oiv7" &&
+      config_.modelBackend != "rt_detrv2") {
     score::mw::log::LogError()
         << "[PERCEPTION_MODULE][INIT] unsupported model backend: "
         << config_.modelBackend;

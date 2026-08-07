@@ -77,7 +77,7 @@ if ! type rlocation >/dev/null 2>&1; then
 fi
 # --- end runfiles.bash initialization v3 ---
 
-if [[ $# -ne 22 ]]; then
+if [[ $# -ne 25 ]]; then
   echo "ERROR: deployment target received an invalid runfiles layout" >&2
   exit 1
 fi
@@ -98,12 +98,15 @@ timing_decision_logging_config="$(rlocation "${13}")"
 signal_control_logging_config="$(rlocation "${14}")"
 onnxruntime_so="$(rlocation "${15}")"
 traffic_perception_config="$(rlocation "${16}")"
-yolov8m_oiv7_onnx="$(rlocation "${17}")"
-yolov8n_onnx="$(rlocation "${18}")"
-traffic_mp4="$(rlocation "${19}")"
-traffic2_mp4="$(rlocation "${20}")"
-traffic3_mp4="$(rlocation "${21}")"
-traffic4_mp4="$(rlocation "${22}")"
+rt_detrv2_s_onnx="$(rlocation "${17}")"
+yolov8m_oiv7_onnx="$(rlocation "${18}")"
+yolov8n_oiv7_onnx="$(rlocation "${19}")"
+yolov8m_onnx="$(rlocation "${20}")"
+yolov8n_onnx="$(rlocation "${21}")"
+traffic_mp4="$(rlocation "${22}")"
+traffic2_mp4="$(rlocation "${23}")"
+traffic3_mp4="$(rlocation "${24}")"
+traffic4_mp4="$(rlocation "${25}")"
 
 runtime_root="${LINUX_RT_RUNTIME_DIR:-/tmp/linux_rt_application}"
 runtime_bin="$runtime_root/bin"
@@ -216,8 +219,12 @@ install -m 0644 "$signal_control_logging_config" \
   "$runtime_etc/signal_control_logging.json"
 install -m 0644 "$traffic_perception_config" \
   "$runtime_etc/traffic_perception_config.json"
+install -m 0644 "$rt_detrv2_s_onnx" "$runtime_models/rt-detrv2-s.onnx"
 install -m 0644 "$yolov8m_oiv7_onnx" \
   "$runtime_models/yolov8m-oiv7.onnx"
+install -m 0644 "$yolov8n_oiv7_onnx" \
+  "$runtime_models/yolov8n-oiv7.onnx"
+install -m 0644 "$yolov8m_onnx" "$runtime_models/yolov8m.onnx"
 install -m 0644 "$yolov8n_onnx" "$runtime_models/yolov8n.onnx"
 install -m 0644 "$traffic_mp4" "$runtime_etc/traffic.mp4"
 install -m 0644 "$traffic2_mp4" "$runtime_etc/traffic2.mp4"
