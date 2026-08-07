@@ -37,7 +37,7 @@
     "pipeline": {
       "core": 2,
       "policy": "SCHED_RR",
-      "priority": 90
+      "priority": 70
     }
   },
 

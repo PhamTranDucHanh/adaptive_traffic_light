@@ -993,18 +993,6 @@ bool Analytics::WriteReport(const std::string& outputPath) const {
       "EMERGENCY RECEIVE-TO-APPLY LATENCY",
       planStatistics_.emergencyReceiveToApplyLatencySamplesNs);
 
-  output << "\nPLAN INVENTORY\n";
-  output << "--------------\n";
-  WritePlanIdSet(output, "All plans seen", planStatistics_.allPlanIds);
-  WritePlanIdSet(output, "Normal plans", planStatistics_.normalPlanIds);
-  WritePlanIdSet(output, "Emergency plans", planStatistics_.emergencyPlanIds);
-  WritePlanIdSet(output, "Normal plans applied",
-                 planStatistics_.appliedPlanIds);
-  WritePlanIdSet(output, "Emergency plans accepted",
-                 planStatistics_.acceptedEmergencyPlanIds);
-  WritePlanIdSet(output, "Emergency plans rejected",
-                 planStatistics_.rejectedEmergencyPlanIds);
-
   output << "\nEMERGENCY STATISTICS\n";
   output << "--------------------\n";
   output << "Queued: " << emergencyStatistics_.queued << '\n';
