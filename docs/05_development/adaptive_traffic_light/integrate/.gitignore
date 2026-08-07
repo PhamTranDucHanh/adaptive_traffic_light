@@ -1,6 +1,0 @@
-bazel-*
-
-# Generated/downloaded runtime dependencies. BUILD metadata remains tracked.
-data/*.mp4
-data/*.onnx
-traffic_perception/lib/onnxruntime/

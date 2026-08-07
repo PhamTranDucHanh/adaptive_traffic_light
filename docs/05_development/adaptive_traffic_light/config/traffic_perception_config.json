@@ -16,34 +16,34 @@
       {
         "core": 0,
         "policy": "SCHED_RR",
-        "priority": 40
+        "priority": 70
       },
       {
-        "core": 1,
+        "core": 0,
         "policy": "SCHED_RR",
-        "priority": 40
+        "priority": 70
       },
       {
-        "core": 2,
+        "core": 0,
         "policy": "SCHED_RR",
-        "priority": 40
+        "priority": 70
       },
       {
-        "core": 3,
+        "core": 0,
         "policy": "SCHED_RR",
-        "priority": 40
+        "priority": 70
       }
     ],
     "pipeline": {
-      "core": 2,
+      "core": 0,
       "policy": "SCHED_RR",
       "priority": 70
     }
   },
 
-  "model_backend": "rt_detrv2",
-  "model": "data/rt-detrv2-s.onnx",
-  "emergency_class": "Truck",
+  "model_backend": "yolov8_oiv7",
+  "model": "data/yolov8m-oiv7.onnx",
+  "emergency_class": "Van",
   "lanes": [
     {
       "direction": "North",

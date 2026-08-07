@@ -140,7 +140,7 @@ set title "${title}"
 set xlabel "${xlabel} (us), Samples = ${total_samples}, Min = ${global_min} us, Max = ${global_max} us, Bucket = ${bucket_width} us"
 set ylabel "Number of Samples"
 
-set xrange [0:*]
+set autoscale x
 set yrange [0.9:*]
 set logscale y
 

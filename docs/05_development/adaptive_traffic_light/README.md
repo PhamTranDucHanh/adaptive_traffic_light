@@ -1,104 +1,109 @@
-# adaptive_traffic_light
+# Adaptive Traffic Light — End-to-End Integrated Execution
 
-How to build:
+> The full command to "copy and run" is at the end of this README
+
+The deployment runs three actual processes under Eclipse S-CORE Lifecycle:
+
+```text
+traffic_perception
+    -> /traffic_snapshot_v1
+traffic_timing_decision
+    -> /traffic_timing_plan_v1
+traffic_signal_controller
+```
+
+## 1. Prepare Dependencies and Data
+
+From the `integrate` directory, run the setup script first:
 
 ```bash
-cmake -B build
-
-cmake --build build -j
+cd /adaptive_traffic_light/docs/05_development/adaptive_traffic_light/integrate
+bash traffic_perception/scripts/setup_deps.sh
 ```
-Run empty target
+
+The script performs the following two tasks and can be safely executed multiple times:
+
+- Downloads ONNX Runtime `1.27.1` for either `x86_64` or `aarch64` into
+  `traffic_perception/lib/onnxruntime` if it is not already available.
+- Downloads any missing files from [Google Drive](https://drive.google.com/drive/folders/1nXzpFTzbHLYzKeyYwoBCRkDmDqH5TnIM)
+  into the `data` directory: `traffic.mp4` through `traffic4.mp4`,
+  `yolov8m-oiv7.onnx`, `yolov8m.onnx`, and `yolov8n.onnx`.
+
+The system must have `python3`, `python3-pip`, and either `curl` or `wget`
+installed. If `gdown` is not available, the script temporarily installs
+`gdown 5.2.0` without installing Python packages system-wide.
+
+The Google Drive folder must allow files to be downloaded by anyone with the
+link.
+
+Verify the setup with:
 
 ```bash
-./build/adaptive_traffic_light 
+test -e traffic_perception/lib/onnxruntime/lib/libonnxruntime.so.1
+ls -lh data/*.mp4 data/*.onnx
 ```
 
+## 2. Configure Real-Time Resource Limits for the Current Terminal
 
-## Getting started
-
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://gitlab-scm.banvien.com.vn/khoa.duong-anh/adaptive_traffic_light.git
-git branch -M main
-git push -uf origin main
+```bash
+sudo prlimit --pid $$ --rtprio=99:99 --memlock=unlimited:unlimited
 ```
 
-## Integrate with your tools
+If the Bazel server was started before these limits were configured, stop it
+so that the new server inherits the real-time limits from the current terminal:
 
-- [ ] [Set up project integrations](https://gitlab-scm.banvien.com.vn/khoa.duong-anh/adaptive_traffic_light/-/settings/integrations)
+```bash
+bazel shutdown
+```
 
-## Collaborate with your team
+## 3. Build and Run the End-to-End System
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Automatically merge when pipeline succeeds](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+```bash
+bazel run --config=x86_64-linux //deployment:traffic_light_system
+```
 
-## Test and Deploy
+The deployment automatically performs the following steps:
 
-Use the built-in continuous integration in GitLab.
+1. Builds the three applications and the Launch Manager.
+2. Stages the binaries, configuration files, ONNX Runtime libraries, model,
+   and video files in `/tmp/linux_rt_application`.
+3. Removes stale IPC resources while the entire system is stopped.
+4. Starts the processes in the following order:
+   Perception -> Timing Decision -> Signal Controller.
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing(SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+There is no need to manually export `LD_LIBRARY_PATH`. The deployment sets
+`/tmp/linux_rt_application/lib` as the library path for the child processes.
 
-***
+Valid output should include traffic light phases similar to:
 
-# Editing this README
+```text
+Phase: NS_GREEN, Remaining: 29 s
+...
+Phase: YELLOW, Remaining: 1 s
+Phase: ALL_RED, Remaining: 1 s
+Phase: EW_GREEN, Remaining: ...
+```
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thank you to [makeareadme.com](https://www.makeareadme.com/) for this template.
+The main log files are:
 
-## Suggestions for a good README
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+```text
+/tmp/linux_rt_application/logs/traffic_perception.dlt
+/tmp/linux_rt_application/logs/timing_decision.dlt
+/tmp/linux_rt_application/logs/signal_control.dlt
+/tmp/linux_rt_application/logs/CTRL.dlt.txt
+```
 
-## Name
-Choose a self-explaining name for your project.
+Stop the system by pressing `Ctrl-C`. The Lifecycle Manager will stop the
+processes according to their dependency order. The current `shutdown_timeout`
+is 10 seconds.
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+## Complete Command Sequence
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+```bash
+cd docs/05_development/adaptive_traffic_light
+bash traffic_perception/scripts/setup_deps.sh
+sudo prlimit --pid $$ --rtprio=99:99 --memlock=unlimited:unlimited
+sudo sysctl -w kernel.sched_rt_runtime_us=-1 
+bazel shutdown
+bazel run --config=x86_64-linux //deployment:traffic_light_system
+```

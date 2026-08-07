@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LOG=${1:-output/pipeline.log}
+if [[ $# -lt 1 ]]; then
+    echo "Usage: $0 <input_log> [output_dir]" >&2
+    exit 1
+fi
+
+LOG="$1"
 OUTDIR=${2:-output}
 
 mkdir -p "$OUTDIR/plots"
@@ -109,7 +114,7 @@ set title "${title}"
 set xlabel "${xlabel} (us), Samples = ${sample_count}, Min = ${min_value} us, Max = ${max_value} us, Bucket = ${bucket_width} us"
 set ylabel "Number of Samples"
 
-set xrange [0:*]
+set autoscale x
 set yrange [0.9:*]
 set logscale y
 
