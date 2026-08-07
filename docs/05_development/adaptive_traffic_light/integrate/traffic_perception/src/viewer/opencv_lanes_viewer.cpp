@@ -14,6 +14,8 @@ namespace {
 
 constexpr int kLaneCanvasWidth = 640;
 constexpr int kLaneCanvasHeight = 360;
+constexpr std::int64_t kSignalStateOpenRetryNs = 1'000'000'000LL;
+constexpr std::uint64_t kSignalStateStaleAfterNs = 3'000'000'000ULL;
 
 inline score::mw::log::Logger& getViewerBenchmarkLogger() {
   static score::mw::log::Logger& logger =
@@ -130,6 +132,76 @@ void DrawMetricsOverlay(
               std::max(1, scaled(1)), cv::LINE_AA);
 }
 
+void DrawSignalOverlay(
+    cv::Mat& image, const Direction direction,
+    const traffic_ipc::SignalStateMessageV1* const state,
+    const bool fresh) {
+  constexpr int kPanelWidth = 62;
+  constexpr int kPanelHeight = 146;
+  constexpr int kPanelMargin = 10;
+  constexpr int kPanelTop = 92;
+  constexpr int kLampRadius = 11;
+
+  const int left = image.cols - kPanelWidth - kPanelMargin;
+  if (left < 0 || kPanelTop + kPanelHeight > image.rows) {
+    return;
+  }
+
+  cv::rectangle(image,
+                cv::Rect(left, kPanelTop, kPanelWidth, kPanelHeight),
+                cv::Scalar(18, 18, 18), cv::FILLED, cv::LINE_AA);
+  cv::rectangle(image,
+                cv::Rect(left, kPanelTop, kPanelWidth, kPanelHeight),
+                cv::Scalar(185, 185, 185), 1, cv::LINE_AA);
+
+  traffic_ipc::SignalLamp activeLamp = traffic_ipc::SignalLamp::kRed;
+  if (fresh && state != nullptr) {
+    activeLamp = direction == Direction::North || direction == Direction::South
+                     ? state->northSouthLamp
+                     : state->eastWestLamp;
+  }
+
+  const int centerX = left + (kPanelWidth / 2);
+  const auto drawLamp = [&](const int centerY,
+                            const traffic_ipc::SignalLamp lamp,
+                            const cv::Scalar& bright,
+                            const cv::Scalar& dim) {
+    cv::circle(image, cv::Point(centerX, centerY), kLampRadius,
+               fresh && activeLamp == lamp ? bright : dim, cv::FILLED,
+               cv::LINE_AA);
+    cv::circle(image, cv::Point(centerX, centerY), kLampRadius,
+               cv::Scalar(120, 120, 120), 1, cv::LINE_AA);
+  };
+
+  drawLamp(kPanelTop + 24, traffic_ipc::SignalLamp::kRed,
+           cv::Scalar(0, 0, 255), cv::Scalar(0, 0, 60));
+  drawLamp(kPanelTop + 57, traffic_ipc::SignalLamp::kYellow,
+           cv::Scalar(0, 230, 255), cv::Scalar(0, 55, 60));
+  drawLamp(kPanelTop + 90, traffic_ipc::SignalLamp::kGreen,
+           cv::Scalar(0, 220, 0), cv::Scalar(0, 55, 0));
+
+  std::string countdown{"OFF"};
+  if (fresh && state != nullptr) {
+    const std::uint32_t remainingTimeMs =
+        direction == Direction::North || direction == Direction::South
+            ? state->northSouthRemainingTimeMs
+            : state->eastWestRemainingTimeMs;
+    const std::uint32_t remainingSeconds =
+        (remainingTimeMs + 999U) / 1000U;
+    countdown = std::to_string(remainingSeconds) + "s";
+  }
+
+  int baseline{};
+  const cv::Size textSize = cv::getTextSize(
+      countdown, cv::FONT_HERSHEY_SIMPLEX, 0.44, 1, &baseline);
+  cv::putText(image, countdown,
+              cv::Point(centerX - (textSize.width / 2), kPanelTop + 128),
+              cv::FONT_HERSHEY_SIMPLEX, 0.44,
+              fresh ? cv::Scalar(255, 255, 255)
+                    : cv::Scalar(130, 130, 130),
+              1, cv::LINE_AA);
+}
+
 }  // namespace
 
 namespace traffic_perception {
@@ -150,8 +222,79 @@ bool OpenCVLanesViewer::init(const AppConfig& config, IModelBackend* backend) {
   for (auto& frame : lastRenderedFrames_) {
     frame = cv::Mat();
   }
+  baseCanvas_.release();
+
+  signalStateConsumer_.close();
+  signalState_ = traffic_ipc::SignalStateMessageV1{};
+  nextSignalStateOpenAttemptNs_ = 0;
+  hasSignalState_ = false;
 
   return true;
+}
+
+void OpenCVLanesViewer::pollSignalState(const std::int64_t nowNs) noexcept {
+  if (!signalStateConsumer_.isOpen()) {
+    if (nowNs < nextSignalStateOpenAttemptNs_) {
+      return;
+    }
+    nextSignalStateOpenAttemptNs_ = nowNs + kSignalStateOpenRetryNs;
+    if (signalStateConsumer_.open() !=
+        traffic_ipc::QueueStatus::kSuccess) {
+      return;
+    }
+  }
+
+  traffic_ipc::SignalStateMessageV1 candidate{};
+  const auto status = signalStateConsumer_.receiveLatest(candidate);
+  if (status == traffic_ipc::QueueStatus::kSuccess &&
+      traffic_ipc::HasValidSignalStateEnvelope(candidate)) {
+    signalState_ = candidate;
+    hasSignalState_ = true;
+  } else if (status == traffic_ipc::QueueStatus::kContractMismatch ||
+             status == traffic_ipc::QueueStatus::kSystemError) {
+    signalStateConsumer_.close();
+  }
+}
+
+void OpenCVLanesViewer::refreshSignalOverlay(const std::int64_t nowNs) {
+  pollSignalState(nowNs);
+  if (baseCanvas_.empty()) {
+    return;
+  }
+
+  const std::uint64_t currentNs =
+      nowNs > 0 ? static_cast<std::uint64_t>(nowNs) : 0U;
+  const bool signalStateFresh =
+      hasSignalState_ && currentNs >= signalState_.publishTimestampNs &&
+      (currentNs - signalState_.publishTimestampNs) <=
+          kSignalStateStaleAfterNs;
+
+  traffic_ipc::SignalStateMessageV1 displayState = signalState_;
+  if (signalStateFresh) {
+    const std::uint64_t ageMs =
+        (currentNs - displayState.publishTimestampNs) / 1'000'000ULL;
+    const auto subtractAge = [ageMs](const std::uint32_t remainingMs) {
+      return ageMs >= remainingMs
+                 ? 0U
+                 : remainingMs - static_cast<std::uint32_t>(ageMs);
+    };
+    displayState.northSouthRemainingTimeMs =
+        subtractAge(displayState.northSouthRemainingTimeMs);
+    displayState.eastWestRemainingTimeMs =
+        subtractAge(displayState.eastWestRemainingTimeMs);
+  }
+
+  cv::Mat canvas = baseCanvas_.clone();
+  for (std::size_t i = 0; i < NUM_LANES; ++i) {
+    const int left = static_cast<int>(i % 2U) * kLaneCanvasWidth;
+    const int top = static_cast<int>(i / 2U) * kLaneCanvasHeight;
+    cv::Mat lane = canvas(cv::Rect(left, top, kLaneCanvasWidth,
+                                  kLaneCanvasHeight));
+    DrawSignalOverlay(lane, config_.lanes[i].direction,
+                      hasSignalState_ ? &displayState : nullptr,
+                      signalStateFresh);
+  }
+  cv::imshow(windowName_, canvas);
 }
 
 void OpenCVLanesViewer::render(Analyzer& analyzer, int64_t expectedWakeupNs,
@@ -221,13 +364,12 @@ void OpenCVLanesViewer::render(
 
   cv::Mat top;
   cv::Mat bottom;
-  cv::Mat canvas;
 
   cv::hconcat(canvasLanes[0], canvasLanes[1], top);
   cv::hconcat(canvasLanes[2], canvasLanes[3], bottom);
-  cv::vconcat(top, bottom, canvas);
+  cv::vconcat(top, bottom, baseCanvas_);
 
-  cv::imshow(windowName_, canvas);
+  refreshSignalOverlay(renderBeginNs);
 
   const int64_t renderEnd = GetMonotonicTimeNs();
 
@@ -237,6 +379,10 @@ void OpenCVLanesViewer::render(
       << " Begin=" << renderBeginNs << " End=" << renderEnd;
 }
 
-void OpenCVLanesViewer::shutdown() { cv::destroyWindow(windowName_); }
+void OpenCVLanesViewer::shutdown() {
+  signalStateConsumer_.close();
+  baseCanvas_.release();
+  cv::destroyWindow(windowName_);
+}
 
 }  // namespace traffic_perception

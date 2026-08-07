@@ -55,6 +55,26 @@ const char* phaseToString(const PhaseId phaseId) noexcept {
   return "UNKNOWN";
 }
 
+enum class DisplayLamp : std::uint8_t { RED, YELLOW, GREEN };
+
+DisplayLamp lampForPhase(const PhaseId phaseId,
+                         const SignalGroup phaseGroup,
+                         const SignalGroup requestedGroup) noexcept {
+  if (phaseId == PhaseId::ALL_RED) {
+    return DisplayLamp::RED;
+  }
+  if (phaseId == PhaseId::YELLOW) {
+    return phaseGroup == requestedGroup ? DisplayLamp::YELLOW
+                                        : DisplayLamp::RED;
+  }
+  if (phaseId == PhaseId::NS_GREEN) {
+    return requestedGroup == SignalGroup::NORTH_SOUTH ? DisplayLamp::GREEN
+                                                       : DisplayLamp::RED;
+  }
+  return requestedGroup == SignalGroup::EAST_WEST ? DisplayLamp::GREEN
+                                                   : DisplayLamp::RED;
+}
+
 }  // namespace
 
 SignalFSMEngine::SignalFSMEngine(PlanSyncChannel& syncChannel)
@@ -99,13 +119,16 @@ SignalDisplay SignalFSMEngine::processTick() {
     advancePhase();
   }
 
-  return SignalDisplay{currentPhaseId(), remainingTimeMs_};
+  return SignalDisplay{currentPhaseId(), remainingTimeMs_, activeGroup_,
+                       remainingForSignalGroup(SignalGroup::NORTH_SOUTH),
+                       remainingForSignalGroup(SignalGroup::EAST_WEST)};
 }
 
 void SignalFSMEngine::reset() noexcept {
   currentPlan_ = MakeDefaultPlan();
 
   currentPhaseIndex_ = 0U;
+  activeGroup_ = SignalGroup::NORTH_SOUTH;
 
   remainingTimeMs_ = currentPlan_.phases[currentPhaseIndex_].durationMs;
 
@@ -173,6 +196,11 @@ bool SignalFSMEngine::loadPendingPlan() {
     currentPhaseIndex_ = 0U;
 
     remainingTimeMs_ = currentPlan_.phases[currentPhaseIndex_].durationMs;
+    if (currentPhaseId() == PhaseId::EW_GREEN) {
+      activeGroup_ = SignalGroup::EAST_WEST;
+    } else {
+      activeGroup_ = SignalGroup::NORTH_SOUTH;
+    }
 
     hasActivePlan_ = true;
 
@@ -217,6 +245,11 @@ void SignalFSMEngine::advancePhase() {
   }
 
   remainingTimeMs_ = currentPlan_.phases[currentPhaseIndex_].durationMs;
+  if (currentPhaseId() == PhaseId::NS_GREEN) {
+    activeGroup_ = SignalGroup::NORTH_SOUTH;
+  } else if (currentPhaseId() == PhaseId::EW_GREEN) {
+    activeGroup_ = SignalGroup::EAST_WEST;
+  }
   Logger().LogInfo() << "event=PHASE_ENTER"
                      << ", phase=" << phaseToString(currentPhaseId())
                      << ", duration_ms=" << remainingTimeMs_
@@ -526,4 +559,37 @@ PhaseId SignalFSMEngine::currentPhaseId() const noexcept {
   }
 
   return currentPlan_.phases[currentPhaseIndex_].phaseId;
+}
+
+std::uint32_t SignalFSMEngine::remainingForSignalGroup(
+    const SignalGroup group) const noexcept {
+  if (!hasActivePlan_ || currentPlan_.phaseCount == 0U ||
+      currentPhaseIndex_ >= currentPlan_.phaseCount) {
+    return 0U;
+  }
+
+  SignalGroup phaseGroup = activeGroup_;
+  const DisplayLamp currentLamp =
+      lampForPhase(currentPhaseId(), phaseGroup, group);
+  std::uint64_t remaining = remainingTimeMs_;
+
+  for (std::uint8_t offset{1U}; offset < currentPlan_.phaseCount; ++offset) {
+    const std::uint8_t index = static_cast<std::uint8_t>(
+        (currentPhaseIndex_ + offset) % currentPlan_.phaseCount);
+    const Phase& nextPhase = currentPlan_.phases[index];
+    if (nextPhase.phaseId == PhaseId::NS_GREEN) {
+      phaseGroup = SignalGroup::NORTH_SOUTH;
+    } else if (nextPhase.phaseId == PhaseId::EW_GREEN) {
+      phaseGroup = SignalGroup::EAST_WEST;
+    }
+
+    if (lampForPhase(nextPhase.phaseId, phaseGroup, group) != currentLamp) {
+      break;
+    }
+    remaining += nextPhase.durationMs;
+  }
+
+  return remaining > std::numeric_limits<std::uint32_t>::max()
+             ? std::numeric_limits<std::uint32_t>::max()
+             : static_cast<std::uint32_t>(remaining);
 }
