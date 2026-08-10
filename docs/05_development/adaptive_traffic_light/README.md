@@ -17,7 +17,7 @@ traffic_signal_controller
 From the `integrate` directory, run the setup script first:
 
 ```bash
-cd /adaptive_traffic_light/docs/05_development/adaptive_traffic_light/integrate
+cd /adaptive_traffic_light/docs/05_development/adaptive_traffic_light
 bash traffic_perception/scripts/setup_deps.sh
 ```
 
@@ -101,9 +101,5 @@ is 10 seconds.
 
 ```bash
 cd docs/05_development/adaptive_traffic_light
-bash traffic_perception/scripts/setup_deps.sh
-sudo prlimit --pid $$ --rtprio=99:99 --memlock=unlimited:unlimited
-sudo sysctl -w kernel.sched_rt_runtime_us=-1 
-bazel shutdown
-bazel run --config=x86_64-linux //deployment:traffic_light_system
+./deployment/run_end_to_end_analytics.sh 
 ```
