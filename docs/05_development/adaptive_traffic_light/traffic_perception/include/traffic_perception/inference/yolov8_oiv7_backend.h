@@ -15,7 +15,8 @@ class YoloV8OIV7Backend : public IModelBackend {
  public:
   YoloV8OIV7Backend(const std::string& modelPath,
                     const std::string& emergencyClass,
-                    int inferenceCallerCpu = 2);
+                    int inferenceCallerCpu = 2,
+                    int inferenceCallerPriority = 70);
   ~YoloV8OIV7Backend() override = default;
 
   InferenceResult infer(const Frame& frame) override;

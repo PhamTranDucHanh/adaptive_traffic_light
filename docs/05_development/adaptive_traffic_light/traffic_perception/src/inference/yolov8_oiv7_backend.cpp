@@ -48,10 +48,10 @@ static std::string resolveOiv7ClassName(int classId) {
 
 YoloV8OIV7Backend::YoloV8OIV7Backend(
     const std::string& modelPath, const std::string& emergencyClass,
-    int inferenceCallerCpu)
+    int inferenceCallerCpu, int inferenceCallerPriority)
     : emergencyClass_(emergencyClass),
       env_(ORT_LOGGING_LEVEL_WARNING, "YoloV8OIV7Backend"),
-      ortThreadPoolConfig_(inferenceCallerCpu),
+      ortThreadPoolConfig_(inferenceCallerCpu, inferenceCallerPriority),
       memory_info_(
           Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)) {
   try {

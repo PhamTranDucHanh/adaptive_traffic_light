@@ -8,6 +8,8 @@ fi
 
 LOG="$1"
 OUTDIR=${2:-output}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/plot_utils.sh"
 
 mkdir -p "$OUTDIR/plots"
 
@@ -93,27 +95,12 @@ make_hist() {
       ' "$values_file"
     )
 
-    local display_unit display_scale
-    if awk -v value="$max_value" 'BEGIN {exit !(value < 1)}'; then
-        display_unit="ns"
-        display_scale="0.001"
-    elif awk -v value="$max_value" 'BEGIN {exit !(value < 1000)}'; then
-        display_unit="us"
-        display_scale="1"
-    elif awk -v value="$max_value" 'BEGIN {exit !(value < 1000000)}'; then
-        display_unit="ms"
-        display_scale="1000"
-    else
-        display_unit="s"
-        display_scale="1000000"
-    fi
-
-    local display_min display_max display_bucket
-    read -r display_min display_max display_bucket < <(
-      awk -v min="$min_value" -v max="$max_value" \
-          -v bucket="$bucket_width" -v scale="$display_scale" \
-          'BEGIN {printf "%.6g %.6g %.6g\n", min / scale, max / scale, bucket / scale}'
-    )
+    local max_abs display_min display_max display_bucket
+    max_abs="$(awk -v minimum="$min_value" -v maximum="$max_value" 'BEGIN { minimum = minimum < 0 ? -minimum : minimum; maximum = maximum < 0 ? -maximum : maximum; print (minimum > maximum ? minimum : maximum) }')"
+    select_time_unit "$max_abs"
+    display_min="$(format_scaled_time "$min_value" "$TIME_SCALE")"
+    display_max="$(format_scaled_time "$max_value" "$TIME_SCALE")"
+    display_bucket="$(format_scaled_time "$bucket_width" "$TIME_SCALE")"
 
     # Bucket zero starts at the measured minimum.
     awk -v minimum="$min_value" -v width="$bucket_width" '
@@ -133,7 +120,7 @@ set terminal pngcairo size 1600,900 enhanced
 set output "${outpng}"
 
 set title "${title}"
-set xlabel "${xlabel} (${display_unit}), Samples = ${sample_count}, Min = ${display_min} ${display_unit}, Max = ${display_max} ${display_unit}, Bucket = ${display_bucket} ${display_unit}"
+set xlabel "${xlabel} (${TIME_UNIT}), Samples = ${sample_count}, Min = ${display_min} ${TIME_UNIT}, Max = ${display_max} ${TIME_UNIT}, Bucket = ${display_bucket} ${TIME_UNIT}"
 set ylabel "Number of Samples"
 
 set autoscale x
@@ -145,7 +132,7 @@ set border linewidth 1
 set key top right
 
 plot "${histogram_file}" using \
-((${min_value} + (\$1 * ${bucket_width})) / ${display_scale}):2 \
+((${min_value} + (\$1 * ${bucket_width})) / ${TIME_SCALE}):2 \
 with impulses linewidth 1 linecolor rgb "#b000ff" \
 title "${legend}"
 EOF
@@ -153,8 +140,8 @@ EOF
     echo "Input    : $infile"
     echo "Field    : $field_name"
     echo "Samples  : $sample_count"
-    echo "Range    : ${min_value}..${max_value} us"
-    echo "Bucket   : ${display_bucket} ${display_unit}"
+    echo "Range    : ${display_min}..${display_max} ${TIME_UNIT}"
+    echo "Bucket   : ${display_bucket} ${TIME_UNIT}"
     echo "Generated: $outpng"
     echo
 

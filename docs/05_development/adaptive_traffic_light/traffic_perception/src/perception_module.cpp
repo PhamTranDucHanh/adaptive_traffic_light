@@ -17,8 +17,7 @@
 
 namespace {
 
-constexpr std::int32_t kBackendBootstrapFirstCpu{0};
-constexpr std::int32_t kBackendBootstrapCpuCount{4};
+constexpr std::array<std::int32_t, 2> kAllowedPerceptionCpus{0, 2};
 
 struct BackendBootstrapContext {
   const AppConfig* config{nullptr};
@@ -33,15 +32,18 @@ void* BackendBootstrapThreadEntry(void* arg) {
     if (ctx->config->modelBackend == "yolov8") {
       ctx->backend = std::make_unique<traffic_perception::YOLOv8Backend>(
           ctx->config->modelPath, ctx->config->emergencyClass,
-          ctx->config->Threading.Pipeline.Core);
+          ctx->config->Threading.Pipeline.Core,
+          ctx->config->Threading.Pipeline.Priority);
     } else if (ctx->config->modelBackend == "yolov8_oiv7") {
       ctx->backend = std::make_unique<traffic_perception::YoloV8OIV7Backend>(
           ctx->config->modelPath, ctx->config->emergencyClass,
-          ctx->config->Threading.Pipeline.Core);
+          ctx->config->Threading.Pipeline.Core,
+          ctx->config->Threading.Pipeline.Priority);
     } else if (ctx->config->modelBackend == "rt_detrv2") {
       ctx->backend = std::make_unique<traffic_perception::RtDetrv2Backend>(
           ctx->config->modelPath, ctx->config->emergencyClass,
-          ctx->config->Threading.Pipeline.Core);
+          ctx->config->Threading.Pipeline.Core,
+          ctx->config->Threading.Pipeline.Priority);
     }
   } catch (...) {
     // Exceptions must not cross the pthread C entry-point boundary. The join
@@ -75,8 +77,7 @@ bool CreateBackendOnOtherThread(
   CPU_ZERO(&affinityMask);
   // Session construction may run on any available CPU. The ORT worker threads
   // themselves receive one-CPU masks in the custom thread creation callback.
-  for (std::int32_t cpu = kBackendBootstrapFirstCpu;
-       cpu < kBackendBootstrapFirstCpu + kBackendBootstrapCpuCount; ++cpu) {
+  for (const std::int32_t cpu : kAllowedPerceptionCpus) {
     CPU_SET(cpu, &affinityMask);
   }
   if (ret == 0) {
@@ -187,7 +188,8 @@ bool PerceptionModule::initModule(const AppConfig& config) {
     workers_[i].initStream(config_.lanes[i].videoSource,
                            static_cast<std::int32_t>(i), &pool_,
                            config_.CapturePeriod, config_.CapturePhase,
-                           config_.Threading.StreamWorkers[i].Core);
+                           config_.Threading.StreamWorkers[i].Core,
+                           config_.Threading.StreamWorkers[i].Priority);
 
     streamThreadContexts_[i].worker = &workers_[i];
     streamThreadContexts_[i].buffer = &buffer_;

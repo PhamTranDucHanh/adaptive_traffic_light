@@ -5,8 +5,9 @@
 #include <chrono>
 #include <cstdlib>
 #include <functional>
-#include <thread>
 #include <pthread.h>
+#include <sched.h>
+#include <thread>
 
 #include <unistd.h>
 
@@ -14,6 +15,11 @@
 #include "traffic_perception/core/time_utils.h"
 
 namespace {
+
+int LowerRealtimePriority(const int parentPriority) {
+  const int minimumPriority = sched_get_priority_min(SCHED_RR);
+  return std::max(minimumPriority, parentPriority - 1);
+}
 
 inline score::mw::log::Logger& getBenchmarkLogger() {
   static score::mw::log::Logger& logger =
@@ -28,13 +34,14 @@ namespace traffic_perception {
 bool StreamWorker::initStream(std::string sourceUri, int32_t streamId,
                               FramePool* pool, std::chrono::milliseconds period,
                               std::chrono::milliseconds phase,
-                              int32_t decodeCore) {
+                              int32_t decodeCore, int32_t streamPriority) {
   SourceUri = std::move(sourceUri);
   LaneId = streamId;
   Pool = pool;
   AcquisitionPeriod = period;
   phase_ = phase;
   DecodeCore = decodeCore;
+  DecodePriority = LowerRealtimePriority(streamPriority);
 
   getBenchmarkLogger().LogDebug()
       << "[StreamWorker] Init lane " << LaneId << " source=" << SourceUri
@@ -87,11 +94,12 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
 
   pthread_attr_t attr;
   pthread_attr_init(&attr);
-  // Decoder helpers inherit SCHED_OTHER and this stream's configured core.
+  // Codec workers created while opening VideoCapture inherit this stream's
+  // configured core and a lower RT priority than the main stream task.
   pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
   struct sched_param sp {};
-  sp.sched_priority = 0;
-  pthread_attr_setschedpolicy(&attr, SCHED_OTHER);
+  sp.sched_priority = DecodePriority;
+  pthread_attr_setschedpolicy(&attr, SCHED_RR);
   pthread_attr_setschedparam(&attr, &sp);
 
   if (DecodeCore >= 0) {
@@ -101,15 +109,29 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
     pthread_attr_setaffinity_np(&attr, sizeof(affinityMask), &affinityMask);
   }
 
-  pthread_t tid;
-  pthread_create(&tid, &attr, [](void* arg) -> void* {
+  pthread_t tid{};
+  const int createResult = pthread_create(&tid, &attr, [](void* arg) -> void* {
     auto* t = static_cast<ThreadTask*>(arg);
     t->func();
     return nullptr;
   }, &task);
 
-  pthread_join(tid, nullptr);
   pthread_attr_destroy(&attr);
+  if (createResult != 0) {
+    getBenchmarkLogger().LogError()
+        << "[StreamWorker] Failed to create RT decoder bootstrap for lane "
+        << LaneId << " core=" << DecodeCore
+        << " priority=" << DecodePriority << " ret=" << createResult;
+    return;
+  }
+
+  const int joinResult = pthread_join(tid, nullptr);
+  if (joinResult != 0) {
+    getBenchmarkLogger().LogError()
+        << "[StreamWorker] Failed to join decoder bootstrap for lane "
+        << LaneId << " ret=" << joinResult;
+    return;
+  }
 
   if (!cap.isOpened()) {
     getBenchmarkLogger().LogError()

@@ -20,7 +20,8 @@ class StreamWorker {
  public:
   bool initStream(std::string sourceUri, int32_t streamId, FramePool* pool,
                   std::chrono::milliseconds period,
-                  std::chrono::milliseconds phase, int32_t decodeCore);
+                  std::chrono::milliseconds phase, int32_t decodeCore,
+                  int32_t streamPriority);
 
   void run(AtomicFrameBuffer& frameBuffer,
            std::chrono::steady_clock::time_point startTime);
@@ -39,6 +40,7 @@ class StreamWorker {
   std::string SourceUri;
   FramePool* Pool;
   int32_t DecodeCore{-1};
+  int32_t DecodePriority{1};
 
   std::atomic<bool> running_{true};
 

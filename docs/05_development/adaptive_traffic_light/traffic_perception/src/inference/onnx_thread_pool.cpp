@@ -5,18 +5,25 @@
 
 #include <cstdio>
 #include <new>
+#include <array>
+#include <algorithm>
 
 namespace traffic_perception {
 namespace {
 
-constexpr int kFirstInferenceCpu{0};
-constexpr int kInferenceCpuCount{4};
+constexpr std::array<int, 2> kAllowedInferenceCpus{0, 2};
+
+int LowerRealtimePriority(const int parentPriority) {
+  const int minimumPriority = sched_get_priority_min(SCHED_RR);
+  return std::max(minimumPriority, parentPriority - 1);
+}
 
 struct OrtPthreadHandle {
   pthread_t thread{};
   OrtThreadWorkerFn workerFn{nullptr};
   void* workerParam{nullptr};
   int cpu{-1};
+  int priority{1};
 };
 
 void* OrtWorkerEntry(void* arg) {
@@ -53,6 +60,7 @@ OrtCustomThreadHandle CreateOrtWorker(void* creationOptions,
   handle->workerFn = workerFn;
   handle->workerParam = workerParam;
   handle->cpu = config->workerCpus[workerIndex];
+  handle->priority = config->workerPriority;
 
   pthread_attr_t attr;
   int ret = pthread_attr_init(&attr);
@@ -70,10 +78,10 @@ OrtCustomThreadHandle CreateOrtWorker(void* creationOptions,
     ret = pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
   }
   if (ret == 0) {
-    ret = pthread_attr_setschedpolicy(&attr, SCHED_OTHER);
+    ret = pthread_attr_setschedpolicy(&attr, SCHED_RR);
   }
   sched_param schedulingParameters{};
-  schedulingParameters.sched_priority = 0;
+  schedulingParameters.sched_priority = handle->priority;
   if (ret == 0) {
     ret = pthread_attr_setschedparam(&attr, &schedulingParameters);
   }
@@ -84,8 +92,9 @@ OrtCustomThreadHandle CreateOrtWorker(void* creationOptions,
   (void)pthread_attr_destroy(&attr);
   if (ret != 0) {
     std::fprintf(stderr,
-                 "Failed to create ONNX Runtime worker on CPU %d; ret=%d\n",
-                 handle->cpu, ret);
+                 "Failed to create ONNX Runtime RT worker on CPU %d at "
+                 "priority %d; ret=%d\n",
+                 handle->cpu, handle->priority, ret);
     delete handle;
     return nullptr;
   }
@@ -106,10 +115,11 @@ void JoinOrtWorker(OrtCustomThreadHandle rawHandle) {
 
 }  // namespace
 
-OrtThreadPoolConfig::OrtThreadPoolConfig(int inferenceCallerCpu) {
+OrtThreadPoolConfig::OrtThreadPoolConfig(int inferenceCallerCpu,
+                                         int inferenceCallerPriority)
+    : workerPriority(LowerRealtimePriority(inferenceCallerPriority)) {
   std::size_t workerIndex = 0;
-  for (int cpu = kFirstInferenceCpu;
-       cpu < kFirstInferenceCpu + kInferenceCpuCount; ++cpu) {
+  for (const int cpu : kAllowedInferenceCpus) {
     if (cpu != inferenceCallerCpu && workerIndex < workerCpus.size()) {
       workerCpus[workerIndex++] = cpu;
     }

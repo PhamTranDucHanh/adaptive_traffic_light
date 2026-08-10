@@ -21,7 +21,8 @@ class RtDetrv2Backend final : public IModelBackend {
  public:
   RtDetrv2Backend(const std::string& modelPath,
                   const std::string& emergencyClass,
-                  int inferenceCallerCpu = 2);
+                  int inferenceCallerCpu = 2,
+                  int inferenceCallerPriority = 70);
   ~RtDetrv2Backend() override = default;
 
   InferenceResult infer(const Frame& frame) override;

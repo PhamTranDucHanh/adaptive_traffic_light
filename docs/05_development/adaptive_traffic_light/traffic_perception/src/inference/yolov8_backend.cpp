@@ -30,10 +30,11 @@ static std::string resolveCocoClassName(int classId) {
 
 YOLOv8Backend::YOLOv8Backend(const std::string& modelPath,
                              const std::string& emergencyClass,
-                             int inferenceCallerCpu)
+                             int inferenceCallerCpu,
+                             int inferenceCallerPriority)
     : emergencyClass_(emergencyClass),
       env_(ORT_LOGGING_LEVEL_WARNING, "YOLOv8Backend"),
-      ortThreadPoolConfig_(inferenceCallerCpu),
+      ortThreadPoolConfig_(inferenceCallerCpu, inferenceCallerPriority),
       memory_info_(
           Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)) {
   try {

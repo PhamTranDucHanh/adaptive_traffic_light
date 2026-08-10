@@ -57,10 +57,11 @@ std::size_t ElementCount(const std::vector<std::int64_t>& shape) {
 
 RtDetrv2Backend::RtDetrv2Backend(const std::string& modelPath,
                                  const std::string& emergencyClass,
-                                 const int inferenceCallerCpu)
+                                 const int inferenceCallerCpu,
+                                 const int inferenceCallerPriority)
     : emergencyClass_(emergencyClass),
       env_(ORT_LOGGING_LEVEL_WARNING, "RtDetrv2Backend"),
-      ortThreadPoolConfig_(inferenceCallerCpu),
+      ortThreadPoolConfig_(inferenceCallerCpu, inferenceCallerPriority),
       memoryInfo_(
           Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)) {
   try {
