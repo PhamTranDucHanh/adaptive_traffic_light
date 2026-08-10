@@ -22,6 +22,29 @@
 
 namespace {
 
+struct TimeDisplayUnit {
+  const char* name;
+  double nanosecondsPerUnit;
+};
+
+TimeDisplayUnit SelectTimeDisplayUnit(const double referenceNanoseconds) {
+  if (referenceNanoseconds < 1'000.0) {
+    return {"ns", 1.0};
+  }
+  if (referenceNanoseconds < 1'000'000.0) {
+    return {"us", 1'000.0};
+  }
+  if (referenceNanoseconds < 1'000'000'000.0) {
+    return {"ms", 1'000'000.0};
+  }
+  return {"s", 1'000'000'000.0};
+}
+
+double ConvertNanoseconds(const long double nanoseconds,
+                          const TimeDisplayUnit& unit) {
+  return static_cast<double>(nanoseconds / unit.nanosecondsPerUnit);
+}
+
 std::string Trim(std::string value) {
   const auto first = value.find_first_not_of(" \t\r\n");
 
@@ -958,32 +981,33 @@ bool Analytics::WriteReport(const std::string& outputPath) const {
       totalLatencyNs += latencyNs;
     }
 
-    const double averageLatencyMs = static_cast<double>(
-        totalLatencyNs / static_cast<long double>(samples.size()) /
-        1'000'000.0L);
+    const auto unit = SelectTimeDisplayUnit(
+        static_cast<double>(Analytics::Percentile(samples, 95.0)));
+    const double averageLatency = ConvertNanoseconds(
+        totalLatencyNs / static_cast<long double>(samples.size()), unit);
     output << std::fixed << std::setprecision(3);
-    output << "Min latency: "
-           << Analytics::NanosecondsToMilliseconds(*minimumIterator)
-           << " ms\n";
-    output << "Max latency: "
-           << Analytics::NanosecondsToMilliseconds(*maximumIterator)
-           << " ms\n";
-    output << "Average latency: " << averageLatencyMs << " ms\n";
+    output << "Min latency: " << ConvertNanoseconds(*minimumIterator, unit)
+           << ' ' << unit.name << '\n';
+    output << "Max latency: " << ConvertNanoseconds(*maximumIterator, unit)
+           << ' ' << unit.name << '\n';
+    output << "Average latency: " << averageLatency << ' ' << unit.name
+           << '\n';
     output << "Standard deviation: "
-           << Analytics::StandardDeviationNanoseconds(samples) / 1'000'000.0
-           << " ms\n";
+           << ConvertNanoseconds(
+                  Analytics::StandardDeviationNanoseconds(samples), unit)
+           << ' ' << unit.name << '\n';
     output << "P50 latency: "
-           << Analytics::NanosecondsToMilliseconds(
-                  Analytics::Percentile(samples, 50.0)) << " ms\n";
+           << ConvertNanoseconds(Analytics::Percentile(samples, 50.0), unit)
+           << ' ' << unit.name << '\n';
     output << "P90 latency: "
-           << Analytics::NanosecondsToMilliseconds(
-                  Analytics::Percentile(samples, 90.0)) << " ms\n";
+           << ConvertNanoseconds(Analytics::Percentile(samples, 90.0), unit)
+           << ' ' << unit.name << '\n';
     output << "P95 latency: "
-           << Analytics::NanosecondsToMilliseconds(
-                  Analytics::Percentile(samples, 95.0)) << " ms\n";
+           << ConvertNanoseconds(Analytics::Percentile(samples, 95.0), unit)
+           << ' ' << unit.name << '\n';
     output << "P99 latency: "
-           << Analytics::NanosecondsToMilliseconds(
-                  Analytics::Percentile(samples, 99.0)) << " ms\n";
+           << ConvertNanoseconds(Analytics::Percentile(samples, 99.0), unit)
+           << ' ' << unit.name << '\n';
   };
 
   writeLatencyStatistics(
@@ -1022,37 +1046,43 @@ bool Analytics::WriteReport(const std::string& outputPath) const {
       totalLatencyNs += latencyNs;
     }
 
-    const double averageLatencyMs = static_cast<double>(
+    const auto unit = SelectTimeDisplayUnit(static_cast<double>(Percentile(
+        wakeupStatistics_.latencySamplesNs, 95.0)));
+    const double averageLatency = ConvertNanoseconds(
         totalLatencyNs /
-        static_cast<long double>(wakeupStatistics_.latencySamplesNs.size()) /
-        1'000'000.0L);
+            static_cast<long double>(
+                wakeupStatistics_.latencySamplesNs.size()),
+        unit);
 
     output << std::fixed << std::setprecision(3);
-    output << "Min latency: " << NanosecondsToMilliseconds(*minimumIterator)
-           << " ms\n";
-    output << "Max latency: " << NanosecondsToMilliseconds(*maximumIterator)
-           << " ms\n";
-    output << "Average latency: " << averageLatencyMs << " ms\n";
+    output << "Min latency: " << ConvertNanoseconds(*minimumIterator, unit)
+           << ' ' << unit.name << '\n';
+    output << "Max latency: " << ConvertNanoseconds(*maximumIterator, unit)
+           << ' ' << unit.name << '\n';
+    output << "Average latency: " << averageLatency << ' ' << unit.name
+           << '\n';
     output << "Standard deviation: "
-           << StandardDeviationNanoseconds(
-                  wakeupStatistics_.latencySamplesNs) / 1'000'000.0
-           << " ms\n";
+           << ConvertNanoseconds(
+                  StandardDeviationNanoseconds(
+                      wakeupStatistics_.latencySamplesNs),
+                  unit)
+           << ' ' << unit.name << '\n';
     output << "P50 latency: "
-           << NanosecondsToMilliseconds(
-                  Percentile(wakeupStatistics_.latencySamplesNs, 50.0))
-           << " ms\n";
+           << ConvertNanoseconds(
+                  Percentile(wakeupStatistics_.latencySamplesNs, 50.0), unit)
+           << ' ' << unit.name << '\n';
     output << "P90 latency: "
-           << NanosecondsToMilliseconds(
-                  Percentile(wakeupStatistics_.latencySamplesNs, 90.0))
-           << " ms\n";
+           << ConvertNanoseconds(
+                  Percentile(wakeupStatistics_.latencySamplesNs, 90.0), unit)
+           << ' ' << unit.name << '\n';
     output << "P95 latency: "
-           << NanosecondsToMilliseconds(
-                  Percentile(wakeupStatistics_.latencySamplesNs, 95.0))
-           << " ms\n";
+           << ConvertNanoseconds(
+                  Percentile(wakeupStatistics_.latencySamplesNs, 95.0), unit)
+           << ' ' << unit.name << '\n';
     output << "P99 latency: "
-           << NanosecondsToMilliseconds(
-                  Percentile(wakeupStatistics_.latencySamplesNs, 99.0))
-           << " ms\n";
+           << ConvertNanoseconds(
+                  Percentile(wakeupStatistics_.latencySamplesNs, 99.0), unit)
+           << ' ' << unit.name << '\n';
   }
 
   output << "\nFSM EXECUTION TIME\n";
@@ -1098,26 +1128,36 @@ bool Analytics::WriteReport(const std::string& outputPath) const {
     const double averageExecutionTimeNs = static_cast<double>(
         totalExecutionTimeNs /
         static_cast<long double>(executionSamplesNs.size()));
+    const auto unit = SelectTimeDisplayUnit(
+        static_cast<double>(Percentile(executionSamplesNs, 95.0)));
 
     output << std::fixed << std::setprecision(3);
-    output << "Min execution time: " << *minimumIterator << " ns ("
-           << static_cast<double>(*minimumIterator) / 1'000.0 << " us)\n";
-    output << "Max execution time: " << *maximumIterator << " ns ("
-           << static_cast<double>(*maximumIterator) / 1'000.0 << " us)\n";
-    output << "Average execution time: " << averageExecutionTimeNs << " ns ("
-           << averageExecutionTimeNs / 1'000.0 << " us)\n";
+    output << "Min execution time: "
+           << ConvertNanoseconds(*minimumIterator, unit) << ' ' << unit.name
+           << '\n';
+    output << "Max execution time: "
+           << ConvertNanoseconds(*maximumIterator, unit) << ' ' << unit.name
+           << '\n';
+    output << "Average execution time: "
+           << ConvertNanoseconds(averageExecutionTimeNs, unit) << ' '
+           << unit.name << '\n';
     const double executionStandardDeviationNs =
         StandardDeviationNanoseconds(executionSamplesNs);
-    output << "Standard deviation: " << executionStandardDeviationNs
-           << " ns (" << executionStandardDeviationNs / 1'000.0 << " us)\n";
+    output << "Standard deviation: "
+           << ConvertNanoseconds(executionStandardDeviationNs, unit) << ' '
+           << unit.name << '\n';
     output << "P50 execution time: "
-           << Percentile(executionSamplesNs, 50.0) << " ns\n";
+           << ConvertNanoseconds(Percentile(executionSamplesNs, 50.0), unit)
+           << ' ' << unit.name << '\n';
     output << "P90 execution time: "
-           << Percentile(executionSamplesNs, 90.0) << " ns\n";
+           << ConvertNanoseconds(Percentile(executionSamplesNs, 90.0), unit)
+           << ' ' << unit.name << '\n';
     output << "P95 execution time: "
-           << Percentile(executionSamplesNs, 95.0) << " ns\n";
+           << ConvertNanoseconds(Percentile(executionSamplesNs, 95.0), unit)
+           << ' ' << unit.name << '\n';
     output << "P99 execution time: "
-           << Percentile(executionSamplesNs, 99.0) << " ns\n";
+           << ConvertNanoseconds(Percentile(executionSamplesNs, 99.0), unit)
+           << ' ' << unit.name << '\n';
   }
 
   return true;

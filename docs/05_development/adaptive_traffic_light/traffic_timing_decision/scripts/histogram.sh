@@ -117,15 +117,21 @@ read -r SAMPLE_COUNT MIN_VALUE MAX_VALUE < <(
 readonly SAMPLE_COUNT
 readonly MIN_VALUE
 readonly MAX_VALUE
-readonly MIN_VALUE_MS="$(awk -v value="$MIN_VALUE" \
-  -v scale="$MICROSECONDS_PER_MILLISECOND" \
-  'BEGIN {printf "%.3f", value / scale}')"
-readonly MAX_VALUE_MS="$(awk -v value="$MAX_VALUE" \
-  -v scale="$MICROSECONDS_PER_MILLISECOND" \
-  'BEGIN {printf "%.3f", value / scale}')"
-readonly BUCKET_WIDTH_MS="$(awk -v value="$BUCKET_WIDTH_US" \
-  -v scale="$MICROSECONDS_PER_MILLISECOND" \
-  'BEGIN {printf "%.3f", value / scale}')"
+if awk -v value="$MAX_VALUE" 'BEGIN {exit !(value < 1)}'; then
+  readonly DISPLAY_UNIT="ns" DISPLAY_SCALE="0.001"
+elif awk -v value="$MAX_VALUE" 'BEGIN {exit !(value < 1000)}'; then
+  readonly DISPLAY_UNIT="us" DISPLAY_SCALE="1"
+elif awk -v value="$MAX_VALUE" 'BEGIN {exit !(value < 1000000)}'; then
+  readonly DISPLAY_UNIT="ms" DISPLAY_SCALE="1000"
+else
+  readonly DISPLAY_UNIT="s" DISPLAY_SCALE="1000000"
+fi
+read -r DISPLAY_MIN DISPLAY_MAX DISPLAY_BUCKET < <(
+  awk -v min="$MIN_VALUE" -v max="$MAX_VALUE" \
+      -v bucket="$BUCKET_WIDTH_US" -v scale="$DISPLAY_SCALE" \
+      'BEGIN {printf "%.6g %.6g %.6g\n", min / scale, max / scale, bucket / scale}'
+)
+readonly DISPLAY_MIN DISPLAY_MAX DISPLAY_BUCKET
 
 # Bucket zero starts at the measured minimum. Only non-empty buckets are
 # emitted, which is suitable for the logarithmic sample-count axis.
@@ -146,7 +152,7 @@ set terminal pngcairo size 1600,900 enhanced
 set output "${OUTPUT_PNG}"
 
 set title "${PLOT_TITLE}"
-set xlabel "${X_AXIS_NAME} (ms), Samples = ${SAMPLE_COUNT}, first/last ${BOUNDARY_CYCLES} cycles excluded, Min = ${MIN_VALUE_MS} ms, Max = ${MAX_VALUE_MS} ms, Bucket = ${BUCKET_WIDTH_MS} ms"
+set xlabel "${X_AXIS_NAME} (${DISPLAY_UNIT}), Samples = ${SAMPLE_COUNT}, first/last ${BOUNDARY_CYCLES} cycles excluded, Min = ${DISPLAY_MIN} ${DISPLAY_UNIT}, Max = ${DISPLAY_MAX} ${DISPLAY_UNIT}, Bucket = ${DISPLAY_BUCKET} ${DISPLAY_UNIT}"
 set ylabel "Number of Samples"
 
 set xrange [0:*]
@@ -158,7 +164,7 @@ set border linewidth 1
 set key top right
 
 plot "${HISTOGRAM_FILE}" using \
-((${MIN_VALUE} + (\$1 * ${BUCKET_WIDTH_US})) / ${MICROSECONDS_PER_MILLISECOND}):2 \
+((${MIN_VALUE} + (\$1 * ${BUCKET_WIDTH_US})) / ${DISPLAY_SCALE}):2 \
 with impulses linewidth 1 linecolor rgb "#b000ff" \
 title "${LEGEND_NAME}"
 EOF
@@ -167,6 +173,6 @@ echo "Input    : $INPUT_FILE"
 echo "Field    : $FIELD_NAME"
 echo "Samples  : $SAMPLE_COUNT"
 echo "Excluded : first $BOUNDARY_CYCLES + last $BOUNDARY_CYCLES cycles ($RAW_SAMPLE_COUNT raw samples)"
-echo "Range    : $MIN_VALUE_MS..$MAX_VALUE_MS ms"
-echo "Bucket   : $BUCKET_WIDTH_MS ms ($BUCKET_WIDTH_US us, unchanged)"
+echo "Range    : $DISPLAY_MIN..$DISPLAY_MAX $DISPLAY_UNIT"
+echo "Bucket   : $DISPLAY_BUCKET $DISPLAY_UNIT ($BUCKET_WIDTH_US us raw)"
 echo "Generated: $OUTPUT_PNG"

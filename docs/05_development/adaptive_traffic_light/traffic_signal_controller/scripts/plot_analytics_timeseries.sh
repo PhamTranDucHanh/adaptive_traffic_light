@@ -303,15 +303,18 @@ percentile_from_sorted_file() {
 
 P95_NS=$(percentile_from_sorted_file 0.95)
 
-if awk -v value="$P95_NS" 'BEGIN {exit !(value < 10000)}'; then
+if awk -v value="$P95_NS" 'BEGIN {exit !(value < 1000)}'; then
     UNIT="ns"
     SCALE=1
-elif awk -v value="$P95_NS" 'BEGIN {exit !(value < 10000000)}'; then
+elif awk -v value="$P95_NS" 'BEGIN {exit !(value < 1000000)}'; then
     UNIT="us"
     SCALE=1000
-else
+elif awk -v value="$P95_NS" 'BEGIN {exit !(value < 1000000000)}'; then
     UNIT="ms"
     SCALE=1000000
+else
+    UNIT="s"
+    SCALE=1000000000
 fi
 
 awk -F, -v scale="$SCALE" '
@@ -382,14 +385,6 @@ set key outside
 set key top right
 set border lw 1
 set tics out
-
-set label 1 sprintf("Samples: %d", ${SAMPLE_COUNT}) at graph 0.02,0.95
-set label 2 sprintf("Wakeup: %d", ${WAKEUP_COUNT}) at graph 0.02,0.90
-set label 3 sprintf("Execution: %d", ${EXECUTION_COUNT}) at graph 0.02,0.85
-set label 4 sprintf("End-to-end: %d", ${END_TO_END_COUNT}) at graph 0.02,0.80
-set label 5 sprintf("Emergency: %d", ${EMERGENCY_COUNT}) at graph 0.02,0.75
-set label 6 sprintf("Unit: %s", "$UNIT") at graph 0.02,0.70
-set label 7 sprintf("X source: %s", "$X_KIND_SUMMARY") at graph 0.02,0.65
 
 EOF
 

@@ -64,12 +64,33 @@ plot_metric() {
     local ylabel="$3"
     local output="$4"
     local plot_cmd=""
+    local max_value display_unit display_scale
+    local data_files=()
+
+    for lane in 0 1 2 3; do
+        local candidate="${DATA_BASE}_lane${lane}.txt"
+        [[ -s "$candidate" ]] && data_files+=("$candidate")
+    done
+    if (( ${#data_files[@]} == 0 )); then
+        echo "Error: no stream samples found in $LOG" >&2
+        exit 1
+    fi
+    max_value="$(awk -v column="$column" '$column > max {max = $column} END {print max}' "${data_files[@]}")"
+    if awk -v value="$max_value" 'BEGIN {exit !(value < 1)}'; then
+        display_unit="ns"; display_scale="0.001"
+    elif awk -v value="$max_value" 'BEGIN {exit !(value < 1000)}'; then
+        display_unit="us"; display_scale="1"
+    elif awk -v value="$max_value" 'BEGIN {exit !(value < 1000000)}'; then
+        display_unit="ms"; display_scale="1000"
+    else
+        display_unit="s"; display_scale="1000000"
+    fi
 
     for lane in 0 1 2 3; do
         local data_file="${DATA_BASE}_lane${lane}.txt"
         [[ -s "$data_file" ]] || continue
         [[ -z "$plot_cmd" ]] || plot_cmd+=", "
-        plot_cmd+="\"${data_file}\" using ${X_VALUE}:${column} with linespoints linewidth 2 pointtype 7 pointsize 0.4 linecolor rgb \"${LANE_COLORS[$lane]}\" title \"Lane ${lane}\""
+        plot_cmd+="\"${data_file}\" using ${X_VALUE}:(\$${column} / ${display_scale}) with linespoints linewidth 2 pointtype 7 pointsize 0.4 linecolor rgb \"${LANE_COLORS[$lane]}\" title \"Lane ${lane}\""
     done
 
     if [[ -z "$plot_cmd" ]]; then
@@ -82,7 +103,7 @@ set terminal pngcairo size 1600,900 enhanced
 set output "${output}"
 set title "${title}"
 ${X_SETUP}
-set ylabel "${ylabel} (us)"
+set ylabel "${ylabel} (${display_unit})"
 set grid
 set key top right
 plot ${plot_cmd}

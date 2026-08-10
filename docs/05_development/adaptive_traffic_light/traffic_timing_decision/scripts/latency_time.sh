@@ -102,17 +102,28 @@ awk -v boundary="$BOUNDARY_CYCLES" -v total="$RAW_SAMPLE_COUNT" '
   NR > boundary && NR <= total - boundary
 ' "$RAW_DATA_FILE" >"$DATA_FILE"
 
+readonly MAX_RAW_US="$(awk 'NR == 1 || $2 > max {max = $2} END {print max}' "$DATA_FILE")"
+if awk -v value="$MAX_RAW_US" 'BEGIN {exit !(value < 1)}'; then
+  readonly DISPLAY_UNIT="ns" DISPLAY_SCALE="0.001"
+elif awk -v value="$MAX_RAW_US" 'BEGIN {exit !(value < 1000)}'; then
+  readonly DISPLAY_UNIT="us" DISPLAY_SCALE="1"
+elif awk -v value="$MAX_RAW_US" 'BEGIN {exit !(value < 1000000)}'; then
+  readonly DISPLAY_UNIT="ms" DISPLAY_SCALE="1000"
+else
+  readonly DISPLAY_UNIT="s" DISPLAY_SCALE="1000000"
+fi
+
 # Normalize the first sample to 0 hours, group samples into 30-second time
-# buckets, and convert microseconds to milliseconds. Each plotted point is the
+# buckets, and convert microseconds to the selected display unit. Each point is the
 # average of all retained samples in its bucket.
 awk -v ns_per_hour="$NANOSECONDS_PER_HOUR" \
     -v ns_per_second="$NANOSECONDS_PER_SECOND" \
     -v bucket_seconds="$BUCKET_SECONDS" \
-    -v us_per_ms="$MICROSECONDS_PER_MILLISECOND" '
+    -v display_scale="$DISPLAY_SCALE" '
   function flush_bucket() {
     if (bucket_sample_count == 0) return
     printf "%.9f %.6f\n", elapsed_hours_sum / bucket_sample_count, \
-           latency_ms_sum / bucket_sample_count
+           latency_display_sum / bucket_sample_count
   }
 
   NR == 1 {
@@ -122,18 +133,18 @@ awk -v ns_per_hour="$NANOSECONDS_PER_HOUR" \
   {
     elapsed_nanoseconds = $1 - first_timestamp
     bucket = int(elapsed_nanoseconds / (bucket_seconds * ns_per_second))
-    latency_ms = $2 / us_per_ms
+    latency_display = $2 / display_scale
 
     if (bucket != current_bucket) {
       flush_bucket()
       current_bucket = bucket
       elapsed_hours_sum = 0
-      latency_ms_sum = 0
+      latency_display_sum = 0
       bucket_sample_count = 0
     }
 
     elapsed_hours_sum += elapsed_nanoseconds / ns_per_hour
-    latency_ms_sum += latency_ms
+    latency_display_sum += latency_display
     ++bucket_sample_count
   }
 
@@ -141,15 +152,15 @@ awk -v ns_per_hour="$NANOSECONDS_PER_HOUR" \
 ' "$DATA_FILE" >"$PLOT_DATA_FILE"
 
 read -r SAMPLE_COUNT MIN_VALUE MAX_VALUE < <(
-  awk -v us_per_ms="$MICROSECONDS_PER_MILLISECOND" '
+  awk -v display_scale="$DISPLAY_SCALE" '
     NR == 1 {
-      minimum = $2 / us_per_ms
-      maximum = $2 / us_per_ms
+      minimum = $2 / display_scale
+      maximum = $2 / display_scale
     }
     {
-      value_ms = $2 / us_per_ms
-      if (value_ms < minimum) minimum = value_ms
-      if (value_ms > maximum) maximum = value_ms
+      display_value = $2 / display_scale
+      if (display_value < minimum) minimum = display_value
+      if (display_value > maximum) maximum = display_value
     }
     END {
       printf "%d %.6f %.6f\n", NR, minimum, maximum
@@ -173,7 +184,7 @@ set output "${OUTPUT_PNG}"
 
 set title "${PLOT_TITLE}"
 set xlabel "Elapsed Time (hours), Total = ${TOTAL_HOURS} h"
-set ylabel "${Y_AXIS_NAME} (ms)"
+set ylabel "${Y_AXIS_NAME} (${DISPLAY_UNIT})"
 
 set xrange [0:${TOTAL_HOURS_EXACT}]
 set yrange [0:*]
@@ -185,7 +196,7 @@ set key top right
 plot "${PLOT_DATA_FILE}" using 1:2 \
 with linespoints linewidth 1.2 pointtype 7 pointsize 0.5 \
 linecolor rgb "${POINT_COLOR}" \
-title "${LEGEND_NAME} (${BUCKET_SECONDS}s average, ${BUCKET_COUNT} buckets; first/last ${BOUNDARY_CYCLES} cycles excluded; raw min=${MIN_VALUE} ms, raw max=${MAX_VALUE} ms)"
+title "${LEGEND_NAME} (${BUCKET_SECONDS}s average, ${BUCKET_COUNT} buckets; first/last ${BOUNDARY_CYCLES} cycles excluded; min=${MIN_VALUE} ${DISPLAY_UNIT}, max=${MAX_VALUE} ${DISPLAY_UNIT})"
 EOF
 
 echo "Input     : $INPUT_FILE"
@@ -194,5 +205,5 @@ echo "Samples   : $SAMPLE_COUNT"
 echo "Excluded  : first $BOUNDARY_CYCLES + last $BOUNDARY_CYCLES cycles ($RAW_SAMPLE_COUNT raw samples)"
 echo "Buckets   : $BUCKET_COUNT (${BUCKET_SECONDS} seconds each)"
 echo "Duration  : 0..$TOTAL_HOURS hours"
-echo "Range     : $MIN_VALUE..$MAX_VALUE ms"
+echo "Range     : $MIN_VALUE..$MAX_VALUE $DISPLAY_UNIT"
 echo "Generated : $OUTPUT_PNG"

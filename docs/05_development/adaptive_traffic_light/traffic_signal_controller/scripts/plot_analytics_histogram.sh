@@ -163,15 +163,18 @@ P99_NS=$(percentile_from_sorted_file 0.99)
 # can contain rare scheduler/preemption outliers.
 #-------------------------------------------------------
 
-if awk -v value="$P95_NS" 'BEGIN {exit !(value < 10000)}'; then
+if awk -v value="$P95_NS" 'BEGIN {exit !(value < 1000)}'; then
     UNIT="ns"
     SCALE=1
-elif awk -v value="$P95_NS" 'BEGIN {exit !(value < 10000000)}'; then
+elif awk -v value="$P95_NS" 'BEGIN {exit !(value < 1000000)}'; then
     UNIT="us"
     SCALE=1000
-else
+elif awk -v value="$P95_NS" 'BEGIN {exit !(value < 1000000000)}'; then
     UNIT="ms"
     SCALE=1000000
+else
+    UNIT="s"
+    SCALE=1000000000
 fi
 
 awk -v scale="$SCALE" '
