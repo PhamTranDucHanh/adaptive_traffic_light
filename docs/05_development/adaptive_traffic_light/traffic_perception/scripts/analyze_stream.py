@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 
-import re
 import argparse
-import pandas as pd
-import numpy as np
+import math
+import re
+from collections import defaultdict
 
-pattern = re.compile(
+
+PATTERN = re.compile(
     r"LaneId=\s*(\d+)\s+"
     r"FrameId=\s*(\d+)\s+"
     r"ExpectedWakeup=\s*(\d+)\s+"
@@ -20,87 +21,92 @@ pattern = re.compile(
 )
 
 NS_TO_MS = 1e6
+METRICS = (
+    "WakeupLatency",
+    "AcquireTime",
+    "GrabTime",
+    "DecodeTime",
+    "PublishTime",
+    "Execution",
+)
 
 
-def summarize(series):
-    arr = np.asarray(series)
+def percentile(values, percent):
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * percent / 100.0
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return ordered[lower]
+    fraction = position - lower
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
 
+
+def summarize(values):
+    average = sum(values) / len(values)
+    variance = sum((value - average) ** 2 for value in values) / len(values)
     return {
-        "Count": len(arr),
-        "Min": np.min(arr),
-        "Avg": np.mean(arr),
-        "P50": np.percentile(arr, 50),
-        "P90": np.percentile(arr, 90),
-        "P95": np.percentile(arr, 95),
-        "P99": np.percentile(arr, 99),
-        "Max": np.max(arr),
-        "Std": np.std(arr),
+        "Count": len(values),
+        "Min": min(values),
+        "Avg": average,
+        "P50": percentile(values, 50),
+        "P90": percentile(values, 90),
+        "P95": percentile(values, 95),
+        "P99": percentile(values, 99),
+        "Max": max(values),
+        "Std": math.sqrt(variance),
     }
 
 
-def print_table(name, df, column):
+def print_table(name, rows, metric):
     print(f"\n{name}")
     print("-" * 110)
-
-    header = (
-        f"{'Lane':<8}"
-        f"{'Count':>8}"
-        f"{'Min':>12}"
-        f"{'Avg':>12}"
-        f"{'P50':>12}"
-        f"{'P90':>12}"
-        f"{'P95':>12}"
-        f"{'P99':>12}"
-        f"{'Max':>12}"
-        f"{'Std':>12}"
+    print(
+        f"{'Lane':<8}{'Count':>8}{'Min':>12}{'Avg':>12}{'P50':>12}"
+        f"{'P90':>12}{'P95':>12}{'P99':>12}{'Max':>12}{'Std':>12}"
     )
 
-    print(header)
+    lanes = defaultdict(list)
+    for row in rows:
+        lanes[row["LaneId"]].append(row[metric])
 
-    for lane in sorted(df["LaneId"].unique()):
-        stat = summarize(df[df["LaneId"] == lane][column])
-
+    for lane in sorted(lanes):
+        stat = summarize(lanes[lane])
         print(
-            f"{lane:<8}"
-            f"{stat['Count']:>8}"
-            f"{stat['Min']:>12.3f}"
-            f"{stat['Avg']:>12.3f}"
-            f"{stat['P50']:>12.3f}"
-            f"{stat['P90']:>12.3f}"
-            f"{stat['P95']:>12.3f}"
-            f"{stat['P99']:>12.3f}"
-            f"{stat['Max']:>12.3f}"
+            f"{lane:<8}{stat['Count']:>8}{stat['Min']:>12.3f}"
+            f"{stat['Avg']:>12.3f}{stat['P50']:>12.3f}"
+            f"{stat['P90']:>12.3f}{stat['P95']:>12.3f}"
+            f"{stat['P99']:>12.3f}{stat['Max']:>12.3f}"
             f"{stat['Std']:>12.3f}"
         )
 
 
-def main():
+def print_rows(title, rows):
+    print(f"\n{'=' * 51}\n{title}\n{'=' * 51}")
+    print(
+        f"{'Lane':>6} {'Frame':>8} {'Wakeup(ms)':>12} "
+        f"{'Grab(ms)':>10} {'Decode(ms)':>12} {'Execution(ms)':>14}"
+    )
+    for row in rows:
+        print(
+            f"{row['LaneId']:>6} {row['FrameId']:>8} "
+            f"{row['WakeupLatency']:>12.3f} {row['GrabTime']:>10.3f} "
+            f"{row['DecodeTime']:>12.3f} {row['Execution']:>14.3f}"
+        )
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("log")
-    args = parser.parse_args()
 
+def parse_rows(log_path):
     rows = []
-
-    with open(args.log) as f:
-        for line in f:
-            m = pattern.search(line)
-            if not m:
+    with open(log_path, encoding="utf-8", errors="replace") as log_file:
+        for line in log_file:
+            match = PATTERN.search(line)
+            if not match:
                 continue
 
-            lane = int(m.group(1))
-            frame = int(m.group(2))
-
-            expected = int(m.group(3))
-            begin = int(m.group(4))
-            acquire_begin = int(m.group(5))
-            acquire_end = int(m.group(6))
-            grab_begin = int(m.group(7))
-            grab_end = int(m.group(8))
-            decode_begin = int(m.group(9))
-            decode_end = int(m.group(10))
-            end = int(m.group(11))
-
+            values = [int(value) for value in match.groups()]
+            lane, frame = values[:2]
+            (expected, begin, acquire_begin, acquire_end, grab_begin, grab_end,
+             decode_begin, decode_end, end) = values[2:]
             rows.append(
                 {
                     "LaneId": lane,
@@ -113,119 +119,63 @@ def main():
                     "Execution": (end - begin) / NS_TO_MS,
                 }
             )
+    return rows
 
-    df = pd.DataFrame(rows)
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("log")
+    args = parser.parse_args()
+    rows = parse_rows(args.log)
+
+    if not rows:
+        parser.error(f"no stream analytics records found in {args.log}")
 
     print("\n===================================================")
     print("Overall")
     print("===================================================")
-
-    for metric in [
-        "WakeupLatency",
-        "AcquireTime",
-        "GrabTime",
-        "DecodeTime",
-        "PublishTime",
-        "Execution",
-    ]:
-        stat = summarize(df[metric])
-
+    for metric in METRICS:
+        stat = summarize([row[metric] for row in rows])
         print(f"\n{metric}")
-        for k, v in stat.items():
-            if k == "Count":
-                print(f"{k:10}: {v}")
+        for name, value in stat.items():
+            if name == "Count":
+                print(f"{name:10}: {value}")
             else:
-                print(f"{k:10}: {v:.3f} ms")
+                print(f"{name:10}: {value:.3f} ms")
 
     print("\n===================================================")
     print("Per Lane")
     print("===================================================")
+    for metric in METRICS:
+        print_table(f"{metric} (ms)", rows, metric)
 
-    print_table("Wakeup Latency (ms)", df, "WakeupLatency")
-    print_table("Acquire Time (ms)", df, "AcquireTime")
-    print_table("Grab Time (ms)", df, "GrabTime")
-    print_table("Decode Time (ms)", df, "DecodeTime")
-    print_table("Publish Time (ms)", df, "PublishTime")
-    print_table("Execution Time (ms)", df, "Execution")
-
-    print("\n===================================================")
-    print("Largest Execution")
-    print("===================================================")
-    print(
-        df.sort_values("Execution", ascending=False)[
-            [
-                "LaneId",
-                "FrameId",
-                "WakeupLatency",
-                "GrabTime",
-                "DecodeTime",
-                "Execution",
-            ]
-        ].head(20)
+    print_rows(
+        "Largest Execution",
+        sorted(rows, key=lambda row: row["Execution"], reverse=True)[:20],
     )
-
-    print("\n===================================================")
-    print("Largest Wakeup Latency")
-    print("===================================================")
-    print(
-        df.sort_values("WakeupLatency", ascending=False)[
-            [
-                "LaneId",
-                "FrameId",
-                "WakeupLatency",
-                "GrabTime",
-                "DecodeTime",
-                "Execution",
-            ]
-        ].head(20)
+    print_rows(
+        "Largest Wakeup Latency",
+        sorted(rows, key=lambda row: row["WakeupLatency"], reverse=True)[:20],
     )
-
-    print("\n===================================================")
-    print("Largest Grab Time")
-    print("===================================================")
-    print(
-        df.sort_values("GrabTime", ascending=False)[
-            [
-                "LaneId",
-                "FrameId",
-                "WakeupLatency",
-                "GrabTime",
-                "DecodeTime",
-                "Execution",
-            ]
-        ].head(20)
+    print_rows(
+        "Largest Grab Time",
+        sorted(rows, key=lambda row: row["GrabTime"], reverse=True)[:20],
     )
-
-    print("\n===================================================")
-    print("Wakeup > 20 ms")
-    print("===================================================")
-    print(
-        df[df["WakeupLatency"] > 20][
-            [
-                "LaneId",
-                "FrameId",
-                "WakeupLatency",
-                "GrabTime",
-                "DecodeTime",
-                "Execution",
-            ]
-        ].sort_values("WakeupLatency", ascending=False)
+    print_rows(
+        "Wakeup > 20 ms",
+        sorted(
+            (row for row in rows if row["WakeupLatency"] > 20),
+            key=lambda row: row["WakeupLatency"],
+            reverse=True,
+        ),
     )
-
-    print("\n===================================================")
-    print("Grab > 20 ms")
-    print("===================================================")
-    print(
-        df[df["GrabTime"] > 20][
-            [
-                "LaneId",
-                "FrameId",
-                "WakeupLatency",
-                "GrabTime",
-                "DecodeTime",
-                "Execution",
-            ]
-        ].sort_values("GrabTime", ascending=False)
+    print_rows(
+        "Grab > 20 ms",
+        sorted(
+            (row for row in rows if row["GrabTime"] > 20),
+            key=lambda row: row["GrabTime"],
+            reverse=True,
+        ),
     )
 
 

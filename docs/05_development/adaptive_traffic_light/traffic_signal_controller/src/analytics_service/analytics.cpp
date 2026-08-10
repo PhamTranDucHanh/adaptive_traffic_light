@@ -554,8 +554,8 @@ std::string Analytics::ConvertDltRecordToTextMessage(const std::string& record,
   }
 
   for (const auto* const timestampKey :
-       {"publish_timestamp_ns", "receive_timestamp_ns",
-        "apply_timestamp_ns"}) {
+       {"deadline_ns", "actual_wakeup_ns", "publish_timestamp_ns",
+        "receive_timestamp_ns", "apply_timestamp_ns"}) {
     if (record.find(std::string{timestampKey} + "=") != std::string::npos) {
       message << ", " << timestampKey << '='
               << ExtractDltUint64(record, timestampKey);
