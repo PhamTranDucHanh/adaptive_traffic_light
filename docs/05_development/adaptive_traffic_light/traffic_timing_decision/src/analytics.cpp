@@ -12,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <type_traits>
 #include <vector>
 
 namespace {
@@ -305,18 +306,42 @@ bool parseExecutionText(
 
 template <typename Statistics>
 void printStatistics(const Statistics& statistics, std::ostream& output) {
+  const auto printTimingValue = [&output](const auto value) {
+    constexpr long double kMicrosecondsPerMillisecond{1000.0L};
+    const long double valueInMicroseconds = static_cast<long double>(value);
+
+    if (valueInMicroseconds > kMicrosecondsPerMillisecond) {
+      output << std::fixed
+             << std::setprecision(toValue(OutputFormat::kAveragePrecision))
+             << valueInMicroseconds / kMicrosecondsPerMillisecond << " (ms)";
+      return;
+    }
+
+    if constexpr (std::is_floating_point_v<std::remove_cv_t<decltype(value)>>) {
+      output << std::fixed
+             << std::setprecision(toValue(OutputFormat::kAveragePrecision));
+    }
+    output << value << " (us)";
+  };
+
   output << "Statistics\n"
          << "----------\n"
          << "Samples : " << statistics.sampleCount << '\n'
-         << "Min     : " << statistics.minimum << '\n'
-         << "Avg     : " << std::fixed
-         << std::setprecision(toValue(OutputFormat::kAveragePrecision))
-         << statistics.average << '\n'
-         << "Std Dev : " << statistics.standardDeviation << '\n'
-         << "Max     : " << statistics.maximum << '\n'
-         << "P50     : " << statistics.p50 << '\n'
-         << "P90     : " << statistics.p90 << '\n'
-         << "P99     : " << statistics.p99 << '\n';
+         << "Min     : ";
+  printTimingValue(statistics.minimum);
+  output << "\nAvg     : ";
+  printTimingValue(statistics.average);
+  output << "\nStd Dev : ";
+  printTimingValue(statistics.standardDeviation);
+  output << "\nMax     : ";
+  printTimingValue(statistics.maximum);
+  output << "\nP50     : ";
+  printTimingValue(statistics.p50);
+  output << "\nP90     : ";
+  printTimingValue(statistics.p90);
+  output << "\nP99     : ";
+  printTimingValue(statistics.p99);
+  output << '\n';
 }
 
 void printReport(
@@ -330,12 +355,12 @@ void printReport(
          << ", execution=" << report.executionDeadlineMisses << " / "
          << report.executionTimeUs.sampleCount << " cycles\n\n"
          << "========================================\n"
-         << "WAKE-UP LATENCY (us)\n"
+         << "WAKE-UP LATENCY\n"
          << "========================================\n";
   printStatistics(report.wakeupLatencyUs, output);
   output << '\n'
          << "========================================\n"
-         << "DECISION EXECUTION TIME (us)\n"
+         << "DECISION EXECUTION TIME\n"
          << "========================================\n";
   printStatistics(report.executionTimeUs, output);
 }
