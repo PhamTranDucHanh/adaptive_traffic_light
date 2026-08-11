@@ -159,17 +159,17 @@ P99_NS=$(percentile_from_sorted_file 0.99)
 #-------------------------------------------------------
 # Select display unit
 #
-# Use P95 for unit selection because the execution samples
-# can contain rare scheduler/preemption outliers.
+# Use Max for unit selection so plot labels and ticks do not show values
+# above 1000 in a smaller unit such as microseconds.
 #-------------------------------------------------------
 
-if awk -v value="$P95_NS" 'BEGIN {exit !(value < 1000)}'; then
+if awk -v value="$MAX_NS" 'BEGIN {exit !(value < 1000)}'; then
     UNIT="ns"
     SCALE=1
-elif awk -v value="$P95_NS" 'BEGIN {exit !(value < 1000000)}'; then
+elif awk -v value="$MAX_NS" 'BEGIN {exit !(value < 1000000)}'; then
     UNIT="us"
     SCALE=1000
-elif awk -v value="$P95_NS" 'BEGIN {exit !(value < 1000000000)}'; then
+elif awk -v value="$MAX_NS" 'BEGIN {exit !(value < 1000000000)}'; then
     UNIT="ms"
     SCALE=1000000
 else
@@ -191,6 +191,30 @@ convert_value() {
     '
 }
 
+format_value() {
+    awk -v value="$1" '
+    function trim_number(text) {
+        sub(/0+$/, "", text)
+        sub(/[.]$/, "", text)
+        if (text == "" || text == "-0") {
+            text = "0"
+        }
+        return text
+    }
+    BEGIN {
+        absolute_value = value < 0 ? -value : value
+
+        if (absolute_value == 0.0) {
+            print "0"
+        } else if (absolute_value < 0.001) {
+            printf "%s", trim_number(sprintf("%.6f", value))
+        } else {
+            printf "%s", trim_number(sprintf("%.3f", value))
+        }
+    }
+    '
+}
+
 MIN_VALUE=$(convert_value "$MIN_NS")
 MAX_VALUE=$(convert_value "$MAX_NS")
 MEAN_VALUE=$(convert_value "$MEAN_NS")
@@ -198,6 +222,14 @@ P50_VALUE=$(convert_value "$P50_NS")
 P90_VALUE=$(convert_value "$P90_NS")
 P95_VALUE=$(convert_value "$P95_NS")
 P99_VALUE=$(convert_value "$P99_NS")
+
+MIN_LABEL=$(format_value "$MIN_VALUE")
+MAX_LABEL=$(format_value "$MAX_VALUE")
+MEAN_LABEL=$(format_value "$MEAN_VALUE")
+P50_LABEL=$(format_value "$P50_VALUE")
+P90_LABEL=$(format_value "$P90_VALUE")
+P95_LABEL=$(format_value "$P95_VALUE")
+P99_LABEL=$(format_value "$P99_VALUE")
 
 #-------------------------------------------------------
 # Choose the main-distribution percentile
@@ -290,6 +322,8 @@ BEGIN {
 }
 ')
 
+BIN_WIDTH_LABEL=$(format_value "$BIN_WIDTH")
+
 #-------------------------------------------------------
 # Build histogram
 #-------------------------------------------------------
@@ -315,8 +349,10 @@ set terminal pngcairo size 1600,900 enhanced
 set output "$OUTPUT_IMAGE"
 
 set title "$TITLE"
-set xlabel "$X_AXIS_NAME ($UNIT), Samples = $SAMPLE_COUNT, Min = $MIN_VALUE $UNIT, Max = $MAX_VALUE $UNIT, Bucket = $BIN_WIDTH $UNIT"
+set xlabel "$X_AXIS_NAME ($UNIT), Samples = $SAMPLE_COUNT, Min = $MIN_LABEL $UNIT, Max = $MAX_LABEL $UNIT, Bucket = $BIN_WIDTH_LABEL $UNIT"
 set ylabel "Number of Samples"
+set format x "%.4g"
+set format y "%.4g"
 
 set xrange [0:*]
 set yrange [0.9:*]
@@ -347,13 +383,13 @@ echo "  Input           : $INPUT_FILE"
 echo "  Output          : $OUTPUT_IMAGE"
 echo "  Samples         : $SAMPLE_COUNT"
 echo "  Display unit    : $UNIT"
-echo "  Bin width       : $BIN_WIDTH $UNIT"
-echo "  Minimum         : $MIN_VALUE $UNIT"
-echo "  Mean            : $MEAN_VALUE $UNIT"
-echo "  P50             : $P50_VALUE $UNIT"
-echo "  P90             : $P90_VALUE $UNIT"
-echo "  P95             : $P95_VALUE $UNIT"
-echo "  P99             : $P99_VALUE $UNIT"
-echo "  Maximum         : $MAX_VALUE $UNIT"
+echo "  Bin width       : $BIN_WIDTH_LABEL $UNIT"
+echo "  Minimum         : $MIN_LABEL $UNIT"
+echo "  Mean            : $MEAN_LABEL $UNIT"
+echo "  P50             : $P50_LABEL $UNIT"
+echo "  P90             : $P90_LABEL $UNIT"
+echo "  P95             : $P95_LABEL $UNIT"
+echo "  P99             : $P99_LABEL $UNIT"
+echo "  Maximum         : $MAX_LABEL $UNIT"
 echo "  Tail ratio      : P99/P95 = $OUTLIER_RATIO"
 echo "  Bin based on    : $RANGE_PERCENTILE"

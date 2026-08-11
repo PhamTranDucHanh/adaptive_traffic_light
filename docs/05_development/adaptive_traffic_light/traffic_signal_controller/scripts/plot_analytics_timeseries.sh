@@ -274,42 +274,15 @@ fi
 
 awk -F, 'NR > 1 {print $7}' "$DATA_CSV" | sort -n > "$VALUE_DATA_NS"
 
-percentile_from_sorted_file() {
-    local percentile="$1"
+MAX_NS=$(awk 'END {print $1}' "$VALUE_DATA_NS")
 
-    awk -v p="$percentile" '
-    {
-        values[NR] = $1
-    }
-    END {
-        if (NR == 0) {
-            exit
-        }
-
-        percentile_index = int(p * (NR - 1) + 0.5) + 1
-
-        if (percentile_index < 1) {
-            percentile_index = 1
-        }
-
-        if (percentile_index > NR) {
-            percentile_index = NR
-        }
-
-        print values[percentile_index]
-    }
-    ' "$VALUE_DATA_NS"
-}
-
-P95_NS=$(percentile_from_sorted_file 0.95)
-
-if awk -v value="$P95_NS" 'BEGIN {exit !(value < 1000)}'; then
+if awk -v value="$MAX_NS" 'BEGIN {exit !(value < 1000)}'; then
     UNIT="ns"
     SCALE=1
-elif awk -v value="$P95_NS" 'BEGIN {exit !(value < 1000000)}'; then
+elif awk -v value="$MAX_NS" 'BEGIN {exit !(value < 1000000)}'; then
     UNIT="us"
     SCALE=1000
-elif awk -v value="$P95_NS" 'BEGIN {exit !(value < 1000000000)}'; then
+elif awk -v value="$MAX_NS" 'BEGIN {exit !(value < 1000000000)}'; then
     UNIT="ms"
     SCALE=1000000
 else
@@ -379,6 +352,8 @@ set output "$OUTPUT_IMAGE"
 set title "$TITLE"
 set xlabel "$X_LABEL"
 set ylabel "Time ($UNIT)"
+set format x "%.4g"
+set format y "%.4g"
 
 set grid
 set key outside
