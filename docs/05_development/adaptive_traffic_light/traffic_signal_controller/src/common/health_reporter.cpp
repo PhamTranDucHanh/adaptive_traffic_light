@@ -1,7 +1,10 @@
 #include "common/health_reporter.h"
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <utility>
+#include <vector>
 
 #include "common/config.h"
 #include "common/logging_contexts.h"
@@ -16,6 +19,7 @@ const score::mw::health::MonitorTag kHeartbeatMonitorTag{
     "signal_control_heartbeat_monitor"};
 const score::mw::health::DeadlineTag kControlCycleDeadlineTag{
     "signal_control_cycle_deadline"};
+constexpr std::uint32_t kHealthMonitorCpu = 4U;
 
 score::mw::log::Logger& Logger() {
   static auto& logger =
@@ -48,8 +52,12 @@ bool HealthReporter::initialize() {
       TimeRange{kControlDeadlineMin, kControlDeadlineMax});
   auto heartbeatBuilder =
       HeartbeatMonitorBuilder(TimeRange{kHeartbeatMin, kHeartbeatMax});
-  auto healthThreadParameters = ThreadParameters{}.scheduler_parameters(
-      SchedulerParameters{SchedulerPolicy::Fifo, kHealthMonitorPriority});
+  auto healthThreadParameters =
+      ThreadParameters{}
+          .scheduler_parameters(SchedulerParameters{
+              SchedulerPolicy::Fifo, kHealthMonitorPriority})
+          .affinity(std::vector<std::size_t>{
+              static_cast<std::size_t>(kHealthMonitorCpu)});
 
   auto healthMonitorResult =
       HealthMonitorBuilder()

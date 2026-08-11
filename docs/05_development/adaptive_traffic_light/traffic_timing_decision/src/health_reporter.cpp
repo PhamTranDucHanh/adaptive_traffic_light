@@ -3,8 +3,11 @@
 #include <score/mw/health/common.h>
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "application_logger.h"
 
@@ -37,6 +40,7 @@ constexpr std::chrono::milliseconds kInternalProcessingCycle =
 constexpr std::chrono::milliseconds kSupervisorApiCycle =
     toDuration(HealthIntervalMilliseconds::kSupervisorApiCycle);
 constexpr std::int32_t kHealthMonitorPriority = 50;
+constexpr std::uint32_t kHealthMonitorCpu = 4U;
 
 const score::mw::health::MonitorTag kDeadlineMonitorTag{
     "timing_decision_deadline_monitor"};
@@ -70,8 +74,12 @@ bool HealthReporter::initialize() {
       TimeRange{kDecisionDeadlineMin, kDecisionDeadlineMax});
   score::mw::health::heartbeat::HeartbeatMonitorBuilder heartbeatBuilder =
       HeartbeatMonitorBuilder(TimeRange{kHeartbeatMin, kHeartbeatMax});
-  auto healthThreadParameters = ThreadParameters{}.scheduler_parameters(
-SchedulerParameters{SchedulerPolicy::Fifo, kHealthMonitorPriority});
+  auto healthThreadParameters =
+      ThreadParameters{}
+          .scheduler_parameters(SchedulerParameters{
+              SchedulerPolicy::Fifo, kHealthMonitorPriority})
+          .affinity(std::vector<std::size_t>{
+              static_cast<std::size_t>(kHealthMonitorCpu)});
 
   score::cpp::expected<score::mw::health::HealthMonitor,
                        score::mw::health::Error>

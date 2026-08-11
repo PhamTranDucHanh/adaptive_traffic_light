@@ -232,7 +232,7 @@ install -m 0644 "$traffic3_mp4" "$runtime_etc/traffic3.mp4"
 install -m 0644 "$traffic4_mp4" "$runtime_etc/traffic4.mp4"
 
 echo "[DEPLOYMENT][STAGE] runtime ready"
-echo "[LAUNCH_MANAGER][START] binary=$runtime_bin/launch_manager policy=SCHED_RR priority=50 cpu=0"
+echo "[LAUNCH_MANAGER][START] binary=$runtime_bin/launch_manager policy=SCHED_RR priority=50 cpu=4"
 launch_manager_pid=$$
 echo "[LAUNCH_MANAGER][START] pid=$launch_manager_pid"
 activation_generation_file="$runtime_root/activation_generation"
@@ -255,4 +255,4 @@ cd "$runtime_root"
 # Set the affinity before Launch Manager creates any worker or managed process.
 # Linux threads/processes inherit their creator's affinity; application-owned
 # RT workers can still override it later with their explicit module affinity.
-exec taskset --cpu-list 0 chrt --rr 50 "$runtime_bin/launch_manager"
+exec taskset --cpu-list 4 chrt --rr 50 "$runtime_bin/launch_manager"

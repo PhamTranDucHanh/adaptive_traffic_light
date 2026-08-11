@@ -3,6 +3,8 @@
 #include <score/mw/health/common.h>
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <iostream>
 #include <string_view>
 #include <utility>
@@ -25,7 +27,7 @@ constexpr auto kInternalProcessingCycle = 100ms;
 // vulnerable to scheduler jitter and can land in the adjacent window.
 constexpr auto kSupervisorApiCycle = 2000ms;
 constexpr std::int32_t kHealthMonitorPriority = 70;
-constexpr std::size_t kHealthMonitorCpu = 2U;
+constexpr std::uint32_t kHealthMonitorCpu = 4U;
 
 const score::mw::health::MonitorTag kDeadlineMonitorTag{
     "perception_deadline_monitor"};
@@ -62,7 +64,8 @@ bool LifecycleHealthReporter::initialize() {
       ThreadParameters{}
           .scheduler_parameters(SchedulerParameters{
               SchedulerPolicy::RoundRobin, kHealthMonitorPriority})
-          .affinity(std::vector<std::size_t>{kHealthMonitorCpu});
+          .affinity(std::vector<std::size_t>{
+              static_cast<std::size_t>(kHealthMonitorCpu)});
 
   auto healthResult =
       HealthMonitorBuilder()
