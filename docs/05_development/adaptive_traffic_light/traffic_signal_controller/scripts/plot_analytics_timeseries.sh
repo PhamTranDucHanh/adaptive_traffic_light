@@ -38,7 +38,7 @@ case "$METRIC" in
         TITLE="FSM Execution Time Over Time"
         ;;
     end_to_end)
-        TITLE="Plan Publish-to-Receive Latency Over Time"
+        TITLE="Timing Decision Receive-to-Controller Receive Latency Over Time"
         ;;
     emergency)
         TITLE="Emergency Receive-to-Apply Latency Over Time"
@@ -173,7 +173,7 @@ index($0, "event=FSM_EXECUTION") {
     remember_sample("execution", execution_count, value_ns, dlt_timestamp_ns($0), "")
 }
 
-index($0, "event=PLAN_PUBLISH_TO_RECEIVE") {
+index($0, "event=TIMING_DECISION_RECEIVE_TO_CONTROLLER_RECEIVE") {
     if (metric != "end_to_end") {
         next
     }
@@ -182,7 +182,8 @@ index($0, "event=PLAN_PUBLISH_TO_RECEIVE") {
     if (value_ns != "") {
         ++end_to_end_count
         remember_sample("end_to_end", end_to_end_count, value_ns,
-                        dlt_timestamp_ns($0), extract_uint($0, "receive_timestamp_ns"))
+                        dlt_timestamp_ns($0),
+                        extract_uint($0, "controller_receive_timestamp_ns"))
     }
 }
 
@@ -224,7 +225,7 @@ END {
             x_raw_ns = wakeup_actual_ns[sample_index[i]]
         } else if (sample_kind[i] == "end_to_end" &&
                    sample_fallback_ns[i] != "") {
-            x_kind = "monotonic_receive_timestamp_ns"
+            x_kind = "monotonic_controller_receive_timestamp_ns"
             x_raw_ns = sample_fallback_ns[i]
         } else if (sample_kind[i] == "emergency" &&
                    sample_fallback_ns[i] != "") {
@@ -382,7 +383,7 @@ EOF
         ;;
     end_to_end)
         cat >> "$GNUPLOT_FILE" << EOF
-plot "$END_TO_END_PLOT_DATA" using 1:2 with linespoints lw 1 pt 7 ps 0.8 title "Publish-to-receive latency"
+plot "$END_TO_END_PLOT_DATA" using 1:2 with linespoints lw 1 pt 7 ps 0.8 title "Decision-to-controller latency"
 EOF
         ;;
     emergency)

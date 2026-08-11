@@ -15,6 +15,7 @@ APP_PID=""
 TIMER_PID=""
 STOP_REQUESTED=0
 POSTPROCESS_FAILURES=0
+readonly POSTPROCESS_LOG="$RUN_OUTPUT/postprocess.log"
 
 usage() {
   cat <<EOF
@@ -65,11 +66,22 @@ run_optional() {
   local description="$1"
   shift
 
-  if "$@" >/dev/null 2>&1; then
+  {
+    printf '\n===== %s =====\n' "$description"
+    printf 'Command:'
+    printf ' %q' "$@"
+    printf '\n'
+  } >>"$POSTPROCESS_LOG"
+
+  local status=0
+  if "$@" >>"$POSTPROCESS_LOG" 2>&1; then
+    log "$description completed."
     return 0
+  else
+    status=$?
   fi
 
-  warn "$description failed or had no samples; continuing."
+  warn "$description failed with status $status; see $POSTPROCESS_LOG"
   POSTPROCESS_FAILURES=$((POSTPROCESS_FAILURES + 1))
   return 0
 }
@@ -105,6 +117,7 @@ for command in bazel dlt-convert gnuplot sudo; do
 done
 
 mkdir -p "$RUN_OUTPUT"/{perception,timing_decision,signal_controller}
+: >"$POSTPROCESS_LOG"
 
 cd "$WORKSPACE_ROOT"
 
@@ -184,6 +197,15 @@ if [[ -s "$RUNTIME_LOGS/traffic_perception.dlt" ]]; then
   run_optional "Plotting Traffic Perception stream histograms" \
     "$WORKSPACE_ROOT/traffic_perception/scripts/gen_stream_histo.sh" \
     "$PERCEPTION_DIR/stream.log" "$PERCEPTION_DIR"
+  run_optional "Plotting Traffic Perception pipeline time series" \
+    "$WORKSPACE_ROOT/traffic_perception/scripts/gen_line_plot.sh" \
+    "$PERCEPTION_DIR/pipeline.log" "$PERCEPTION_DIR"
+  run_optional "Plotting Traffic Perception stream time series" \
+    "$WORKSPACE_ROOT/traffic_perception/scripts/gen_stream_line_plot.sh" \
+    "$PERCEPTION_DIR/stream.log" "$PERCEPTION_DIR"
+  run_optional "Plotting Traffic Perception per-frame stream timing" \
+    "$WORKSPACE_ROOT/traffic_perception/scripts/gen_stream_wakeup_frameid.sh" \
+    "$PERCEPTION_DIR/stream.log" "$PERCEPTION_DIR/plots"
 else
   warn "Traffic Perception log is missing or empty: $RUNTIME_LOGS/traffic_perception.dlt"
   POSTPROCESS_FAILURES=$((POSTPROCESS_FAILURES + 1))
@@ -225,6 +247,11 @@ else
   POSTPROCESS_FAILURES=$((POSTPROCESS_FAILURES + 1))
 fi
 
+if [[ ! -s "$RUNTIME_LOGS/CTRL.dlt.txt" && -s "$RUNTIME_LOGS/CTRL.dlt" ]]; then
+  log "Converting Signal Controller DLT log to text..."
+  dlt-convert -a "$RUNTIME_LOGS/CTRL.dlt" >"$RUNTIME_LOGS/CTRL.dlt.txt"
+fi
+
 if [[ -s "$RUNTIME_LOGS/CTRL.dlt.txt" ]]; then
   cp "$RUNTIME_LOGS/CTRL.dlt.txt" "$CONTROLLER_DIR/CTRL.dlt.txt"
   if [[ -s "$RUNTIME_LOGS/signal_control_analytics_report.txt" ]]; then
@@ -249,11 +276,15 @@ if [[ -s "$RUNTIME_LOGS/CTRL.dlt.txt" ]]; then
   run_optional "Plotting Signal Controller end-to-end time series" \
     "$WORKSPACE_ROOT/traffic_signal_controller/scripts/plot_analytics_timeseries.sh" \
     end_to_end "$CONTROLLER_DIR/CTRL.dlt.txt" \
-    "$CONTROLLER_DIR/plan_publish_to_receive_latency_timeseries.png"
+    "$CONTROLLER_DIR/decision_to_controller_latency_timeseries.png"
   run_optional "Plotting Signal Controller end-to-end histogram" \
     "$WORKSPACE_ROOT/traffic_signal_controller/scripts/plot_analytics_histogram.sh" \
     end_to_end "$CONTROLLER_DIR/CTRL.dlt.txt" \
-    "$CONTROLLER_DIR/plan_publish_to_receive_latency_histogram.png"
+    "$CONTROLLER_DIR/decision_to_controller_latency_histogram.png"
+  run_optional "Plotting Signal Controller emergency time series" \
+    "$WORKSPACE_ROOT/traffic_signal_controller/scripts/plot_analytics_timeseries.sh" \
+    emergency "$CONTROLLER_DIR/CTRL.dlt.txt" \
+    "$CONTROLLER_DIR/emergency_receive_to_apply_latency_timeseries.png"
   run_optional "Plotting Signal Controller emergency histogram" \
     "$WORKSPACE_ROOT/traffic_signal_controller/scripts/plot_analytics_histogram.sh" \
     emergency "$CONTROLLER_DIR/CTRL.dlt.txt" \

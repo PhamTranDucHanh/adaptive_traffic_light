@@ -40,12 +40,12 @@ case "$METRIC" in
         DEFAULT_OUTPUT_IMAGE="${RUNTIME_LOG_DIRECTORY}/fsm_execution_time_histogram.png"
         ;;
     end_to_end)
-        EVENT_NAME="PLAN_PUBLISH_TO_RECEIVE"
+        EVENT_NAME="TIMING_DECISION_RECEIVE_TO_CONTROLLER_RECEIVE"
         VALUE_KEY="latency_ns"
-        TITLE="Plan Publish-to-Receive Latency Histogram"
-        X_AXIS_NAME="Plan Publish-to-Receive Latency"
-        LEGEND_NAME="Publish-to-Receive Latency"
-        DEFAULT_OUTPUT_IMAGE="${RUNTIME_LOG_DIRECTORY}/plan_publish_to_receive_latency_histogram.png"
+        TITLE="Timing Decision Receive-to-Controller Receive Latency Histogram"
+        X_AXIS_NAME="Decision-to-Controller Latency"
+        LEGEND_NAME="Decision-to-Controller Latency"
+        DEFAULT_OUTPUT_IMAGE="${RUNTIME_LOG_DIRECTORY}/decision_to_controller_latency_histogram.png"
         ;;
     emergency)
         EVENT_NAME="EMERGENCY_RECEIVE_TO_APPLY"
