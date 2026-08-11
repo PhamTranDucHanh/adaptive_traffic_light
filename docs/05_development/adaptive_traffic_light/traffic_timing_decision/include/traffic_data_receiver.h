@@ -39,7 +39,8 @@ class TrafficDataReceiver {
   //----------------------------------------
   // snapshot
   //----------------------------------------
-  bool requestSnapshot(TrafficSnapshot& snapshot);
+  bool requestSnapshot(TrafficSnapshot& snapshot,
+                       std::uint64_t& snapshotRxNs);
   bool validateSnapshot(const TrafficSnapshot& snapshot);
   TrafficSnapshot getLatestSnapshot() const;
   traffic_ipc::QueueStatus lastQueueStatus() const noexcept;

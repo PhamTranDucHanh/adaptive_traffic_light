@@ -53,22 +53,17 @@ bool PlanReceiver::ReceivePlan(const TimingPlan& plan) {
                      << ", plan_id=" << plan.planId
                      << ", result=" << (result ? "SUCCESS" : "FAILED");
 
-  constexpr std::uint64_t kMicrosecondsToNanoseconds{1'000U};
   if (result && receiveTimestampValid &&
-      plan.perceptionPublishTimestampUs > 0U &&
-      plan.perceptionPublishTimestampUs <=
-          (std::numeric_limits<std::uint64_t>::max() /
-           kMicrosecondsToNanoseconds)) {
-    const std::uint64_t publishTimestampNs =
-        plan.perceptionPublishTimestampUs * kMicrosecondsToNanoseconds;
+      plan.generationTimestampNs > 0U) {
+    const std::uint64_t decisionRxNs = plan.generationTimestampNs;
 
-    if (receiveTimestampNs >= publishTimestampNs) {
+    if (receiveTimestampNs >= decisionRxNs) {
       Logger().LogInfo()
-          << "event=PLAN_PUBLISH_TO_RECEIVE"
+          << "event=TIMING_DECISION_RECEIVE_TO_CONTROLLER_RECEIVE"
           << ", plan_id=" << plan.planId
-          << ", publish_timestamp_ns=" << publishTimestampNs
-          << ", receive_timestamp_ns=" << receiveTimestampNs
-          << ", latency_ns=" << (receiveTimestampNs - publishTimestampNs);
+          << ", timing_receive_timestamp_ns=" << decisionRxNs
+          << ", controller_receive_timestamp_ns=" << receiveTimestampNs
+          << ", latency_ns=" << (receiveTimestampNs - decisionRxNs);
     }
   }
 

@@ -62,7 +62,8 @@ bool PeriodicService::runDecisionCycle() {
 
   bool cycleSuccessful{true};
   TrafficSnapshot snapshot{};
-  if (!trafficReceiver.requestSnapshot(snapshot)) {
+  std::uint64_t snapshotRxNs{};
+  if (!trafficReceiver.requestSnapshot(snapshot, snapshotRxNs)) {
     ++consecutiveSnapshotMisses_;
     const traffic_ipc::QueueStatus status = trafficReceiver.lastQueueStatus();
     if (status == traffic_ipc::QueueStatus::kEmpty ||
@@ -90,6 +91,10 @@ bool PeriodicService::runDecisionCycle() {
   } else {
     consecutiveSnapshotMisses_ = std::uint32_t{};
     TimingPlan plan = decisionEngine.processTrafficMetrics(snapshot);
+    // Reuse the existing nanosecond timestamp carried by TimingPlan as the
+    // start boundary for Timing Decision receive-to-Controller receive latency.
+    // The original Perception publish timestamp remains available separately.
+    plan.generationTimestampNs = snapshotRxNs;
     // Preserve the exact CLOCK_MONOTONIC-domain timestamp captured by
     // Perception immediately before publishing this source snapshot.
     plan.perceptionPublishTimestampUs = snapshot.timestampUs;

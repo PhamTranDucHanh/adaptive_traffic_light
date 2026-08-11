@@ -37,7 +37,7 @@ class Analytics {
     EmergencyRejected,
     EmergencyApplied,
 
-    PlanPublishToReceive,
+    DecisionToControllerLatency,
     EmergencyReceiveToApply
   };
 
@@ -64,7 +64,7 @@ class Analytics {
     std::uint32_t consumed{};
     std::uint32_t applied{};
 
-    std::vector<std::int64_t> publishToReceiveLatencySamplesNs;
+    std::vector<std::int64_t> decisionToControllerLatencyNs;
     std::vector<std::int64_t> emergencyReceiveToApplyLatencySamplesNs;
 
     std::set<std::uint64_t> allPlanIds;

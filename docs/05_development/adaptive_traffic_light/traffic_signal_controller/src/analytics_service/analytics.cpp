@@ -354,7 +354,8 @@ Analytics::EventType Analytics::EventTypeFromString(
       {"EMERGENCY_REJECTED", EventType::EmergencyRejected},
       {"EMERGENCY_APPLIED", EventType::EmergencyApplied},
 
-      {"PLAN_PUBLISH_TO_RECEIVE", EventType::PlanPublishToReceive},
+      {"TIMING_DECISION_RECEIVE_TO_CONTROLLER_RECEIVE",
+       EventType::DecisionToControllerLatency},
       {"EMERGENCY_RECEIVE_TO_APPLY", EventType::EmergencyReceiveToApply},
 
       {"PHASE_ENTER", EventType::PhaseEnter}};
@@ -541,7 +542,8 @@ std::string Analytics::ConvertDltRecordToTextMessage(const std::string& record,
        "PLAN_PUBLISHED", "PLAN_CONSUMED", "PLAN_APPLIED", "EMERGENCY_QUEUED",
        "EMERGENCY_CONSUMED", "EMERGENCY_ACCEPTED", "EMERGENCY_REJECTED",
        "EMERGENCY_APPLIED", "EMERGENCY_DROPPED", "PHASE_ENTER", "PHASE_EXIT",
-       "PLAN_PUBLISH_TO_RECEIVE", "EMERGENCY_RECEIVE_TO_APPLY",
+       "TIMING_DECISION_RECEIVE_TO_CONTROLLER_RECEIVE",
+       "EMERGENCY_RECEIVE_TO_APPLY",
        "ANALYTICS_FAILED", "ANALYTICS_REPORT_FAILED",
        "ANALYTICS_REPORT_WRITTEN", "FSM_WAKEUP", "FSM_EXECUTION"});
 
@@ -587,7 +589,8 @@ std::string Analytics::ConvertDltRecordToTextMessage(const std::string& record,
 
   for (const auto* const timestampKey :
        {"deadline_ns", "actual_wakeup_ns", "publish_timestamp_ns",
-        "receive_timestamp_ns", "apply_timestamp_ns"}) {
+        "receive_timestamp_ns", "timing_receive_timestamp_ns",
+        "controller_receive_timestamp_ns", "apply_timestamp_ns"}) {
     if (record.find(std::string{timestampKey} + "=") != std::string::npos) {
       message << ", " << timestampKey << '='
               << ExtractDltUint64(record, timestampKey);
@@ -744,7 +747,7 @@ void Analytics::ComputePlanStatistics() {
         planStatistics_.appliedPlanIds.insert(entry.planId);
         break;
 
-      case EventType::PlanPublishToReceive:
+      case EventType::DecisionToControllerLatency:
       case EventType::EmergencyReceiveToApply: {
         std::uint64_t latencyNs{};
         if (!ParseUint64(ExtractValue(entry.message, "latency_ns"),
@@ -755,8 +758,8 @@ void Analytics::ComputePlanStatistics() {
         }
 
         auto& samples =
-            entry.eventType == EventType::PlanPublishToReceive
-                ? planStatistics_.publishToReceiveLatencySamplesNs
+            entry.eventType == EventType::DecisionToControllerLatency
+                ? planStatistics_.decisionToControllerLatencyNs
                 : planStatistics_.emergencyReceiveToApplyLatencySamplesNs;
         samples.push_back(static_cast<std::int64_t>(latencyNs));
         break;
@@ -1012,8 +1015,8 @@ bool Analytics::WriteReport(const std::string& outputPath) const {
   };
 
   writeLatencyStatistics(
-      "PLAN PUBLISH-TO-RECEIVE LATENCY",
-      planStatistics_.publishToReceiveLatencySamplesNs);
+      "TIMING DECISION RECEIVE-TO-CONTROLLER RECEIVE LATENCY",
+      planStatistics_.decisionToControllerLatencyNs);
   writeLatencyStatistics(
       "EMERGENCY RECEIVE-TO-APPLY LATENCY",
       planStatistics_.emergencyReceiveToApplyLatencySamplesNs);

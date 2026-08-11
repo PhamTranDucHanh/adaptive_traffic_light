@@ -93,10 +93,16 @@ bool TrafficDataReceiver::initialize() {
 }
 void TrafficDataReceiver::shutdown() { snapshotQueue.close(); }
 
-bool TrafficDataReceiver::requestSnapshot(TrafficSnapshot& snapshot) {
+bool TrafficDataReceiver::requestSnapshot(
+    TrafficSnapshot& snapshot, std::uint64_t& snapshotRxNs) {
+  snapshotRxNs = std::uint64_t{};
   if (!snapshotQueue.receive(snapshot)) {
     return false;
   }
+  // Capture the consumer-side boundary immediately after the latest snapshot
+  // has been copied out of the IPC queue. Both downstream timestamps use
+  // CLOCK_MONOTONIC, so their difference is not affected by wall-clock changes.
+  snapshotRxNs = common::monotonicNanoseconds();
   return true;
 }
 
