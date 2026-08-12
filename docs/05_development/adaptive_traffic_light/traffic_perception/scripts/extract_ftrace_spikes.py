@@ -25,6 +25,7 @@ class Spike:
     label: str
     wakeup_ms: float
     execution_ms: float
+    expected_ns: int
     begin_ns: int
     end_ns: int
     reasons: tuple[str, ...]
@@ -128,7 +129,7 @@ def read_spikes(log_path: Path, wakeup_limit: float,
             else:
                 label = f"line-{line_number}"
             spikes.append(Spike(line_number, label, wakeup_ms, execution_ms,
-                                begin, end, tuple(reasons)))
+                                expected, begin, end, tuple(reasons)))
     return spikes, records
 
 
@@ -149,14 +150,23 @@ def run_trace_cmd(command: list[str], stdout=None) -> None:
     raise subprocess.CalledProcessError(result.returncode, command)
 
 
-def report_points(spike: Spike) -> list[tuple[str, int]]:
-    """Use actual wakeup and completion as bounded diagnostic points."""
-    points = []
+def report_windows(spike: Spike, before_ns: int,
+                   after_ns: int) -> list[tuple[str, int, int]]:
+    """Build trace windows covering the full interval relevant to each spike."""
+    windows = []
     if "wakeup" in spike.reasons:
-        points.append(("wakeup-at-Begin", spike.begin_ns))
+        windows.append((
+            "wakeup-ExpectedWakeup-to-Begin",
+            max(0, spike.expected_ns - before_ns),
+            spike.begin_ns + after_ns,
+        ))
     if "execution" in spike.reasons:
-        points.append(("execution-at-End", spike.end_ns))
-    return points
+        windows.append((
+            "execution-at-End",
+            max(0, spike.end_ns - before_ns),
+            spike.end_ns + after_ns,
+        ))
+    return windows
 
 
 def write_report(trace: Path, output: Path, selected: list[Spike], cpu: int | None,
@@ -180,17 +190,23 @@ def write_report(trace: Path, output: Path, selected: list[Spike], cpu: int | No
                     f"reasons={'+'.join(spike.reasons)}  wakeup_ms={spike.wakeup_ms:.3f}  "
                     f"execution_ms={spike.execution_ms:.3f}\n"
                 )
-                for point_index, (point_name, point_ns) in enumerate(report_points(spike), 1):
-                    start_ns = max(0, point_ns - before_ns)
-                    end_ns = point_ns + after_ns
+                windows = report_windows(spike, before_ns, after_ns)
+                for window_index, (window_name, start_ns, end_ns) in enumerate(windows, 1):
                     report.write("\n" + "-" * 96 + "\n")
-                    report.write(
-                        f"{point_name}={seconds(point_ns)}s  "
-                        f"window={seconds(start_ns)}..{seconds(end_ns)}s\n"
-                    )
+                    if window_name == "wakeup-ExpectedWakeup-to-Begin":
+                        report.write(
+                            f"{window_name}  ExpectedWakeup={seconds(spike.expected_ns)}s  "
+                            f"Begin={seconds(spike.begin_ns)}s  "
+                            f"window={seconds(start_ns)}..{seconds(end_ns)}s\n"
+                        )
+                    else:
+                        report.write(
+                            f"{window_name}={seconds(spike.end_ns)}s  "
+                            f"window={seconds(start_ns)}..{seconds(end_ns)}s\n"
+                        )
                     report.flush()
 
-                    base = temp_dir / f"rank_{rank:03d}_{point_index}.dat"
+                    base = temp_dir / f"rank_{rank:03d}_{window_index}.dat"
                     run_trace_cmd([
                         "trace-cmd", "split", "-i", str(trace), "-o", str(base),
                         seconds(start_ns), seconds(end_ns),

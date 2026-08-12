@@ -4,6 +4,7 @@
 #include <sched.h>
 
 #include <cerrno>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <exception>
@@ -142,6 +143,19 @@ namespace traffic_perception {
 
 bool PerceptionModule::initModule(const AppConfig& config) {
   score::mw::log::LogInfo() << "[PERCEPTION_MODULE][INIT]\n";
+
+  // Newer OpenCV FFmpeg backends honor OPENCV_FFMPEG_THREADS and will limit
+  // each decoder to one thread. Ubuntu's OpenCV 4.6 does not recognize this
+  // setting, so it safely falls back to its existing four decoder threads.
+  // Set it once before any concurrent VideoCapture open because environment
+  // variables are process-global and OpenCV may cache them on first use. This
+  // keeps the same binary/source compatible with both Ubuntu installations.
+  (void)setenv("OPENCV_FFMPEG_THREADS", "1", 1);
+
+  // Keep OpenCV work on the explicitly pinned caller thread. Its default
+  // parallel backend otherwise creates NCPU-1 helpers which inherit the PIPE
+  // thread's real-time policy and name but are allowed to run on every CPU.
+  cv::setNumThreads(1);
 
   config_ = config;
   startTime_ = std::chrono::steady_clock::now();

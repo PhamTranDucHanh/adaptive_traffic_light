@@ -19,6 +19,7 @@ class LifecycleHealthReporter final {
 
   bool initialize();
   void shutdown();
+  bool reportHeartbeat();
   bool startPerceptionCycle();
   void finishPerceptionCycle();
 

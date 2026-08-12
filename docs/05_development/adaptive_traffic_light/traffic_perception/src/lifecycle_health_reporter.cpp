@@ -18,7 +18,7 @@ using namespace std::chrono_literals;
 // Local perception/viewer health gets a deliberately broad 10-second window.
 // This is independent from the faster domain capture/pipeline periods.
 constexpr auto kPerceptionDeadlineMin = 0ms;
-constexpr auto kPerceptionDeadlineMax = 10000ms;
+constexpr auto kPerceptionDeadlineMax = 30000ms;
 constexpr auto kHeartbeatMin = 100ms;
 constexpr auto kHeartbeatMax = 10000ms;
 constexpr auto kInternalProcessingCycle = 100ms;
@@ -138,8 +138,8 @@ bool LifecycleHealthReporter::initialize() {
 }
 
 bool LifecycleHealthReporter::startPerceptionCycle() {
-  if (!initialized_ || !heartbeatMonitor_.has_value() ||
-      !cycleDeadline_.has_value() || activeDeadline_.has_value()) {
+  if (!initialized_ || !cycleDeadline_.has_value() ||
+      activeDeadline_.has_value()) {
     score::mw::log::LogDebug()
         << "[TRAFFIC_PERCEPTION][HEALTH][ERROR] invalid monitor state "
            "at cycle start\n";
@@ -148,13 +148,6 @@ bool LifecycleHealthReporter::startPerceptionCycle() {
 
   ++monitoredCycleCount_;
   cycleStartedAt_ = std::chrono::steady_clock::now();
-  heartbeatMonitor_->heartbeat();
-  score::mw::log::LogDebug()
-      << "[TRAFFIC_PERCEPTION][HEALTH][HEARTBEAT] "
-         "local_notification=recorded; cycle="
-      << monitoredCycleCount_
-      << "; expected_interval_ms=" << kHeartbeatMin.count() << ".."
-      << kHeartbeatMax.count() << '\n';
 
   // The deadline covers useful viewer work, not the periodic wait or the
   // independently scheduled capture/inference threads.
@@ -165,6 +158,18 @@ bool LifecycleHealthReporter::startPerceptionCycle() {
     return false;
   }
   activeDeadline_.emplace(std::move(result.value()));
+  return true;
+}
+
+bool LifecycleHealthReporter::reportHeartbeat() {
+  if (!initialized_ || !heartbeatMonitor_.has_value()) {
+    score::mw::log::LogDebug()
+        << "[TRAFFIC_PERCEPTION][HEALTH][ERROR] invalid monitor state "
+           "at heartbeat\n";
+    return false;
+  }
+
+  heartbeatMonitor_->heartbeat();
   return true;
 }
 

@@ -30,7 +30,7 @@ constexpr int64_t kPipelineDeadlineNs =
 constexpr int64_t kViewerDeadlineNs =
     5LL * 1000 * 1000 * 1000;
 
-constexpr uint32_t kWarmupFramesToSkip = 15;
+constexpr uint32_t kWarmupFramesToSkip = 0;
 
 struct ScaleInfo {
   double factor;

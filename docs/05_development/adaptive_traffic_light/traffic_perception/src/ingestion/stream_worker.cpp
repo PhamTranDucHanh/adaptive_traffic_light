@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
-#include <cstdlib>
 #include <functional>
 #include <pthread.h>
 #include <sched.h>
@@ -87,10 +86,7 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
   };
 
   ThreadTask task;
-  task.func = [&]() {
-    setenv("OPENCV_FFMPEG_THREADS", "1", 1);
-    cap = createCapture(SourceUri);
-  };
+  task.func = [&]() { cap = createCapture(SourceUri); };
 
   pthread_attr_t attr;
   pthread_attr_init(&attr);

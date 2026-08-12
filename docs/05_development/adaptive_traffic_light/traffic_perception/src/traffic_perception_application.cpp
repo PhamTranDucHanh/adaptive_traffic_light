@@ -160,6 +160,17 @@ std::int32_t TrafficPerceptionApplication::Run(
       }
 
       const auto wakeup = std::chrono::steady_clock::now();
+      // Heartbeat tracks responsiveness of the application's 250 ms control
+      // loop. It must not depend on the slower viewer content cadence: a
+      // delayed/skipped content release would otherwise exceed the local
+      // HealthMonitor's 10-second heartbeat window and stop supervision.
+      if (!healthReporter_.reportHeartbeat()) {
+        std::cerr << "[TRAFFIC_PERCEPTION][RUN][ERROR] could not report "
+                     "health heartbeat\n";
+        exitCode = EXIT_FAILURE;
+        break;
+      }
+
       if (scheduledRelease >= nextContentRelease) {
         if (!healthReporter_.startPerceptionCycle()) {
           std::cerr << "[TRAFFIC_PERCEPTION][RUN][ERROR] could not start "
