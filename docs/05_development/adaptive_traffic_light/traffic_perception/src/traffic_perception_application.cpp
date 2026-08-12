@@ -18,7 +18,7 @@
 
 namespace {
 
-constexpr std::int32_t kTrafficPerceptionMainCpu{0};
+constexpr std::int32_t kTrafficPerceptionMainCpu{5};
 constexpr auto kSignalDisplayRefreshPeriod = std::chrono::milliseconds{250};
 
 std::int64_t toNanoseconds(

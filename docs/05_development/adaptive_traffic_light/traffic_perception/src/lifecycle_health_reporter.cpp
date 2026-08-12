@@ -27,7 +27,7 @@ constexpr auto kInternalProcessingCycle = 100ms;
 // vulnerable to scheduler jitter and can land in the adjacent window.
 constexpr auto kSupervisorApiCycle = 2000ms;
 constexpr std::int32_t kHealthMonitorPriority = 70;
-constexpr std::uint32_t kHealthMonitorCpu = 4U;
+constexpr std::uint32_t kHealthMonitorCpu = 5U;
 
 const score::mw::health::MonitorTag kDeadlineMonitorTag{
     "perception_deadline_monitor"};

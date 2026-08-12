@@ -2,6 +2,34 @@
 
 set -euo pipefail
 
+control_cpu=5
+
+pin_dbus_helpers() {
+  local allowed_cpus=""
+  local dbus_pid=""
+  local process_name=""
+
+  while IFS= read -r dbus_pid; do
+    [[ -n "$dbus_pid" ]] || continue
+    process_name="$(cat "/proc/$dbus_pid/comm" 2>/dev/null || true)"
+    allowed_cpus="$(awk '/^Cpus_allowed_list:/ {print $2}' "/proc/$dbus_pid/status" 2>/dev/null || true)"
+
+    if [[ "$allowed_cpus" == "$control_cpu" ]]; then
+      continue
+    fi
+
+    # The process may exit between pgrep and taskset. Only fail when it still
+    # exists and its affinity cannot be changed.
+    if taskset --all-tasks --pid --cpu-list "$control_cpu" "$dbus_pid" \
+        >/dev/null 2>&1; then
+      echo "[DEPLOYMENT][AFFINITY] process=$process_name pid=$dbus_pid cpu=$control_cpu"
+    elif kill -0 "$dbus_pid" 2>/dev/null; then
+      echo "[DEPLOYMENT][AFFINITY][ERROR] could not pin D-Bus process=$process_name pid=$dbus_pid cpu=$control_cpu" >&2
+      return 1
+    fi
+  done < <(pgrep -x 'dbus-launch|dbus-daemon' || true)
+}
+
 if [[ "${1:-}" == "--activate-running" ]]; then
   if [[ $# -ne 5 ]]; then
     echo "[DEPLOYMENT][ERROR] invalid transition helper arguments" >&2
@@ -33,7 +61,15 @@ if [[ "${1:-}" == "--activate-running" ]]; then
       echo "$request_output"
       echo "[DEPLOYMENT][TRANSITION] Running activated on attempt=$attempt"
       echo "[DEPLOYMENT][RUN] requested run_target=Running"
-      echo "[DEPLOYMENT][RUN] stop with Ctrl-C or: bazel run --config=x86_64-linux //control_daemon:lmcontrol -- Stop"
+
+      # D-Bus helpers can be created or can reset their affinity at any point
+      # while the applications are running. Keep enforcing the housekeeping CPU
+      # for the lifetime of Launch Manager; this detached helper exits with it.
+      while kill -0 "$launch_manager_pid" 2>/dev/null; do
+        pin_dbus_helpers || exit 1
+        sleep 1
+      done
+
       exit 0
     else
       request_status=$?
@@ -232,7 +268,13 @@ install -m 0644 "$traffic3_mp4" "$runtime_etc/traffic3.mp4"
 install -m 0644 "$traffic4_mp4" "$runtime_etc/traffic4.mp4"
 
 echo "[DEPLOYMENT][STAGE] runtime ready"
-echo "[LAUNCH_MANAGER][START] binary=$runtime_bin/launch_manager policy=SCHED_RR priority=50 cpu=4"
+
+# D-Bus helpers are external to the lifecycle process tree, so they do not
+# inherit Launch Manager's affinity. Pin helpers that already exist and repeat
+# the scan after activating the Running target for helpers created later.
+pin_dbus_helpers
+
+echo "[LAUNCH_MANAGER][START] binary=$runtime_bin/launch_manager policy=SCHED_RR priority=50 cpu=$control_cpu"
 launch_manager_pid=$$
 echo "[LAUNCH_MANAGER][START] pid=$launch_manager_pid"
 activation_generation_file="$runtime_root/activation_generation"
@@ -255,4 +297,4 @@ cd "$runtime_root"
 # Set the affinity before Launch Manager creates any worker or managed process.
 # Linux threads/processes inherit their creator's affinity; application-owned
 # RT workers can still override it later with their explicit module affinity.
-exec taskset --cpu-list 4 chrt --rr 50 "$runtime_bin/launch_manager"
+exec taskset --cpu-list "$control_cpu" chrt --rr 50 "$runtime_bin/launch_manager"

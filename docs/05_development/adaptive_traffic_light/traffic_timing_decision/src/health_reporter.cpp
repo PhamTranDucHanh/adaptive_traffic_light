@@ -40,7 +40,7 @@ constexpr std::chrono::milliseconds kInternalProcessingCycle =
 constexpr std::chrono::milliseconds kSupervisorApiCycle =
     toDuration(HealthIntervalMilliseconds::kSupervisorApiCycle);
 constexpr std::int32_t kHealthMonitorPriority = 50;
-constexpr std::uint32_t kHealthMonitorCpu = 4U;
+constexpr std::uint32_t kHealthMonitorCpu = 5U;
 
 const score::mw::health::MonitorTag kDeadlineMonitorTag{
     "timing_decision_deadline_monitor"};

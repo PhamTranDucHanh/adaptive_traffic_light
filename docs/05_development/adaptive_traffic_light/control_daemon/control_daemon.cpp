@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <sched.h>
 #include <string>
 #include <thread>
 
@@ -19,6 +20,24 @@
 namespace {
 
 std::atomic<bool> exitRequested{false};
+constexpr int kControlDaemonCpu{5};
+
+bool pinCurrentProcessToControlCpu() noexcept {
+  cpu_set_t cpuSet{};
+  CPU_ZERO(&cpuSet);
+  CPU_SET(kControlDaemonCpu, &cpuSet);
+
+  if (sched_setaffinity(0, sizeof(cpuSet), &cpuSet) != 0) {
+    std::cerr << "[CONTROL_DAEMON][AFFINITY][ERROR] cpu="
+              << kControlDaemonCpu << " reason=" << std::strerror(errno)
+              << '\n';
+    return false;
+  }
+
+  std::cout << "[CONTROL_DAEMON][AFFINITY] cpu=" << kControlDaemonCpu
+            << '\n';
+  return true;
+}
 
 void signalHandler(int signal) {
   (void)signal;
@@ -60,6 +79,11 @@ bool processExists(const pid_t pid) noexcept {
 int main() {
   std::cout << std::unitbuf;
   std::cerr << std::unitbuf;
+
+  if (!pinCurrentProcessToControlCpu()) {
+    return EXIT_FAILURE;
+  }
+
   std::signal(SIGINT, signalHandler);
   std::signal(SIGTERM, signalHandler);
 

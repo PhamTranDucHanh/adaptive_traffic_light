@@ -19,7 +19,7 @@ const score::mw::health::MonitorTag kHeartbeatMonitorTag{
     "signal_control_heartbeat_monitor"};
 const score::mw::health::DeadlineTag kControlCycleDeadlineTag{
     "signal_control_cycle_deadline"};
-constexpr std::uint32_t kHealthMonitorCpu = 4U;
+constexpr std::uint32_t kHealthMonitorCpu = 5U;
 
 score::mw::log::Logger& Logger() {
   static auto& logger =
