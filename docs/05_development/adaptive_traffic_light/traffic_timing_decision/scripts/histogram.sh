@@ -11,7 +11,6 @@ fi
 readonly INPUT_FILE="$1"
 readonly BUCKET_WIDTH_US="${BUCKET_WIDTH_US:-1}"
 readonly MICROSECONDS_PER_MILLISECOND="1000"
-readonly BOUNDARY_CYCLES="15"
 
 if [[ ! -f "$INPUT_FILE" ]]; then
   echo "Error: file not found: $INPUT_FILE" >&2
@@ -85,14 +84,7 @@ if [[ ! -s "$RAW_VALUES_FILE" ]]; then
 fi
 
 readonly RAW_SAMPLE_COUNT="$(wc -l < "$RAW_VALUES_FILE")"
-if (( RAW_SAMPLE_COUNT <= BOUNDARY_CYCLES * 2 )); then
-  echo "Error: need more than $((BOUNDARY_CYCLES * 2)) samples to exclude startup and shutdown guard bands." >&2
-  exit 1
-fi
-
-awk -v boundary="$BOUNDARY_CYCLES" -v total="$RAW_SAMPLE_COUNT" '
-  NR > boundary && NR <= total - boundary
-' "$RAW_VALUES_FILE" >"$VALUES_FILE"
+cp "$RAW_VALUES_FILE" "$VALUES_FILE"
 
 read -r SAMPLE_COUNT MIN_VALUE MAX_VALUE < <(
   awk '
@@ -152,7 +144,7 @@ set terminal pngcairo size 1600,900 enhanced
 set output "${OUTPUT_PNG}"
 
 set title "${PLOT_TITLE}"
-set xlabel "${X_AXIS_NAME} (${DISPLAY_UNIT}), Samples = ${SAMPLE_COUNT}, first/last ${BOUNDARY_CYCLES} cycles excluded, Min = ${DISPLAY_MIN} ${DISPLAY_UNIT}, Max = ${DISPLAY_MAX} ${DISPLAY_UNIT}, Bucket = ${DISPLAY_BUCKET} ${DISPLAY_UNIT}"
+set xlabel "${X_AXIS_NAME} (${DISPLAY_UNIT}), Samples = ${SAMPLE_COUNT}, full run, Min = ${DISPLAY_MIN} ${DISPLAY_UNIT}, Max = ${DISPLAY_MAX} ${DISPLAY_UNIT}, Bucket = ${DISPLAY_BUCKET} ${DISPLAY_UNIT}"
 set ylabel "Number of Samples"
 
 set xrange [0:*]
@@ -172,7 +164,7 @@ EOF
 echo "Input    : $INPUT_FILE"
 echo "Field    : $FIELD_NAME"
 echo "Samples  : $SAMPLE_COUNT"
-echo "Excluded : first $BOUNDARY_CYCLES + last $BOUNDARY_CYCLES cycles ($RAW_SAMPLE_COUNT raw samples)"
+echo "Window   : full run ($RAW_SAMPLE_COUNT raw samples, none excluded)"
 echo "Range    : $DISPLAY_MIN..$DISPLAY_MAX $DISPLAY_UNIT"
 echo "Bucket   : $DISPLAY_BUCKET $DISPLAY_UNIT ($BUCKET_WIDTH_US us raw)"
 echo "Generated: $OUTPUT_PNG"

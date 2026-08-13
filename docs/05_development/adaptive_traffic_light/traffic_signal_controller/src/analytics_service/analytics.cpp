@@ -591,7 +591,8 @@ std::string Analytics::ConvertDltRecordToTextMessage(const std::string& record,
   }
 
   for (const auto* const timestampKey :
-       {"deadline_ns", "actual_wakeup_ns", "publish_timestamp_ns",
+       {"deadline_ns", "actual_wakeup_ns", "execution_start_ns",
+        "publish_timestamp_ns",
         "receive_timestamp_ns", "perception_publish_timestamp_ns",
         "timing_receive_timestamp_ns",
         "controller_receive_timestamp_ns", "apply_timestamp_ns"}) {

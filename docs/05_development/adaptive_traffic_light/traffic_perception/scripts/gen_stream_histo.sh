@@ -22,15 +22,17 @@ awk '
         match($0, /Begin= *([0-9]+)/, b) &&
         match($0, /End= *([0-9]+)/, c))
     {
+        if (b[1] == 0 || c[1] == 0 || c[1] < b[1]) next;
         lane = l[1] + 0;
-        wakeup = (b[1] - a[1]) / 1000;
         runtime = (c[1] - b[1]) / 1000;
 
         wakeup_file = "'"$WAKEUP_BASE"'_lane" lane ".txt";
         exec_file = "'"$EXEC_BASE"'_lane" lane ".txt";
 
-        print lane, wakeup >> wakeup_file;
-        close(wakeup_file);
+        if (a[1] != 0) {
+            print lane, (b[1] - a[1]) / 1000 >> wakeup_file;
+            close(wakeup_file);
+        }
         print lane, runtime >> exec_file;
         close(exec_file);
     }

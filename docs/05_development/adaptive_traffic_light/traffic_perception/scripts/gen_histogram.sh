@@ -28,11 +28,11 @@ awk '
         match($0, /Begin= *([0-9]+)/, b) &&
         match($0, /End= *([0-9]+)/, c))
     {
-        wakeup = (b[1] - a[1]) / 1000;
-        runtime = (c[1] - b[1]) / 1000;
+        if (b[1] == 0 || c[1] == 0 || c[1] < b[1]) next;
 
-        print "wakeup_latency_us=" wakeup;
-        print "execution_time_us=" runtime;
+        if (a[1] != 0)
+            print "wakeup_latency_us=" (b[1] - a[1]) / 1000;
+        print "execution_time_us=" (c[1] - b[1]) / 1000;
     }
 }
 ' "$LOG" > "$OUTDIR/pipeline_metrics.txt"

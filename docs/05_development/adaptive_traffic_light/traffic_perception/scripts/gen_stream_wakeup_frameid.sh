@@ -22,7 +22,8 @@ awk '
         match($0,/Begin= *([0-9]+)/,B) &&
         match($0,/End= *([0-9]+)/,EE))
     {
-        latency = (B[1]-E[1])/1000.0
+        if (B[1] == 0 || EE[1] == 0 || EE[1] < B[1]) next
+        latency = E[1] != 0 ? (B[1]-E[1])/1000.0 : "NaN"
         exec = (EE[1]-B[1])/1000.0
 
         print L[1],F[1],latency,exec

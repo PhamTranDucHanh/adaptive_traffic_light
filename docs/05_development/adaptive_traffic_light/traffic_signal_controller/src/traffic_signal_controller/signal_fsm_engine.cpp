@@ -25,15 +25,23 @@ score::mw::log::Logger& Logger() {
 void logFsmExecutionTime(
     const std::chrono::steady_clock::time_point executionStart) {
   const auto executionEnd = std::chrono::steady_clock::now();
+  const auto executionStartSinceEpoch =
+      std::chrono::duration_cast<std::chrono::nanoseconds>(
+          executionStart.time_since_epoch());
   const auto measuredDuration =
       std::chrono::duration_cast<std::chrono::nanoseconds>(executionEnd -
                                                            executionStart);
+  const std::uint64_t executionStartNs =
+      executionStartSinceEpoch.count() > 0
+          ? static_cast<std::uint64_t>(executionStartSinceEpoch.count())
+          : 0ULL;
   const std::uint64_t executionTimeNs =
       measuredDuration.count() > 0
           ? static_cast<std::uint64_t>(measuredDuration.count())
           : 0ULL;
 
   Logger().LogInfo() << "event=FSM_EXECUTION"
+                     << ", execution_start_ns=" << executionStartNs
                      << ", execution_time_ns=" << executionTimeNs;
 }
 

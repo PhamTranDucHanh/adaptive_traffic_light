@@ -107,14 +107,16 @@ mkdir -p "$(dirname "$OUTPUT_IMAGE")"
 #
 # The x axis always uses a real CLOCK_MONOTONIC event timestamp:
 #   - FSM wakeup: actual_wakeup_ns
-#   - FSM execution: the immediately preceding FSM wakeup timestamp
+#   - FSM execution: execution_start_ns (legacy logs fall back to the
+#     immediately preceding FSM wakeup timestamp)
 #   - plan receive: controller_receive_timestamp_ns
 #   - emergency apply: apply_timestamp_ns
 # Samples without a valid event timestamp are omitted from the time-series plot
 # instead of being mixed with an artificial sample-index axis.
 #-------------------------------------------------------
 
-awk -v metric="$METRIC" -v input_file="$INPUT_FILE" -v run_id="$RUN_ID" '
+awk -v metric="$METRIC" -v input_file="$INPUT_FILE" -v run_id="$RUN_ID" \
+    -v requested_origin_ns="${ANALYTICS_TIME_ORIGIN_NS:-}" '
 function extract_uint(line, key,    pattern, value) {
     pattern = key "=[[:space:]]*[0-9]+"
 
@@ -165,13 +167,19 @@ index($0, "event=FSM_EXECUTION") {
     }
 
     value_ns = extract_uint($0, "execution_time_ns")
+    execution_start_ns = extract_uint($0, "execution_start_ns")
 
     if (value_ns == "") {
         next
     }
 
+    if (execution_start_ns == "") {
+        execution_start_ns = last_wakeup_ns
+    }
+
     ++execution_count
-    remember_sample("execution", execution_count, value_ns, last_wakeup_ns)
+    remember_sample("execution", execution_count, value_ns,
+                    execution_start_ns)
     next
 }
 
@@ -231,7 +239,7 @@ END {
         if (sample_kind[i] == "wakeup") {
             x_kind = "monotonic_actual_wakeup_ns"
         } else if (sample_kind[i] == "execution") {
-            x_kind = "monotonic_wakeup_aligned_ns"
+            x_kind = "monotonic_execution_start_ns"
         } else if (sample_kind[i] == "emergency") {
             x_kind = "monotonic_apply_timestamp_ns"
         } else {
@@ -244,6 +252,10 @@ END {
         if (i == 1 || x_raw_ns < first_x_raw_ns) {
             first_x_raw_ns = x_raw_ns
         }
+    }
+
+    if (requested_origin_ns != "") {
+        first_x_raw_ns = requested_origin_ns
     }
 
     for (i = 1; i <= sample_count; ++i) {
@@ -344,10 +356,27 @@ if [ -z "$X_KIND_SUMMARY" ]; then
     X_KIND_SUMMARY="unknown"
 fi
 
-TOTAL_SECONDS=$(awk -F, '
+DATA_TOTAL_SECONDS=$(awk -F, '
 NR > 1 && $6 > maximum {maximum = $6}
 END {printf "%.9f", maximum + 0}
 ' "$DATA_CSV")
+
+if [[ -n "${ANALYTICS_TIME_ORIGIN_NS:-}" &&
+      -n "${ANALYTICS_TIME_END_NS:-}" ]]; then
+    if [[ ! "$ANALYTICS_TIME_ORIGIN_NS" =~ ^[0-9]+$ ||
+          ! "$ANALYTICS_TIME_END_NS" =~ ^[0-9]+$ ]] ||
+       awk -v start="$ANALYTICS_TIME_ORIGIN_NS" \
+           -v end="$ANALYTICS_TIME_END_NS" \
+           'BEGIN {exit !(end < start)}'; then
+        echo "Error: invalid shared analytics time window: ${ANALYTICS_TIME_ORIGIN_NS}..${ANALYTICS_TIME_END_NS}" >&2
+        exit 1
+    fi
+    TOTAL_SECONDS=$(awk -v start="$ANALYTICS_TIME_ORIGIN_NS" \
+        -v end="$ANALYTICS_TIME_END_NS" \
+        'BEGIN {printf "%.9f", (end - start) / 1000000000.0}')
+else
+    TOTAL_SECONDS="$DATA_TOTAL_SECONDS"
+fi
 
 if awk -v seconds="$TOTAL_SECONDS" 'BEGIN {exit !(seconds < 7200)}'; then
     X_UNIT="minutes"
@@ -443,3 +472,8 @@ echo "  Emergency samples: $EMERGENCY_COUNT"
 echo "  Display unit    : $UNIT"
 echo "  X-axis          : elapsed $X_UNIT (0..$TOTAL_X $X_SHORT_UNIT)"
 echo "  X source        : $X_KIND_SUMMARY"
+if [[ -n "${ANALYTICS_TIME_ORIGIN_NS:-}" ]]; then
+    echo "  Session window  : CLOCK_MONOTONIC ${ANALYTICS_TIME_ORIGIN_NS}..${ANALYTICS_TIME_END_NS} ns"
+else
+    echo "  Session window  : metric-local CLOCK_MONOTONIC range"
+fi

@@ -7,6 +7,7 @@ readonly WORKSPACE_ROOT="$(dirname "$SCRIPT_DIR")"
 readonly RUNTIME_ROOT="${LINUX_RT_RUNTIME_DIR:-/tmp/linux_rt_application}"
 readonly RUNTIME_LOGS="$RUNTIME_ROOT/logs"
 readonly RUN_ID="$(date +%Y%m%d_%H%M%S)"
+readonly RUN_START_EPOCH="$(date +%s)"
 readonly OUTPUT_ROOT="${E2E_ANALYTICS_OUTPUT_DIR:-$WORKSPACE_ROOT/output/end_to_end}"
 readonly RUN_OUTPUT="$OUTPUT_ROOT/$RUN_ID"
 readonly DURATION="${1:-}"
@@ -179,10 +180,95 @@ TIMING_DIR="$RUN_OUTPUT/timing_decision"
 CONTROLLER_DIR="$RUN_OUTPUT/signal_controller"
 TIMING_MODULE_OUTPUT="$WORKSPACE_ROOT/traffic_timing_decision/output"
 
+# Prepare every module's immutable input inside this run directory before any
+# plot is generated. This prevents plots from accidentally reading a converted
+# text file left by an earlier session.
 if [[ -s "$RUNTIME_LOGS/traffic_perception.dlt" ]]; then
   run_optional "Extracting Traffic Perception logs" \
     "$WORKSPACE_ROOT/traffic_perception/scripts/extract_logs.sh" \
     "$RUNTIME_LOGS/traffic_perception.dlt" "$PERCEPTION_DIR"
+fi
+
+if [[ -s "$RUNTIME_LOGS/timing_decision.dlt" && \
+      -s "$RUNTIME_LOGS/wakeup_latency.dlt" && \
+      -s "$RUNTIME_LOGS/execution_time.dlt" ]]; then
+  mkdir -p "$TIMING_MODULE_OUTPUT"
+  cp "$RUNTIME_LOGS"/{timing_decision,wakeup_latency,execution_time}.dlt \
+    "$TIMING_MODULE_OUTPUT/"
+  dlt-convert -a "$TIMING_MODULE_OUTPUT/wakeup_latency.dlt" \
+    > "$TIMING_MODULE_OUTPUT/wakeup_latency.txt"
+  dlt-convert -a "$TIMING_MODULE_OUTPUT/execution_time.dlt" \
+    > "$TIMING_MODULE_OUTPUT/execution_time.txt"
+  cp "$TIMING_MODULE_OUTPUT"/{timing_decision,wakeup_latency,execution_time}.dlt \
+    "$TIMING_DIR/"
+  cp "$TIMING_MODULE_OUTPUT"/{wakeup_latency,execution_time}.txt "$TIMING_DIR/"
+fi
+
+if [[ -s "$RUNTIME_LOGS/CTRL.dlt" ]]; then
+  cp "$RUNTIME_LOGS/CTRL.dlt" "$CONTROLLER_DIR/CTRL.dlt"
+  dlt-convert -a "$CONTROLLER_DIR/CTRL.dlt" \
+    > "$CONTROLLER_DIR/CTRL.dlt.txt"
+elif [[ -s "$RUNTIME_LOGS/CTRL.dlt.txt" ]]; then
+  warn "CTRL.dlt is unavailable; using the existing converted text log."
+  cp "$RUNTIME_LOGS/CTRL.dlt.txt" "$CONTROLLER_DIR/CTRL.dlt.txt"
+fi
+
+# All producers use CLOCK_MONOTONIC. Build one shared full-run window from all
+# available module timestamps, then export it to every time-series script.
+TIME_WINDOW_INPUTS=()
+for input_file in \
+  "$PERCEPTION_DIR/pipeline.log" \
+  "$PERCEPTION_DIR/stream.log" \
+  "$PERCEPTION_DIR/viewer.log" \
+  "$TIMING_DIR/wakeup_latency.txt" \
+  "$TIMING_DIR/execution_time.txt" \
+  "$CONTROLLER_DIR/CTRL.dlt.txt"; do
+  [[ -s "$input_file" ]] && TIME_WINDOW_INPUTS+=("$input_file")
+done
+
+if (( ${#TIME_WINDOW_INPUTS[@]} != 0 )); then
+  TIME_WINDOW_VALUES="$RUN_OUTPUT/time_window_samples_ns.txt"
+  awk '
+    {
+      remaining = $0
+      pattern = "(ExpectedWakeup|Begin|End|actual_wakeup_ns|execution_start_ns|controller_receive_timestamp_ns|apply_timestamp_ns)[[:space:]]*=[[:space:]]*[0-9]+"
+      while (match(remaining, pattern)) {
+        value = substr(remaining, RSTART, RLENGTH)
+        sub(".*=[[:space:]]*", "", value)
+        if (value != "0") {
+          numeric_value = value + 0
+          if (!found || numeric_value < minimum) {
+            minimum = numeric_value
+            minimum_text = value
+          }
+          if (!found || numeric_value > maximum) {
+            maximum = numeric_value
+            maximum_text = value
+          }
+          found = 1
+        }
+        remaining = substr(remaining, RSTART + RLENGTH)
+      }
+    }
+    END {
+      if (found) {
+        print minimum_text
+        print maximum_text
+      }
+    }
+  ' "${TIME_WINDOW_INPUTS[@]}" > "$TIME_WINDOW_VALUES"
+
+  if [[ -s "$TIME_WINDOW_VALUES" ]]; then
+    ANALYTICS_TIME_ORIGIN_NS="$(awk 'NR == 1 {print; exit}' "$TIME_WINDOW_VALUES")"
+    ANALYTICS_TIME_END_NS="$(awk 'END {print}' "$TIME_WINDOW_VALUES")"
+    export ANALYTICS_TIME_ORIGIN_NS ANALYTICS_TIME_END_NS
+    log "Shared CLOCK_MONOTONIC plot window: ${ANALYTICS_TIME_ORIGIN_NS}..${ANALYTICS_TIME_END_NS} ns"
+  else
+    warn "No CLOCK_MONOTONIC timestamps found; plots will use local ranges."
+  fi
+fi
+
+if [[ -s "$PERCEPTION_DIR/pipeline.log" || -s "$PERCEPTION_DIR/stream.log" ]]; then
   run_with_report "Analyzing Traffic Perception pipeline logs" \
     "$PERCEPTION_DIR/pipeline_analytics_report.txt" \
     bazel run --config=x86_64-linux //traffic_perception:analyze_log \
@@ -214,16 +300,6 @@ fi
 if [[ -s "$RUNTIME_LOGS/timing_decision.dlt" && \
       -s "$RUNTIME_LOGS/wakeup_latency.dlt" && \
       -s "$RUNTIME_LOGS/execution_time.dlt" ]]; then
-  mkdir -p "$TIMING_MODULE_OUTPUT"
-  cp "$RUNTIME_LOGS"/{timing_decision,wakeup_latency,execution_time}.dlt \
-    "$TIMING_MODULE_OUTPUT/"
-  dlt-convert -a "$TIMING_MODULE_OUTPUT/wakeup_latency.dlt" \
-    > "$TIMING_MODULE_OUTPUT/wakeup_latency.txt"
-  dlt-convert -a "$TIMING_MODULE_OUTPUT/execution_time.dlt" \
-    > "$TIMING_MODULE_OUTPUT/execution_time.txt"
-  cp "$TIMING_MODULE_OUTPUT"/{timing_decision,wakeup_latency,execution_time}.dlt \
-    "$TIMING_DIR/"
-  cp "$TIMING_MODULE_OUTPUT"/{wakeup_latency,execution_time}.txt "$TIMING_DIR/"
   run_optional "Building Traffic Timing Decision analytics" \
     bazel build --config=x86_64-linux //traffic_timing_decision:analytics
   run_with_report "Printing Traffic Timing Decision analytics" \
@@ -247,18 +323,17 @@ else
   POSTPROCESS_FAILURES=$((POSTPROCESS_FAILURES + 1))
 fi
 
-if [[ ! -s "$RUNTIME_LOGS/CTRL.dlt.txt" && -s "$RUNTIME_LOGS/CTRL.dlt" ]]; then
-  log "Converting Signal Controller DLT log to text..."
-  dlt-convert -a "$RUNTIME_LOGS/CTRL.dlt" >"$RUNTIME_LOGS/CTRL.dlt.txt"
-fi
-
-if [[ -s "$RUNTIME_LOGS/CTRL.dlt.txt" ]]; then
-  cp "$RUNTIME_LOGS/CTRL.dlt.txt" "$CONTROLLER_DIR/CTRL.dlt.txt"
-  if [[ -s "$RUNTIME_LOGS/signal_control_analytics_report.txt" ]]; then
-    cp "$RUNTIME_LOGS/signal_control_analytics_report.txt" \
+if [[ -s "$CONTROLLER_DIR/CTRL.dlt.txt" ]]; then
+  CONTROLLER_REPORT="$RUNTIME_LOGS/signal_control_analytics_report.txt"
+  CONTROLLER_REPORT_MTIME=0
+  [[ -e "$CONTROLLER_REPORT" ]] && \
+    CONTROLLER_REPORT_MTIME="$(stat -c %Y "$CONTROLLER_REPORT")"
+  if [[ -s "$CONTROLLER_REPORT" && \
+        "$CONTROLLER_REPORT_MTIME" -ge "$RUN_START_EPOCH" ]]; then
+    cp "$CONTROLLER_REPORT" \
       "$CONTROLLER_DIR/analytics_report.txt"
   else
-    warn "Signal Controller analytics report is missing or empty."
+    warn "Signal Controller analytics report is missing or stale for this run."
     POSTPROCESS_FAILURES=$((POSTPROCESS_FAILURES + 1))
   fi
 

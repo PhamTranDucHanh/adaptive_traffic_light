@@ -32,8 +32,6 @@ constexpr std::string_view kDefaultOutputDirectory{
     "traffic_timing_decision/output"};
 constexpr std::string_view kNestedOutputDirectory{
     "traffic_timing_decision/traffic_timing_decision/output"};
-constexpr std::size_t kBoundaryCycleCount{10U};
-
 enum class ExitCode : std::int32_t {
   kSuccess = 0,
   kFailure = 1,
@@ -191,23 +189,6 @@ bool calculateStatistics(std::vector<Integer> values, Statistics& statistics,
   return true;
 }
 
-template <typename Value>
-bool excludeBoundaryCycles(std::vector<Value>& values, std::string& error) {
-  constexpr std::size_t excludedCycleCount = kBoundaryCycleCount * 2U;
-  if (values.size() <= excludedCycleCount) {
-    error = "not enough timing samples after excluding " +
-            std::to_string(kBoundaryCycleCount) +
-            " startup and shutdown cycles";
-    return false;
-  }
-
-  values.erase(values.end() - static_cast<std::ptrdiff_t>(kBoundaryCycleCount),
-               values.end());
-  values.erase(values.begin(), values.begin() + static_cast<std::ptrdiff_t>(
-                                                    kBoundaryCycleCount));
-  return true;
-}
-
 bool parseWakeupText(const std::filesystem::path& textPath,
                      std::vector<std::int64_t>& wakeupLatencies,
                      std::string& error) {
@@ -310,7 +291,7 @@ void printStatistics(const Statistics& statistics, std::ostream& output) {
     constexpr long double kMicrosecondsPerMillisecond{1000.0L};
     const long double valueInMicroseconds = static_cast<long double>(value);
 
-    if (valueInMicroseconds > kMicrosecondsPerMillisecond) {
+    if (valueInMicroseconds >= kMicrosecondsPerMillisecond) {
       output << std::fixed
              << std::setprecision(toValue(OutputFormat::kAveragePrecision))
              << valueInMicroseconds / kMicrosecondsPerMillisecond << " (ms)";
@@ -347,8 +328,7 @@ void printStatistics(const Statistics& statistics, std::ostream& output) {
 void printReport(
     const traffic_timing_decision::analytics::TimingAnalyticsReport& report,
     std::ostream& output) {
-  output << "Analysis window: excluded first and last " << kBoundaryCycleCount
-         << " cycles (startup/shutdown guard bands)\n"
+  output << "Analysis window: full run (no startup/shutdown cycles excluded)\n"
          << "Deadline Misses (" << report.deadlineMs
          << " ms): cycle=" << report.cycleDeadlineMisses << " / "
          << report.executionTimeUs.sampleCount
@@ -414,10 +394,6 @@ std::int32_t Run(const std::filesystem::path& wakeupDltPath,
       !parseExecutionText(executionTextPath, executionTimes,
                           executionDeadlineMisses, cycleDeadlineMisses, report,
                           error) ||
-      !excludeBoundaryCycles(wakeupLatencies, error) ||
-      !excludeBoundaryCycles(executionTimes, error) ||
-      !excludeBoundaryCycles(executionDeadlineMisses, error) ||
-      !excludeBoundaryCycles(cycleDeadlineMisses, error) ||
       !calculateStatistics(wakeupLatencies, report.wakeupLatencyUs, error) ||
       !calculateStatistics(executionTimes, report.executionTimeUs, error)) {
     errorOutput << "[ANALYTICS][ERROR] " << error << '\n';

@@ -9,10 +9,10 @@ fi
 
 readonly INPUT_FILE="$1"
 readonly NANOSECONDS_PER_SECOND="1000000000"
-# Keep the current 1 ms default while allowing a caller to select a wider
-# averaging bucket, for example: BUCKET_SECONDS=30 ./latency_time.sh ...
-readonly BUCKET_SECONDS="${BUCKET_SECONDS:-0.001}"
-readonly BOUNDARY_CYCLES="15"
+# Plot every raw sample by default so the time-series extrema and sample count
+# exactly match the statistical report and histogram. Set BUCKET_SECONDS to a
+# positive value only when an averaged overview is explicitly wanted.
+readonly BUCKET_SECONDS="${BUCKET_SECONDS:-0}"
 
 if [[ ! -f "$INPUT_FILE" || ! -r "$INPUT_FILE" ]]; then
   echo "Error: input file does not exist or is not readable: $INPUT_FILE" >&2
@@ -22,6 +22,12 @@ fi
 if ! command -v gnuplot >/dev/null 2>&1; then
   echo "Error: gnuplot is not installed." >&2
   echo "Install it with: sudo apt install gnuplot" >&2
+  exit 1
+fi
+
+if ! awk -v value="$BUCKET_SECONDS" \
+  'BEGIN {exit !(value ~ /^[0-9]+([.][0-9]+)?$/ && value >= 0)}'; then
+  echo "Error: BUCKET_SECONDS must be zero or a positive number." >&2
   exit 1
 fi
 
@@ -89,18 +95,8 @@ if [[ ! -s "$RAW_DATA_FILE" ]]; then
 fi
 
 readonly RAW_SAMPLE_COUNT="$(wc -l < "$RAW_DATA_FILE")"
-if (( RAW_SAMPLE_COUNT <= BOUNDARY_CYCLES * 2 )); then
-  echo "Error: need more than $((BOUNDARY_CYCLES * 2)) samples to exclude startup and shutdown guard bands." >&2
-  exit 1
-fi
-
-# The periodic application is not yet in steady state immediately after
-# activation, and coordinated shutdown can deschedule its CPU before the stop
-# token reaches this process. Exclude only these fixed boundary windows; all
-# samples occurring during the steady-state run, including outliers, remain.
-awk -v boundary="$BOUNDARY_CYCLES" -v total="$RAW_SAMPLE_COUNT" '
-  NR > boundary && NR <= total - boundary
-' "$RAW_DATA_FILE" >"$DATA_FILE"
+# Keep the full run, including startup and shutdown samples.
+cp "$RAW_DATA_FILE" "$DATA_FILE"
 
 readonly MAX_RAW_US="$(awk 'NR == 1 || $2 > max {max = $2} END {print max}' "$DATA_FILE")"
 if awk -v value="$MAX_RAW_US" 'BEGIN {exit !(value < 1)}'; then
@@ -113,26 +109,46 @@ else
   readonly DISPLAY_UNIT="s" DISPLAY_SCALE="1000000"
 fi
 
-# Normalize the first retained CLOCK_MONOTONIC timestamp to 0 seconds, group
-# samples into the configured time buckets, and convert microseconds to the
-# selected display unit. Each point is the average of its bucket.
+# Use the common end-to-end CLOCK_MONOTONIC window when the runner supplies it.
+# This keeps the X positions and range identical across all module plots.
+readonly DATA_FIRST_NS="$(awk 'NR == 1 {print $1; exit}' "$DATA_FILE")"
+readonly DATA_LAST_NS="$(awk 'END {print $1}' "$DATA_FILE")"
+readonly SESSION_START_NS="${ANALYTICS_TIME_ORIGIN_NS:-$DATA_FIRST_NS}"
+readonly SESSION_END_NS="${ANALYTICS_TIME_END_NS:-$DATA_LAST_NS}"
+
+if [[ ! "$SESSION_START_NS" =~ ^[0-9]+$ ||
+      ! "$SESSION_END_NS" =~ ^[0-9]+$ ]] ||
+   awk -v start="$SESSION_START_NS" -v end="$SESSION_END_NS" \
+     'BEGIN {exit !(end < start)}'; then
+  echo "Error: invalid shared analytics time window: ${SESSION_START_NS}..${SESSION_END_NS}" >&2
+  exit 1
+fi
+
+# Group samples into aligned buckets and convert microseconds to the selected
+# display unit. Each point is the average of its bucket.
 awk -v ns_per_second="$NANOSECONDS_PER_SECOND" \
     -v bucket_seconds="$BUCKET_SECONDS" \
-    -v display_scale="$DISPLAY_SCALE" '
+    -v display_scale="$DISPLAY_SCALE" \
+    -v session_start_ns="$SESSION_START_NS" '
   function flush_bucket() {
     if (bucket_sample_count == 0) return
     printf "%.9f %.6f\n", elapsed_seconds_sum / bucket_sample_count, \
            latency_display_sum / bucket_sample_count
   }
 
-  NR == 1 {
-    first_timestamp = $1
-    current_bucket = 0
+  NR == 1 && bucket_seconds > 0 {
+    current_bucket = int(($1 - session_start_ns) / (bucket_seconds * ns_per_second))
   }
   {
-    elapsed_nanoseconds = $1 - first_timestamp
-    bucket = int(elapsed_nanoseconds / (bucket_seconds * ns_per_second))
+    elapsed_nanoseconds = $1 - session_start_ns
     latency_display = $2 / display_scale
+
+    if (bucket_seconds <= 0) {
+      printf "%.9f %.6f\n", elapsed_nanoseconds / ns_per_second, latency_display
+      next
+    }
+
+    bucket = int(elapsed_nanoseconds / (bucket_seconds * ns_per_second))
 
     if (bucket != current_bucket) {
       flush_bucket()
@@ -171,10 +187,14 @@ readonly SAMPLE_COUNT
 readonly MIN_VALUE
 readonly MAX_VALUE
 readonly BUCKET_COUNT="$(wc -l < "$PLOT_DATA_FILE")"
-readonly TOTAL_SECONDS_EXACT="$(awk -v ns_per_second="$NANOSECONDS_PER_SECOND" '
-  NR == 1 { first_timestamp = $1 }
-  END { printf "%.9f", ($1 - first_timestamp) / ns_per_second }
-' "$DATA_FILE")"
+if awk -v value="$BUCKET_SECONDS" 'BEGIN {exit !(value == 0)}'; then
+  readonly SERIES_DESCRIPTION="raw samples"
+else
+  readonly SERIES_DESCRIPTION="${BUCKET_SECONDS}s average, ${BUCKET_COUNT} buckets"
+fi
+readonly TOTAL_SECONDS_EXACT="$(awk -v ns_per_second="$NANOSECONDS_PER_SECOND" \
+  -v start="$SESSION_START_NS" -v end="$SESSION_END_NS" \
+  'BEGIN {printf "%.9f", (end - start) / ns_per_second}')"
 
 if awk -v seconds="$TOTAL_SECONDS_EXACT" 'BEGIN {exit !(seconds < 7200)}'; then
   readonly X_UNIT="minutes" X_SHORT_UNIT="min" X_SCALE="60"
@@ -208,14 +228,19 @@ set format y "%.4g"
 plot "${PLOT_DATA_FILE}" using (\$1/${X_SCALE}):2 \
 with linespoints linewidth 1.2 pointtype 7 pointsize 0.5 \
 linecolor rgb "${POINT_COLOR}" \
-title "${LEGEND_NAME} (${BUCKET_SECONDS}s average, ${BUCKET_COUNT} buckets; first/last ${BOUNDARY_CYCLES} cycles excluded; min=${MIN_VALUE} ${DISPLAY_UNIT}, max=${MAX_VALUE} ${DISPLAY_UNIT})"
+title "${LEGEND_NAME} (${SERIES_DESCRIPTION}; full run; min=${MIN_VALUE} ${DISPLAY_UNIT}, max=${MAX_VALUE} ${DISPLAY_UNIT})"
 EOF
 
 echo "Input     : $INPUT_FILE"
 echo "Field     : $FIELD_NAME"
 echo "Samples   : $SAMPLE_COUNT"
-echo "Excluded  : first $BOUNDARY_CYCLES + last $BOUNDARY_CYCLES cycles ($RAW_SAMPLE_COUNT raw samples)"
-echo "Buckets   : $BUCKET_COUNT (${BUCKET_SECONDS} seconds each)"
+echo "Window    : full run ($RAW_SAMPLE_COUNT raw samples, none excluded)"
+echo "Session   : CLOCK_MONOTONIC ${SESSION_START_NS}..${SESSION_END_NS} ns"
+if awk -v value="$BUCKET_SECONDS" 'BEGIN {exit !(value == 0)}'; then
+  echo "Series    : $BUCKET_COUNT raw samples (no averaging)"
+else
+  echo "Buckets   : $BUCKET_COUNT (${BUCKET_SECONDS} seconds each)"
+fi
 echo "X axis    : elapsed $X_UNIT (0..$TOTAL_X $X_SHORT_UNIT)"
 echo "Range     : $MIN_VALUE..$MAX_VALUE $DISPLAY_UNIT"
 echo "Generated : $OUTPUT_PNG"
