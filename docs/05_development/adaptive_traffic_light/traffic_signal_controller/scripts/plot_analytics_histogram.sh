@@ -7,6 +7,7 @@
 #   wakeup
 #   execution
 #   end_to_end
+#   perception_to_controller
 #   emergency
 
 set -o pipefail
@@ -47,6 +48,14 @@ case "$METRIC" in
         LEGEND_NAME="Decision-to-Controller Latency"
         DEFAULT_OUTPUT_IMAGE="${RUNTIME_LOG_DIRECTORY}/decision_to_controller_latency_histogram.png"
         ;;
+    perception_to_controller)
+        EVENT_NAME="PERCEPTION_PUBLISH_TO_CONTROLLER_RECEIVE"
+        VALUE_KEY="latency_ns"
+        TITLE="Perception Publish-to-Controller Receive Latency Histogram"
+        X_AXIS_NAME="Perception-to-Controller Latency"
+        LEGEND_NAME="Perception-to-Controller Latency"
+        DEFAULT_OUTPUT_IMAGE="${RUNTIME_LOG_DIRECTORY}/perception_to_controller_latency_histogram.png"
+        ;;
     emergency)
         EVENT_NAME="EMERGENCY_RECEIVE_TO_APPLY"
         VALUE_KEY="latency_ns"
@@ -57,7 +66,7 @@ case "$METRIC" in
         ;;
     *)
         echo "Error: Unsupported metric: $METRIC"
-        echo "Supported metrics: wakeup, execution, end_to_end, emergency"
+        echo "Supported metrics: wakeup, execution, end_to_end, perception_to_controller, emergency"
         exit 1
         ;;
 esac

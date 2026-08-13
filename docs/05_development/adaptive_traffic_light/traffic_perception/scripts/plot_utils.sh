@@ -30,3 +30,22 @@ format_scaled_time() {
       }
     '
 }
+
+# Select a common elapsed-time axis for all time-series plots.
+# Runs shorter than two hours are clearer in minutes; longer runs use hours.
+select_elapsed_axis() {
+    local total_seconds="${1:-0}"
+
+    if awk -v seconds="$total_seconds" 'BEGIN {exit !(seconds < 7200)}'; then
+        ELAPSED_UNIT="minutes"
+        ELAPSED_SHORT_UNIT="min"
+        ELAPSED_SCALE="60"
+    else
+        ELAPSED_UNIT="hours"
+        ELAPSED_SHORT_UNIT="h"
+        ELAPSED_SCALE="3600"
+    fi
+
+    ELAPSED_TOTAL="$(awk -v seconds="$total_seconds" \
+        -v scale="$ELAPSED_SCALE" 'BEGIN {printf "%.3f", seconds / scale}')"
+}

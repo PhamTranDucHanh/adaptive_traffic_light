@@ -8,6 +8,7 @@
 #   wakeup
 #   execution
 #   end_to_end
+#   perception_to_controller
 #   emergency
 #
 # Benchmark input data is archived by the analytics code after each run under:
@@ -40,12 +41,15 @@ case "$METRIC" in
     end_to_end)
         TITLE="Timing Decision Receive-to-Controller Receive Latency Over Time"
         ;;
+    perception_to_controller)
+        TITLE="Perception Publish-to-Controller Receive Latency Over Time"
+        ;;
     emergency)
         TITLE="Emergency Receive-to-Apply Latency Over Time"
         ;;
     *)
         echo "Error: Unsupported metric: $METRIC"
-        echo "Supported metrics: both, wakeup, execution, end_to_end, emergency"
+        echo "Supported metrics: both, wakeup, execution, end_to_end, perception_to_controller, emergency"
         exit 1
         ;;
 esac
@@ -89,6 +93,7 @@ DATA_CSV="${PLOT_WORK_DIRECTORY}/${RUN_BASENAME}.csv"
 WAKEUP_PLOT_DATA="${PLOT_WORK_DIRECTORY}/${RUN_BASENAME}_wakeup.dat"
 EXECUTION_PLOT_DATA="${PLOT_WORK_DIRECTORY}/${RUN_BASENAME}_execution.dat"
 END_TO_END_PLOT_DATA="${PLOT_WORK_DIRECTORY}/${RUN_BASENAME}_end_to_end.dat"
+PERCEPTION_PLOT_DATA="${PLOT_WORK_DIRECTORY}/${RUN_BASENAME}_perception_to_controller.dat"
 EMERGENCY_PLOT_DATA="${PLOT_WORK_DIRECTORY}/${RUN_BASENAME}_emergency.dat"
 VALUE_DATA_NS="${PLOT_WORK_DIRECTORY}/${RUN_BASENAME}_values_ns.dat"
 GNUPLOT_FILE="${PLOT_WORK_DIRECTORY}/${RUN_BASENAME}.gnu"
@@ -100,11 +105,13 @@ mkdir -p "$(dirname "$OUTPUT_IMAGE")"
 #-------------------------------------------------------
 # Extract time-series samples
 #
-# Preferred x-axis source:
-#   1. DLT text timestamp when the input line has one.
-#   2. Wakeup monotonic timestamp from actual_wakeup_ns.
-#   3. Execution samples aligned to wakeup sample order.
-#   4. Sample index as a final fallback.
+# The x axis always uses a real CLOCK_MONOTONIC event timestamp:
+#   - FSM wakeup: actual_wakeup_ns
+#   - FSM execution: the immediately preceding FSM wakeup timestamp
+#   - plan receive: controller_receive_timestamp_ns
+#   - emergency apply: apply_timestamp_ns
+# Samples without a valid event timestamp are omitted from the time-series plot
+# instead of being mixed with an artificial sample-index axis.
 #-------------------------------------------------------
 
 awk -v metric="$METRIC" -v input_file="$INPUT_FILE" -v run_id="$RUN_ID" '
@@ -120,42 +127,36 @@ function extract_uint(line, key,    pattern, value) {
     return ""
 }
 
-function dlt_timestamp_ns(line,    fields, field_count) {
-    field_count = split(line, fields, /[[:space:]]+/)
-
-    if (field_count >= 3 && fields[3] ~ /^[0-9]+([.][0-9]+)?$/) {
-        return sprintf("%.0f", fields[3] * 1000000000.0)
+function remember_sample(kind, metric_index, value_ns, event_timestamp_ns) {
+    if (event_timestamp_ns == "") {
+        return
     }
 
-    return ""
-}
-
-function remember_sample(kind, metric_index, value_ns, timestamp_ns, fallback_ns) {
     sample_kind[++sample_count] = kind
     sample_index[sample_count] = metric_index
     sample_value_ns[sample_count] = value_ns
-    sample_dlt_ns[sample_count] = timestamp_ns
-    sample_fallback_ns[sample_count] = fallback_ns
-
-    if (timestamp_ns != "") {
-        ++dlt_timestamp_count
-    }
+    sample_timestamp_ns[sample_count] = event_timestamp_ns
 }
 
 index($0, "event=FSM_WAKEUP") {
+    value_ns = extract_uint($0, "latency_ns")
+    actual_wakeup_ns = extract_uint($0, "actual_wakeup_ns")
+
+    if (actual_wakeup_ns != "") {
+        last_wakeup_ns = actual_wakeup_ns
+    }
+
     if (metric != "both" && metric != "wakeup") {
         next
     }
-
-    value_ns = extract_uint($0, "latency_ns")
 
     if (value_ns == "") {
         next
     }
 
     ++wakeup_count
-    wakeup_actual_ns[wakeup_count] = extract_uint($0, "actual_wakeup_ns")
-    remember_sample("wakeup", wakeup_count, value_ns, dlt_timestamp_ns($0), wakeup_actual_ns[wakeup_count])
+    remember_sample("wakeup", wakeup_count, value_ns, actual_wakeup_ns)
+    next
 }
 
 index($0, "event=FSM_EXECUTION") {
@@ -170,7 +171,8 @@ index($0, "event=FSM_EXECUTION") {
     }
 
     ++execution_count
-    remember_sample("execution", execution_count, value_ns, dlt_timestamp_ns($0), "")
+    remember_sample("execution", execution_count, value_ns, last_wakeup_ns)
+    next
 }
 
 index($0, "event=TIMING_DECISION_RECEIVE_TO_CONTROLLER_RECEIVE") {
@@ -182,9 +184,24 @@ index($0, "event=TIMING_DECISION_RECEIVE_TO_CONTROLLER_RECEIVE") {
     if (value_ns != "") {
         ++end_to_end_count
         remember_sample("end_to_end", end_to_end_count, value_ns,
-                        dlt_timestamp_ns($0),
                         extract_uint($0, "controller_receive_timestamp_ns"))
     }
+    next
+}
+
+index($0, "event=PERCEPTION_PUBLISH_TO_CONTROLLER_RECEIVE") {
+    if (metric != "perception_to_controller") {
+        next
+    }
+
+    value_ns = extract_uint($0, "latency_ns")
+    if (value_ns != "") {
+        ++perception_count
+        remember_sample("perception_to_controller", perception_count,
+                        value_ns,
+                        extract_uint($0, "controller_receive_timestamp_ns"))
+    }
+    next
 }
 
 index($0, "event=EMERGENCY_RECEIVE_TO_APPLY") {
@@ -196,8 +213,9 @@ index($0, "event=EMERGENCY_RECEIVE_TO_APPLY") {
     if (value_ns != "") {
         ++emergency_count
         remember_sample("emergency", emergency_count, value_ns,
-                        dlt_timestamp_ns($0), extract_uint($0, "apply_timestamp_ns"))
+                        extract_uint($0, "apply_timestamp_ns"))
     }
+    next
 }
 
 END {
@@ -207,30 +225,17 @@ END {
         exit
     }
 
-    use_dlt_time = dlt_timestamp_count == sample_count
-
     for (i = 1; i <= sample_count; ++i) {
-        x_kind = "sample_index"
-        x_raw_ns = sample_index[i]
+        x_raw_ns = sample_timestamp_ns[i]
 
-        if (use_dlt_time) {
-            x_kind = "dlt_timestamp_ns"
-            x_raw_ns = sample_dlt_ns[i]
-        } else if (sample_kind[i] == "wakeup" && sample_fallback_ns[i] != "") {
+        if (sample_kind[i] == "wakeup") {
             x_kind = "monotonic_actual_wakeup_ns"
-            x_raw_ns = sample_fallback_ns[i]
-        } else if (sample_kind[i] == "execution" &&
-                   wakeup_actual_ns[sample_index[i]] != "") {
+        } else if (sample_kind[i] == "execution") {
             x_kind = "monotonic_wakeup_aligned_ns"
-            x_raw_ns = wakeup_actual_ns[sample_index[i]]
-        } else if (sample_kind[i] == "end_to_end" &&
-                   sample_fallback_ns[i] != "") {
-            x_kind = "monotonic_controller_receive_timestamp_ns"
-            x_raw_ns = sample_fallback_ns[i]
-        } else if (sample_kind[i] == "emergency" &&
-                   sample_fallback_ns[i] != "") {
+        } else if (sample_kind[i] == "emergency") {
             x_kind = "monotonic_apply_timestamp_ns"
-            x_raw_ns = sample_fallback_ns[i]
+        } else {
+            x_kind = "monotonic_controller_receive_timestamp_ns"
         }
 
         resolved_x_raw_ns[i] = x_raw_ns
@@ -242,11 +247,7 @@ END {
     }
 
     for (i = 1; i <= sample_count; ++i) {
-        if (resolved_x_kind[i] == "sample_index") {
-            elapsed_s = resolved_x_raw_ns[i] - first_x_raw_ns
-        } else {
-            elapsed_s = (resolved_x_raw_ns[i] - first_x_raw_ns) / 1000000000.0
-        }
+        elapsed_s = (resolved_x_raw_ns[i] - first_x_raw_ns) / 1000000000.0
 
         printf "%s,%s,%d,%s,%s,%.9f,%s,%.9f,%.9f,%s\n",
             run_id,
@@ -308,12 +309,19 @@ NR > 1 && $2 == "end_to_end" {printf "%.9f %.9f\n", $6, $7 / scale}
 ' "$DATA_CSV" > "$END_TO_END_PLOT_DATA"
 
 awk -F, -v scale="$SCALE" '
+NR > 1 && $2 == "perception_to_controller" {
+    printf "%.9f %.9f\n", $6, $7 / scale
+}
+' "$DATA_CSV" > "$PERCEPTION_PLOT_DATA"
+
+awk -F, -v scale="$SCALE" '
 NR > 1 && $2 == "emergency" {printf "%.9f %.9f\n", $6, $7 / scale}
 ' "$DATA_CSV" > "$EMERGENCY_PLOT_DATA"
 
 WAKEUP_COUNT=$(wc -l < "$WAKEUP_PLOT_DATA")
 EXECUTION_COUNT=$(wc -l < "$EXECUTION_PLOT_DATA")
 END_TO_END_COUNT=$(wc -l < "$END_TO_END_PLOT_DATA")
+PERCEPTION_COUNT=$(wc -l < "$PERCEPTION_PLOT_DATA")
 EMERGENCY_COUNT=$(wc -l < "$EMERGENCY_PLOT_DATA")
 
 X_KIND_SUMMARY=$(awk -F, '
@@ -336,28 +344,44 @@ if [ -z "$X_KIND_SUMMARY" ]; then
     X_KIND_SUMMARY="unknown"
 fi
 
-if awk -F, 'NR > 1 && $4 == "sample_index" {found = 1} END {exit !found}' "$DATA_CSV"; then
-    X_LABEL="Sample index"
+TOTAL_SECONDS=$(awk -F, '
+NR > 1 && $6 > maximum {maximum = $6}
+END {printf "%.9f", maximum + 0}
+' "$DATA_CSV")
+
+if awk -v seconds="$TOTAL_SECONDS" 'BEGIN {exit !(seconds < 7200)}'; then
+    X_UNIT="minutes"
+    X_SHORT_UNIT="min"
+    X_SCALE=60
 else
-    X_LABEL="Elapsed time (s)"
+    X_UNIT="hours"
+    X_SHORT_UNIT="h"
+    X_SCALE=3600
 fi
+
+TOTAL_X=$(awk -v seconds="$TOTAL_SECONDS" -v scale="$X_SCALE" \
+    'BEGIN {printf "%.3f", seconds / scale}')
+X_MAX=$(awk -v seconds="$TOTAL_SECONDS" -v scale="$X_SCALE" \
+    'BEGIN {value=seconds/scale; printf "%.9f", (value > 0 ? value : 1)}')
+X_LABEL="Elapsed time ($X_UNIT), Total = $TOTAL_X $X_SHORT_UNIT"
 
 #-------------------------------------------------------
 # Generate Gnuplot script
 #-------------------------------------------------------
 
 cat > "$GNUPLOT_FILE" << EOF
-set terminal pngcairo size 1280,720 enhanced font "Arial,10"
+set terminal pngcairo size 1800,900 enhanced font "Arial,12"
 set output "$OUTPUT_IMAGE"
 
 set title "$TITLE"
 set xlabel "$X_LABEL"
 set ylabel "Time ($UNIT)"
-set format x "%.4g"
+set xrange [0:$X_MAX]
+set yrange [0:*]
+set format x "%.3g"
 set format y "%.4g"
 
-set grid
-set key outside
+set grid xtics ytics
 set key top right
 set border lw 1
 set tics out
@@ -367,28 +391,33 @@ EOF
 case "$METRIC" in
     both)
         cat >> "$GNUPLOT_FILE" << EOF
-plot "$WAKEUP_PLOT_DATA" using 1:2 with linespoints lw 1 pt 7 ps 0.8 title "Wakeup latency", \\
-     "$EXECUTION_PLOT_DATA" using 1:2 with linespoints lw 1 pt 5 ps 0.8 title "Execution time"
+plot "$WAKEUP_PLOT_DATA" using (\$1/$X_SCALE):2 with linespoints lw 1.2 pt 7 ps 0.5 title "Wakeup latency", \\
+     "$EXECUTION_PLOT_DATA" using (\$1/$X_SCALE):2 with linespoints lw 1.2 pt 5 ps 0.5 title "Execution time"
 EOF
         ;;
     wakeup)
         cat >> "$GNUPLOT_FILE" << EOF
-plot "$WAKEUP_PLOT_DATA" using 1:2 with linespoints lw 1 pt 7 ps 0.8 title "Wakeup latency"
+plot "$WAKEUP_PLOT_DATA" using (\$1/$X_SCALE):2 with linespoints lw 1.2 pt 7 ps 0.5 title "Wakeup latency"
 EOF
         ;;
     execution)
         cat >> "$GNUPLOT_FILE" << EOF
-plot "$EXECUTION_PLOT_DATA" using 1:2 with linespoints lw 1 pt 5 ps 0.8 title "Execution time"
+plot "$EXECUTION_PLOT_DATA" using (\$1/$X_SCALE):2 with linespoints lw 1.2 pt 5 ps 0.5 title "Execution time"
 EOF
         ;;
     end_to_end)
         cat >> "$GNUPLOT_FILE" << EOF
-plot "$END_TO_END_PLOT_DATA" using 1:2 with linespoints lw 1 pt 7 ps 0.8 title "Decision-to-controller latency"
+plot "$END_TO_END_PLOT_DATA" using (\$1/$X_SCALE):2 with linespoints lw 1.2 pt 7 ps 0.5 title "Decision-to-controller latency"
+EOF
+        ;;
+    perception_to_controller)
+        cat >> "$GNUPLOT_FILE" << EOF
+plot "$PERCEPTION_PLOT_DATA" using (\$1/$X_SCALE):2 with linespoints lw 1.2 pt 7 ps 0.5 title "Perception-to-controller latency"
 EOF
         ;;
     emergency)
         cat >> "$GNUPLOT_FILE" << EOF
-plot "$EMERGENCY_PLOT_DATA" using 1:2 with linespoints lw 1 pt 7 ps 0.8 title "Receive-to-apply latency"
+plot "$EMERGENCY_PLOT_DATA" using (\$1/$X_SCALE):2 with linespoints lw 1.2 pt 7 ps 0.5 title "Receive-to-apply latency"
 EOF
         ;;
 esac
@@ -409,7 +438,8 @@ echo "  Samples         : $SAMPLE_COUNT"
 echo "  Wakeup samples  : $WAKEUP_COUNT"
 echo "  Execution samples: $EXECUTION_COUNT"
 echo "  End-to-end samples: $END_TO_END_COUNT"
+echo "  Perception-to-controller samples: $PERCEPTION_COUNT"
 echo "  Emergency samples: $EMERGENCY_COUNT"
 echo "  Display unit    : $UNIT"
-echo "  X-axis          : $X_LABEL"
+echo "  X-axis          : elapsed $X_UNIT (0..$TOTAL_X $X_SHORT_UNIT)"
 echo "  X source        : $X_KIND_SUMMARY"

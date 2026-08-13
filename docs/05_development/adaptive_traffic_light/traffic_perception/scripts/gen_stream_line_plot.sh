@@ -3,20 +3,13 @@ set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
     echo "Usage: $0 <input_log> [output_dir]" >&2
-    echo "Set X_AXIS=id or X_AXIS=timestamp (default: id)." >&2
     exit 1
 fi
 
 LOG="$1"
 OUTDIR=${2:-output}
-X_AXIS=${X_AXIS:-id}
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/plot_utils.sh"
-
-if [[ "$X_AXIS" != "id" && "$X_AXIS" != "timestamp" ]]; then
-    echo "Error: X_AXIS must be 'id' or 'timestamp'." >&2
-    exit 1
-fi
 
 if ! command -v gnuplot >/dev/null 2>&1; then
     echo "Error: gnuplot is not installed." >&2
@@ -27,36 +20,45 @@ mkdir -p "$OUTDIR/plots"
 DATA_BASE="$OUTDIR/stream_line_metrics"
 rm -f "$DATA_BASE"_lane{0,1,2,3}.txt
 
-# Per-lane columns: FrameId, date, time, wake-up latency (us), execution time (us).
+# Per-lane columns: FrameId, Begin timestamp (CLOCK_MONOTONIC ns),
+# wake-up latency (us), execution time (us).
 awk '
 {
     if (match($0, /LaneId= *([0-9]+)/, l) &&
         match($0, /FrameId= *([0-9]+)/, i) &&
         match($0, /ExpectedWakeup= *([0-9]+)/, a) &&
         match($0, /Begin= *([0-9]+)/, b) &&
-        match($0, /End= *([0-9]+)/, c) &&
-        match($0, /[0-9]{4}\/[0-9]{2}\/[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]+/, t))
+        match($0, /End= *([0-9]+)/, c))
     {
         wakeup = (b[1] - a[1]) / 1000;
         runtime = (c[1] - b[1]) / 1000;
-        timestamp = substr($0, RSTART, RLENGTH);
         output = "'"$DATA_BASE"'_lane" (l[1] + 0) ".txt";
-        print i[1], timestamp, wakeup, runtime >> output;
+        print i[1], b[1], wakeup, runtime >> output;
         close(output);
     }
 }
 ' "$LOG"
 
-if [[ "$X_AXIS" == "timestamp" ]]; then
-    X_SETUP='set xdata time
-set format x "%H:%M:%S"
-set xlabel "Timestamp"
-set xtics rotate by -45'
-    X_VALUE='(timecolumn(2, "%Y/%m/%d %H:%M:%S"))'
-else
-    X_SETUP='set xlabel "FrameId"'
-    X_VALUE=1
+DATA_FILES=()
+for lane in 0 1 2 3; do
+    data_file="${DATA_BASE}_lane${lane}.txt"
+    [[ -s "$data_file" ]] && DATA_FILES+=("$data_file")
+done
+
+if (( ${#DATA_FILES[@]} == 0 )); then
+    echo "Error: no stream samples found in $LOG" >&2
+    exit 1
 fi
+
+read -r FIRST_NS LAST_NS < <(
+    awk 'NR == 1 || $2 < first {first=$2} NR == 1 || $2 > last {last=$2} END {print first, last}' \
+        "${DATA_FILES[@]}"
+)
+TOTAL_SECONDS="$(awk -v first="$FIRST_NS" -v last="$LAST_NS" \
+    'BEGIN {printf "%.9f", (last - first) / 1000000000.0}')"
+select_elapsed_axis "$TOTAL_SECONDS"
+X_MAX="$(awk -v total="$TOTAL_SECONDS" -v scale="$ELAPSED_SCALE" \
+    'BEGIN {value=total/scale; printf "%.9f", (value > 0 ? value : 1)}')"
 
 LANE_COLORS=("#d62728" "#1f77b4" "#2ca02c" "#9467bd")
 
@@ -67,14 +69,14 @@ plot_metric() {
     local output="$4"
     local plot_cmd=""
     local max_us
-    max_us="$(awk -v column="$column" 'BEGIN { max = 0 } { value = $column < 0 ? -$column : $column; if (value > max) max = value } END { print max }' "$DATA_BASE"_lane{0,1,2,3}.txt 2>/dev/null)"
+    max_us="$(awk -v column="$column" 'BEGIN { max = 0 } { value = $column < 0 ? -$column : $column; if (value > max) max = value } END { print max }' "${DATA_FILES[@]}")"
     select_time_unit "$max_us"
 
     for lane in 0 1 2 3; do
         local data_file="${DATA_BASE}_lane${lane}.txt"
         [[ -s "$data_file" ]] || continue
         [[ -z "$plot_cmd" ]] || plot_cmd+=", "
-        plot_cmd+="\"${data_file}\" using ${X_VALUE}:(\$${column}/${TIME_SCALE}) with linespoints linewidth 2 pointtype 7 pointsize 0.4 linecolor rgb \"${LANE_COLORS[$lane]}\" title \"Lane ${lane}\""
+        plot_cmd+="\"${data_file}\" using (((\$2-${FIRST_NS})/1000000000.0)/${ELAPSED_SCALE}):(\$${column}/${TIME_SCALE}) with linespoints linewidth 1.2 pointtype 7 pointsize 0.35 linecolor rgb \"${LANE_COLORS[$lane]}\" title \"Lane ${lane}\""
     done
 
     if [[ -z "$plot_cmd" ]]; then
@@ -83,21 +85,26 @@ plot_metric() {
     fi
 
     gnuplot <<EOF
-set terminal pngcairo size 1600,900 enhanced
+set terminal pngcairo size 1800,900 enhanced font "Arial,12"
 set output "${output}"
 set title "${title}"
-${X_SETUP}
+set xlabel "Elapsed time (${ELAPSED_UNIT}), Total = ${ELAPSED_TOTAL} ${ELAPSED_SHORT_UNIT}"
 set ylabel "${ylabel} (${TIME_UNIT})"
-set grid
+set xrange [0:${X_MAX}]
+set yrange [0:*]
+set format x "%.3g"
+set format y "%.4g"
+set grid xtics ytics
+set border linewidth 1
 set key top right
 plot ${plot_cmd}
 EOF
     echo "Unit     : ${ylabel} = ${TIME_UNIT}"
 }
 
-plot_metric 4 "Stream Worker Wake-up Latency" "Wake-up Latency" "$OUTDIR/plots/stream_wakeup_latency_line.png"
-plot_metric 5 "Stream Worker Execution Time" "Execution Time" "$OUTDIR/plots/stream_execution_time_line.png"
+plot_metric 3 "Stream Worker Wake-up Latency over Time" "Wake-up Latency" "$OUTDIR/plots/stream_wakeup_latency_line.png"
+plot_metric 4 "Stream Worker Execution Time over Time" "Execution Time" "$OUTDIR/plots/stream_execution_time_line.png"
 
-echo "X axis   : $X_AXIS"
+echo "X axis   : elapsed ${ELAPSED_UNIT} (0..${ELAPSED_TOTAL} ${ELAPSED_SHORT_UNIT})"
 echo "Generated: $OUTDIR/plots/stream_wakeup_latency_line.png"
 echo "Generated: $OUTDIR/plots/stream_execution_time_line.png"

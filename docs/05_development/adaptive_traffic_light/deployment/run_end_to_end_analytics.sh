@@ -281,6 +281,14 @@ if [[ -s "$RUNTIME_LOGS/CTRL.dlt.txt" ]]; then
     "$WORKSPACE_ROOT/traffic_signal_controller/scripts/plot_analytics_histogram.sh" \
     end_to_end "$CONTROLLER_DIR/CTRL.dlt.txt" \
     "$CONTROLLER_DIR/decision_to_controller_latency_histogram.png"
+  run_optional "Plotting Perception-to-Controller time series" \
+    "$WORKSPACE_ROOT/traffic_signal_controller/scripts/plot_analytics_timeseries.sh" \
+    perception_to_controller "$CONTROLLER_DIR/CTRL.dlt.txt" \
+    "$CONTROLLER_DIR/perception_to_controller_latency_timeseries.png"
+  run_optional "Plotting Perception-to-Controller histogram" \
+    "$WORKSPACE_ROOT/traffic_signal_controller/scripts/plot_analytics_histogram.sh" \
+    perception_to_controller "$CONTROLLER_DIR/CTRL.dlt.txt" \
+    "$CONTROLLER_DIR/perception_to_controller_latency_histogram.png"
   run_optional "Plotting Signal Controller emergency time series" \
     "$WORKSPACE_ROOT/traffic_signal_controller/scripts/plot_analytics_timeseries.sh" \
     emergency "$CONTROLLER_DIR/CTRL.dlt.txt" \

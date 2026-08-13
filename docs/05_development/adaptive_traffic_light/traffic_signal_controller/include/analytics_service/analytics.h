@@ -37,6 +37,7 @@ class Analytics {
     EmergencyRejected,
     EmergencyApplied,
 
+    PerceptionToControllerLatency,
     DecisionToControllerLatency,
     EmergencyReceiveToApply
   };
@@ -64,6 +65,7 @@ class Analytics {
     std::uint32_t consumed{};
     std::uint32_t applied{};
 
+    std::vector<std::int64_t> perceptionToControllerLatencyNs;
     std::vector<std::int64_t> decisionToControllerLatencyNs;
     std::vector<std::int64_t> emergencyReceiveToApplyLatencySamplesNs;
 

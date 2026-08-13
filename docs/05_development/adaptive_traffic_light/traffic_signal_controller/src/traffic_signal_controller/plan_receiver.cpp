@@ -67,6 +67,25 @@ bool PlanReceiver::ReceivePlan(const TimingPlan& plan) {
     }
   }
 
+  constexpr std::uint64_t kNanosecondsPerMicrosecond{1'000U};
+  if (result && receiveTimestampValid &&
+      plan.perceptionPublishTimestampUs > 0U &&
+      plan.perceptionPublishTimestampUs <=
+          (std::numeric_limits<std::uint64_t>::max() /
+           kNanosecondsPerMicrosecond)) {
+    const std::uint64_t perceptionTxNs =
+        plan.perceptionPublishTimestampUs * kNanosecondsPerMicrosecond;
+
+    if (receiveTimestampNs >= perceptionTxNs) {
+      Logger().LogInfo()
+          << "event=PERCEPTION_PUBLISH_TO_CONTROLLER_RECEIVE"
+          << ", plan_id=" << plan.planId
+          << ", perception_publish_timestamp_ns=" << perceptionTxNs
+          << ", controller_receive_timestamp_ns=" << receiveTimestampNs
+          << ", latency_ns=" << (receiveTimestampNs - perceptionTxNs);
+    }
+  }
+
   return result;
 }
 

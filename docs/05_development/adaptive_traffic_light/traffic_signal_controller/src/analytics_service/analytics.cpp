@@ -356,6 +356,8 @@ Analytics::EventType Analytics::EventTypeFromString(
 
       {"TIMING_DECISION_RECEIVE_TO_CONTROLLER_RECEIVE",
        EventType::DecisionToControllerLatency},
+      {"PERCEPTION_PUBLISH_TO_CONTROLLER_RECEIVE",
+       EventType::PerceptionToControllerLatency},
       {"EMERGENCY_RECEIVE_TO_APPLY", EventType::EmergencyReceiveToApply},
 
       {"PHASE_ENTER", EventType::PhaseEnter}};
@@ -543,6 +545,7 @@ std::string Analytics::ConvertDltRecordToTextMessage(const std::string& record,
        "EMERGENCY_CONSUMED", "EMERGENCY_ACCEPTED", "EMERGENCY_REJECTED",
        "EMERGENCY_APPLIED", "EMERGENCY_DROPPED", "PHASE_ENTER", "PHASE_EXIT",
        "TIMING_DECISION_RECEIVE_TO_CONTROLLER_RECEIVE",
+       "PERCEPTION_PUBLISH_TO_CONTROLLER_RECEIVE",
        "EMERGENCY_RECEIVE_TO_APPLY",
        "ANALYTICS_FAILED", "ANALYTICS_REPORT_FAILED",
        "ANALYTICS_REPORT_WRITTEN", "FSM_WAKEUP", "FSM_EXECUTION"});
@@ -589,7 +592,8 @@ std::string Analytics::ConvertDltRecordToTextMessage(const std::string& record,
 
   for (const auto* const timestampKey :
        {"deadline_ns", "actual_wakeup_ns", "publish_timestamp_ns",
-        "receive_timestamp_ns", "timing_receive_timestamp_ns",
+        "receive_timestamp_ns", "perception_publish_timestamp_ns",
+        "timing_receive_timestamp_ns",
         "controller_receive_timestamp_ns", "apply_timestamp_ns"}) {
     if (record.find(std::string{timestampKey} + "=") != std::string::npos) {
       message << ", " << timestampKey << '='
@@ -747,6 +751,7 @@ void Analytics::ComputePlanStatistics() {
         planStatistics_.appliedPlanIds.insert(entry.planId);
         break;
 
+      case EventType::PerceptionToControllerLatency:
       case EventType::DecisionToControllerLatency:
       case EventType::EmergencyReceiveToApply: {
         std::uint64_t latencyNs{};
@@ -757,11 +762,16 @@ void Analytics::ComputePlanStatistics() {
           break;
         }
 
-        auto& samples =
-            entry.eventType == EventType::DecisionToControllerLatency
-                ? planStatistics_.decisionToControllerLatencyNs
-                : planStatistics_.emergencyReceiveToApplyLatencySamplesNs;
-        samples.push_back(static_cast<std::int64_t>(latencyNs));
+        if (entry.eventType == EventType::PerceptionToControllerLatency) {
+          planStatistics_.perceptionToControllerLatencyNs.push_back(
+              static_cast<std::int64_t>(latencyNs));
+        } else if (entry.eventType == EventType::DecisionToControllerLatency) {
+          planStatistics_.decisionToControllerLatencyNs.push_back(
+              static_cast<std::int64_t>(latencyNs));
+        } else {
+          planStatistics_.emergencyReceiveToApplyLatencySamplesNs.push_back(
+              static_cast<std::int64_t>(latencyNs));
+        }
         break;
       }
 
@@ -1014,6 +1024,9 @@ bool Analytics::WriteReport(const std::string& outputPath) const {
            << FormatNanoseconds(Analytics::Percentile(samples, 99.0)) << '\n';
   };
 
+  writeLatencyStatistics(
+      "PERCEPTION PUBLISH-TO-CONTROLLER RECEIVE LATENCY",
+      planStatistics_.perceptionToControllerLatencyNs);
   writeLatencyStatistics(
       "TIMING DECISION RECEIVE-TO-CONTROLLER RECEIVE LATENCY",
       planStatistics_.decisionToControllerLatencyNs);

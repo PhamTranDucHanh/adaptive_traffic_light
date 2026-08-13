@@ -8,10 +8,10 @@ if [[ $# -ne 1 ]]; then
 fi
 
 readonly INPUT_FILE="$1"
-readonly NANOSECONDS_PER_HOUR="3600000000000"
 readonly NANOSECONDS_PER_SECOND="1000000000"
-readonly MICROSECONDS_PER_MILLISECOND="1000"
-readonly BUCKET_SECONDS="30"
+# Keep the current 1 ms default while allowing a caller to select a wider
+# averaging bucket, for example: BUCKET_SECONDS=30 ./latency_time.sh ...
+readonly BUCKET_SECONDS="${BUCKET_SECONDS:-0.001}"
 readonly BOUNDARY_CYCLES="15"
 
 if [[ ! -f "$INPUT_FILE" || ! -r "$INPUT_FILE" ]]; then
@@ -113,16 +113,15 @@ else
   readonly DISPLAY_UNIT="s" DISPLAY_SCALE="1000000"
 fi
 
-# Normalize the first sample to 0 hours, group samples into 30-second time
-# buckets, and convert microseconds to the selected display unit. Each point is the
-# average of all retained samples in its bucket.
-awk -v ns_per_hour="$NANOSECONDS_PER_HOUR" \
-    -v ns_per_second="$NANOSECONDS_PER_SECOND" \
+# Normalize the first retained CLOCK_MONOTONIC timestamp to 0 seconds, group
+# samples into the configured time buckets, and convert microseconds to the
+# selected display unit. Each point is the average of its bucket.
+awk -v ns_per_second="$NANOSECONDS_PER_SECOND" \
     -v bucket_seconds="$BUCKET_SECONDS" \
     -v display_scale="$DISPLAY_SCALE" '
   function flush_bucket() {
     if (bucket_sample_count == 0) return
-    printf "%.9f %.6f\n", elapsed_hours_sum / bucket_sample_count, \
+    printf "%.9f %.6f\n", elapsed_seconds_sum / bucket_sample_count, \
            latency_display_sum / bucket_sample_count
   }
 
@@ -138,12 +137,12 @@ awk -v ns_per_hour="$NANOSECONDS_PER_HOUR" \
     if (bucket != current_bucket) {
       flush_bucket()
       current_bucket = bucket
-      elapsed_hours_sum = 0
+      elapsed_seconds_sum = 0
       latency_display_sum = 0
       bucket_sample_count = 0
     }
 
-    elapsed_hours_sum += elapsed_nanoseconds / ns_per_hour
+    elapsed_seconds_sum += elapsed_nanoseconds / ns_per_second
     latency_display_sum += latency_display
     ++bucket_sample_count
   }
@@ -172,28 +171,41 @@ readonly SAMPLE_COUNT
 readonly MIN_VALUE
 readonly MAX_VALUE
 readonly BUCKET_COUNT="$(wc -l < "$PLOT_DATA_FILE")"
-readonly TOTAL_HOURS_EXACT="$(awk -v ns_per_hour="$NANOSECONDS_PER_HOUR" '
+readonly TOTAL_SECONDS_EXACT="$(awk -v ns_per_second="$NANOSECONDS_PER_SECOND" '
   NR == 1 { first_timestamp = $1 }
-  END { printf "%.9f", ($1 - first_timestamp) / ns_per_hour }
+  END { printf "%.9f", ($1 - first_timestamp) / ns_per_second }
 ' "$DATA_FILE")"
-readonly TOTAL_HOURS="$(printf '%.3f' "$TOTAL_HOURS_EXACT")"
+
+if awk -v seconds="$TOTAL_SECONDS_EXACT" 'BEGIN {exit !(seconds < 7200)}'; then
+  readonly X_UNIT="minutes" X_SHORT_UNIT="min" X_SCALE="60"
+else
+  readonly X_UNIT="hours" X_SHORT_UNIT="h" X_SCALE="3600"
+fi
+
+readonly TOTAL_X_EXACT="$(awk -v seconds="$TOTAL_SECONDS_EXACT" -v scale="$X_SCALE" \
+  'BEGIN {printf "%.9f", seconds / scale}')"
+readonly TOTAL_X="$(printf '%.3f' "$TOTAL_X_EXACT")"
+readonly X_MAX="$(awk -v value="$TOTAL_X_EXACT" \
+  'BEGIN {printf "%.9f", (value > 0 ? value : 1)}')"
 
 gnuplot <<EOF
-set terminal pngcairo size 1800,900 enhanced
+set terminal pngcairo size 1800,900 enhanced font "Arial,12"
 set output "${OUTPUT_PNG}"
 
 set title "${PLOT_TITLE}"
-set xlabel "Elapsed Time (hours), Total = ${TOTAL_HOURS} h"
+set xlabel "Elapsed time (${X_UNIT}), Total = ${TOTAL_X} ${X_SHORT_UNIT}"
 set ylabel "${Y_AXIS_NAME} (${DISPLAY_UNIT})"
 
-set xrange [0:${TOTAL_HOURS_EXACT}]
+set xrange [0:${X_MAX}]
 set yrange [0:*]
 
 set grid xtics ytics
 set border linewidth 1
 set key top right
+set format x "%.3g"
+set format y "%.4g"
 
-plot "${PLOT_DATA_FILE}" using 1:2 \
+plot "${PLOT_DATA_FILE}" using (\$1/${X_SCALE}):2 \
 with linespoints linewidth 1.2 pointtype 7 pointsize 0.5 \
 linecolor rgb "${POINT_COLOR}" \
 title "${LEGEND_NAME} (${BUCKET_SECONDS}s average, ${BUCKET_COUNT} buckets; first/last ${BOUNDARY_CYCLES} cycles excluded; min=${MIN_VALUE} ${DISPLAY_UNIT}, max=${MAX_VALUE} ${DISPLAY_UNIT})"
@@ -204,6 +216,6 @@ echo "Field     : $FIELD_NAME"
 echo "Samples   : $SAMPLE_COUNT"
 echo "Excluded  : first $BOUNDARY_CYCLES + last $BOUNDARY_CYCLES cycles ($RAW_SAMPLE_COUNT raw samples)"
 echo "Buckets   : $BUCKET_COUNT (${BUCKET_SECONDS} seconds each)"
-echo "Duration  : 0..$TOTAL_HOURS hours"
+echo "X axis    : elapsed $X_UNIT (0..$TOTAL_X $X_SHORT_UNIT)"
 echo "Range     : $MIN_VALUE..$MAX_VALUE $DISPLAY_UNIT"
 echo "Generated : $OUTPUT_PNG"
