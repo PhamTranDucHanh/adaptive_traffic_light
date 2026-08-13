@@ -45,6 +45,43 @@ require_command() {
   }
 }
 
+prepare_script_permissions() {
+  local -a script_directories=(
+    "$WORKSPACE_ROOT/deployment"
+    "$WORKSPACE_ROOT/traffic_perception/scripts"
+    "$WORKSPACE_ROOT/traffic_timing_decision/scripts"
+    "$WORKSPACE_ROOT/traffic_signal_controller/scripts"
+  )
+  local script_directory=""
+  local script_path=""
+  local script_count=0
+
+  for script_directory in "${script_directories[@]}"; do
+    if [[ ! -d "$script_directory" ]]; then
+      printf '[E2E][ERROR] script directory not found: %s\n' \
+        "$script_directory" >&2
+      exit 1
+    fi
+
+    for script_path in "$script_directory"/*.sh; do
+      [[ -f "$script_path" ]] || continue
+      if ! chmod +x -- "$script_path"; then
+        printf '[E2E][ERROR] could not make script executable: %s\n' \
+          "$script_path" >&2
+        exit 1
+      fi
+      script_count=$((script_count + 1))
+    done
+  done
+
+  if ((script_count == 0)); then
+    printf '[E2E][ERROR] no shell scripts found to prepare\n' >&2
+    exit 1
+  fi
+
+  log "Executable permission prepared for $script_count shell scripts."
+}
+
 request_stop() {
   if ((STOP_REQUESTED != 0)); then
     return
@@ -121,6 +158,9 @@ mkdir -p "$RUN_OUTPUT"/{perception,timing_decision,signal_controller}
 : >"$POSTPROCESS_LOG"
 
 cd "$WORKSPACE_ROOT"
+
+log "Preparing executable permissions for deployment and module scripts..."
+prepare_script_permissions
 
 log "Checking Traffic Perception runtime dependencies..."
 bash "$WORKSPACE_ROOT/traffic_perception/scripts/setup_deps.sh"

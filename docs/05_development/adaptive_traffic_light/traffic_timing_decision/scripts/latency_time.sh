@@ -13,6 +13,7 @@ readonly NANOSECONDS_PER_SECOND="1000000000"
 # exactly match the statistical report and histogram. Set BUCKET_SECONDS to a
 # positive value only when an averaged overview is explicitly wanted.
 readonly BUCKET_SECONDS="${BUCKET_SECONDS:-0}"
+readonly STARTUP_CYCLES="15"
 
 if [[ ! -f "$INPUT_FILE" || ! -r "$INPUT_FILE" ]]; then
   echo "Error: input file does not exist or is not readable: $INPUT_FILE" >&2
@@ -95,8 +96,14 @@ if [[ ! -s "$RAW_DATA_FILE" ]]; then
 fi
 
 readonly RAW_SAMPLE_COUNT="$(wc -l < "$RAW_DATA_FILE")"
-# Keep the full run, including startup and shutdown samples.
-cp "$RAW_DATA_FILE" "$DATA_FILE"
+if (( RAW_SAMPLE_COUNT <= STARTUP_CYCLES )); then
+  echo "Error: need more than $STARTUP_CYCLES samples to exclude the startup guard band." >&2
+  exit 1
+fi
+
+# Exclude only startup samples. Shutdown and all steady-state outliers remain.
+awk -v startup="$STARTUP_CYCLES" 'NR > startup' \
+  "$RAW_DATA_FILE" >"$DATA_FILE"
 
 readonly MAX_RAW_US="$(awk 'NR == 1 || $2 > max {max = $2} END {print max}' "$DATA_FILE")"
 if awk -v value="$MAX_RAW_US" 'BEGIN {exit !(value < 1)}'; then
@@ -228,13 +235,13 @@ set format y "%.4g"
 plot "${PLOT_DATA_FILE}" using (\$1/${X_SCALE}):2 \
 with linespoints linewidth 1.2 pointtype 7 pointsize 0.5 \
 linecolor rgb "${POINT_COLOR}" \
-title "${LEGEND_NAME} (${SERIES_DESCRIPTION}; full run; min=${MIN_VALUE} ${DISPLAY_UNIT}, max=${MAX_VALUE} ${DISPLAY_UNIT})"
+title "${LEGEND_NAME} (${SERIES_DESCRIPTION}; first ${STARTUP_CYCLES} cycles excluded; min=${MIN_VALUE} ${DISPLAY_UNIT}, max=${MAX_VALUE} ${DISPLAY_UNIT})"
 EOF
 
 echo "Input     : $INPUT_FILE"
 echo "Field     : $FIELD_NAME"
 echo "Samples   : $SAMPLE_COUNT"
-echo "Window    : full run ($RAW_SAMPLE_COUNT raw samples, none excluded)"
+echo "Window    : first $STARTUP_CYCLES cycles excluded ($RAW_SAMPLE_COUNT raw samples)"
 echo "Session   : CLOCK_MONOTONIC ${SESSION_START_NS}..${SESSION_END_NS} ns"
 if awk -v value="$BUCKET_SECONDS" 'BEGIN {exit !(value == 0)}'; then
   echo "Series    : $BUCKET_COUNT raw samples (no averaging)"

@@ -32,6 +32,7 @@ constexpr std::string_view kDefaultOutputDirectory{
     "traffic_timing_decision/output"};
 constexpr std::string_view kNestedOutputDirectory{
     "traffic_timing_decision/traffic_timing_decision/output"};
+constexpr std::size_t kStartupCycleCount{15U};
 enum class ExitCode : std::int32_t {
   kSuccess = 0,
   kFailure = 1,
@@ -189,6 +190,20 @@ bool calculateStatistics(std::vector<Integer> values, Statistics& statistics,
   return true;
 }
 
+template <typename Value>
+bool excludeStartupCycles(std::vector<Value>& values, std::string& error) {
+  if (values.size() <= kStartupCycleCount) {
+    error = "not enough timing samples after excluding the first " +
+            std::to_string(kStartupCycleCount) + " startup cycles";
+    return false;
+  }
+
+  values.erase(values.begin(),
+               values.begin() +
+                   static_cast<std::ptrdiff_t>(kStartupCycleCount));
+  return true;
+}
+
 bool parseWakeupText(const std::filesystem::path& textPath,
                      std::vector<std::int64_t>& wakeupLatencies,
                      std::string& error) {
@@ -328,7 +343,8 @@ void printStatistics(const Statistics& statistics, std::ostream& output) {
 void printReport(
     const traffic_timing_decision::analytics::TimingAnalyticsReport& report,
     std::ostream& output) {
-  output << "Analysis window: full run (no startup/shutdown cycles excluded)\n"
+  output << "Analysis window: excluded first " << kStartupCycleCount
+         << " cycles (startup guard band); no shutdown cycles excluded\n"
          << "Deadline Misses (" << report.deadlineMs
          << " ms): cycle=" << report.cycleDeadlineMisses << " / "
          << report.executionTimeUs.sampleCount
@@ -394,6 +410,10 @@ std::int32_t Run(const std::filesystem::path& wakeupDltPath,
       !parseExecutionText(executionTextPath, executionTimes,
                           executionDeadlineMisses, cycleDeadlineMisses, report,
                           error) ||
+      !excludeStartupCycles(wakeupLatencies, error) ||
+      !excludeStartupCycles(executionTimes, error) ||
+      !excludeStartupCycles(executionDeadlineMisses, error) ||
+      !excludeStartupCycles(cycleDeadlineMisses, error) ||
       !calculateStatistics(wakeupLatencies, report.wakeupLatencyUs, error) ||
       !calculateStatistics(executionTimes, report.executionTimeUs, error)) {
     errorOutput << "[ANALYTICS][ERROR] " << error << '\n';
