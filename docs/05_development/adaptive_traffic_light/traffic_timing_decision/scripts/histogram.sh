@@ -151,7 +151,7 @@ set terminal pngcairo size 1600,900 enhanced
 set output "${OUTPUT_PNG}"
 
 set title "${PLOT_TITLE}"
-set xlabel "${X_AXIS_NAME} (${DISPLAY_UNIT}), Samples = ${SAMPLE_COUNT}, first ${STARTUP_CYCLES} cycles excluded, Min = ${DISPLAY_MIN} ${DISPLAY_UNIT}, Max = ${DISPLAY_MAX} ${DISPLAY_UNIT}, Bucket = ${DISPLAY_BUCKET} ${DISPLAY_UNIT}"
+set xlabel "${X_AXIS_NAME} (${DISPLAY_UNIT}), Samples = ${SAMPLE_COUNT}, Min = ${DISPLAY_MIN} ${DISPLAY_UNIT}, Max = ${DISPLAY_MAX} ${DISPLAY_UNIT}, Bucket = ${DISPLAY_BUCKET} ${DISPLAY_UNIT}"
 set ylabel "Number of Samples"
 
 set xrange [0:*]
@@ -171,7 +171,7 @@ EOF
 echo "Input    : $INPUT_FILE"
 echo "Field    : $FIELD_NAME"
 echo "Samples  : $SAMPLE_COUNT"
-echo "Window   : first $STARTUP_CYCLES cycles excluded ($RAW_SAMPLE_COUNT raw samples)"
+echo "Window   : ($RAW_SAMPLE_COUNT raw samples)"
 echo "Range    : $DISPLAY_MIN..$DISPLAY_MAX $DISPLAY_UNIT"
 echo "Bucket   : $DISPLAY_BUCKET $DISPLAY_UNIT ($BUCKET_WIDTH_US us raw)"
 echo "Generated: $OUTPUT_PNG"

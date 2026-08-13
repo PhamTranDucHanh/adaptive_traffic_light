@@ -235,13 +235,13 @@ set format y "%.4g"
 plot "${PLOT_DATA_FILE}" using (\$1/${X_SCALE}):2 \
 with linespoints linewidth 1.2 pointtype 7 pointsize 0.5 \
 linecolor rgb "${POINT_COLOR}" \
-title "${LEGEND_NAME} (${SERIES_DESCRIPTION}; first ${STARTUP_CYCLES} cycles excluded; min=${MIN_VALUE} ${DISPLAY_UNIT}, max=${MAX_VALUE} ${DISPLAY_UNIT})"
+title "${LEGEND_NAME} (${SERIES_DESCRIPTION}; min=${MIN_VALUE} ${DISPLAY_UNIT}, max=${MAX_VALUE} ${DISPLAY_UNIT})"
 EOF
 
 echo "Input     : $INPUT_FILE"
 echo "Field     : $FIELD_NAME"
 echo "Samples   : $SAMPLE_COUNT"
-echo "Window    : first $STARTUP_CYCLES cycles excluded ($RAW_SAMPLE_COUNT raw samples)"
+echo "Window    : ($RAW_SAMPLE_COUNT raw samples)"
 echo "Session   : CLOCK_MONOTONIC ${SESSION_START_NS}..${SESSION_END_NS} ns"
 if awk -v value="$BUCKET_SECONDS" 'BEGIN {exit !(value == 0)}'; then
   echo "Series    : $BUCKET_COUNT raw samples (no averaging)"
