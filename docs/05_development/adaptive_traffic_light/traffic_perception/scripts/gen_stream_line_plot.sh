@@ -98,7 +98,7 @@ plot_metric() {
 set terminal pngcairo size 1800,900 enhanced font "Arial,12"
 set output "${output}"
 set title "${title}"
-set xlabel "Elapsed time (${ELAPSED_UNIT}), Total = ${ELAPSED_TOTAL} ${ELAPSED_SHORT_UNIT}"
+set xlabel "Elapsed time (${ELAPSED_UNIT})"
 set ylabel "${ylabel} (${TIME_UNIT})"
 set xrange [0:${X_MAX}]
 set yrange [0:*]

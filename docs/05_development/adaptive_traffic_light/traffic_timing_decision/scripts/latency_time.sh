@@ -213,7 +213,7 @@ set terminal pngcairo size 1800,900 enhanced font "Arial,12"
 set output "${OUTPUT_PNG}"
 
 set title "${PLOT_TITLE}"
-set xlabel "Elapsed time (${X_UNIT}), Total = ${TOTAL_X} ${X_SHORT_UNIT}"
+set xlabel "Elapsed time (${X_UNIT})"
 set ylabel "${Y_AXIS_NAME} (${DISPLAY_UNIT})"
 
 set xrange [0:${X_MAX}]

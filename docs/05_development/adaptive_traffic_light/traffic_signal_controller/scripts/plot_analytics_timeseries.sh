@@ -392,7 +392,7 @@ TOTAL_X=$(awk -v seconds="$TOTAL_SECONDS" -v scale="$X_SCALE" \
     'BEGIN {printf "%.3f", seconds / scale}')
 X_MAX=$(awk -v seconds="$TOTAL_SECONDS" -v scale="$X_SCALE" \
     'BEGIN {value=seconds/scale; printf "%.9f", (value > 0 ? value : 1)}')
-X_LABEL="Elapsed time ($X_UNIT), Total = $TOTAL_X $X_SHORT_UNIT"
+X_LABEL="Elapsed time ($X_UNIT)"
 
 #-------------------------------------------------------
 # Generate Gnuplot script
