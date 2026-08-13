@@ -24,15 +24,14 @@ rm -f "$WAKEUP_DATA" "$EXEC_DATA"
 #   execution_time_us=<value>
 awk '
 {
-    if (match($0, /ExpectedWakeup= *([0-9]+)/, a) &&
-        match($0, /Begin= *([0-9]+)/, b) &&
-        match($0, /End= *([0-9]+)/, c))
+    if (match($0, /(^|[^[:alnum:]_])ExpectedWakeup= *([0-9]+)/, a) &&
+        match($0, /(^|[^[:alnum:]_])Begin= *([0-9]+)/, b) &&
+        match($0, /(^|[^[:alnum:]_])End= *([0-9]+)/, c))
     {
-        if (b[1] == 0 || c[1] == 0 || c[1] < b[1]) next;
-
-        if (a[1] != 0)
-            print "wakeup_latency_us=" (b[1] - a[1]) / 1000;
-        print "execution_time_us=" (c[1] - b[1]) / 1000;
+        if (b[2] == 0 || c[2] == 0 || c[2] < b[2]) next;
+        if (a[2] != 0)
+            print "wakeup_latency_us=" (b[2] - a[2]) / 1000;
+        print "execution_time_us=" (c[2] - b[2]) / 1000;
     }
 }
 ' "$LOG" > "$OUTDIR/pipeline_metrics.txt"

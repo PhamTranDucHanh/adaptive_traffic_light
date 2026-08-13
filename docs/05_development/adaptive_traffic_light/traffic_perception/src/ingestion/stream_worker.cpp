@@ -15,10 +15,7 @@
 
 namespace {
 
-int LowerRealtimePriority(const int parentPriority) {
-  const int minimumPriority = sched_get_priority_min(SCHED_RR);
-  return std::max(minimumPriority, parentPriority - 1);
-}
+constexpr int kDecoderWarmupFrames{3};
 
 inline score::mw::log::Logger& getBenchmarkLogger() {
   static score::mw::log::Logger& logger =
@@ -40,7 +37,7 @@ bool StreamWorker::initStream(std::string sourceUri, int32_t streamId,
   AcquisitionPeriod = period;
   phase_ = phase;
   DecodeCore = decodeCore;
-  DecodePriority = LowerRealtimePriority(streamPriority);
+  DecodePriority = streamPriority;
 
   getBenchmarkLogger().LogDebug()
       << "[StreamWorker] Init lane " << LaneId << " source=" << SourceUri
@@ -91,7 +88,8 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
   pthread_attr_t attr;
   pthread_attr_init(&attr);
   // Codec workers created while opening VideoCapture inherit this stream's
-  // configured core and a lower RT priority than the main stream task.
+  // configured core and RT priority. Keeping the same priority prevents a
+  // stream task waiting in grab() from starving its decoder workers.
   pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
   struct sched_param sp {};
   sp.sched_priority = DecodePriority;
@@ -136,6 +134,20 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
         << "[StreamWorker] Failed to open source " << SourceUri;
     startupGate.cancel();
     return;
+  }
+
+  // Pay one-time codec/thread/cache initialization before releasing the
+  // periodic schedule. Warm-up frames are intentionally not published.
+  cv::Mat warmupFrame;
+  for (int i = 0; i < kDecoderWarmupFrames; ++i) {
+    if (!cap.grab() || !cap.retrieve(warmupFrame)) {
+      getBenchmarkLogger().LogError()
+          << "[StreamWorker] Decoder warm-up failed for lane " << LaneId
+          << " at frame " << i;
+      startupGate.cancel();
+      cap.release();
+      return;
+    }
   }
 
   std::chrono::steady_clock::time_point startTime;

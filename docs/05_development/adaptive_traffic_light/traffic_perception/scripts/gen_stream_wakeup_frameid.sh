@@ -18,13 +18,13 @@ awk '
 {
     if (match($0,/LaneId= *([0-9]+)/,L) &&
         match($0,/FrameId= *([0-9]+)/,F) &&
-        match($0,/ExpectedWakeup= *([0-9]+)/,E) &&
-        match($0,/Begin= *([0-9]+)/,B) &&
-        match($0,/End= *([0-9]+)/,EE))
+        match($0,/(^|[^[:alnum:]_])ExpectedWakeup= *([0-9]+)/,E) &&
+        match($0,/(^|[^[:alnum:]_])Begin= *([0-9]+)/,B) &&
+        match($0,/(^|[^[:alnum:]_])End= *([0-9]+)/,EE))
     {
-        if (B[1] == 0 || EE[1] == 0 || EE[1] < B[1]) next
-        latency = E[1] != 0 ? (B[1]-E[1])/1000.0 : "NaN"
-        exec = (EE[1]-B[1])/1000.0
+        if (B[2] == 0 || EE[2] == 0 || EE[2] < B[2]) next
+        latency = E[2] != 0 ? (B[2]-E[2])/1000.0 : "NaN"
+        exec = (EE[2]-B[2])/1000.0
 
         print L[1],F[1],latency,exec
     }

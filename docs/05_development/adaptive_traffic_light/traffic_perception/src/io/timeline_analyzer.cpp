@@ -63,7 +63,15 @@ bool ContainsTag(const std::string& line, const std::string& tag) {
 bool ExtractInt64(const std::string& line,
                   const std::string& key,
                   int64_t& value) {
-  const size_t pos = line.find(key);
+  size_t pos = 0;
+  while ((pos = line.find(key, pos)) != std::string::npos) {
+    if (pos == 0 ||
+        (!std::isalnum(static_cast<unsigned char>(line[pos - 1])) &&
+         line[pos - 1] != '_')) {
+      break;
+    }
+    pos += key.size();
+  }
   if (pos == std::string::npos) {
     return false;
   }

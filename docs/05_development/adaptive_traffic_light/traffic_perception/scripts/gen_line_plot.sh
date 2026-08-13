@@ -26,14 +26,14 @@ awk '
     has_cycle_id = match($0, /CycleId= *([0-9]+)/, i);
 
     if (has_cycle_id &&
-        match($0, /ExpectedWakeup= *([0-9]+)/, a) &&
-        match($0, /Begin= *([0-9]+)/, b) &&
-        match($0, /End= *([0-9]+)/, c))
+        match($0, /(^|[^[:alnum:]_])ExpectedWakeup= *([0-9]+)/, a) &&
+        match($0, /(^|[^[:alnum:]_])Begin= *([0-9]+)/, b) &&
+        match($0, /(^|[^[:alnum:]_])End= *([0-9]+)/, c))
     {
-        if (b[1] == 0 || c[1] == 0 || c[1] < b[1]) next;
-        wakeup = a[1] != 0 ? (b[1] - a[1]) / 1000 : "NaN";
-        runtime = (c[1] - b[1]) / 1000;
-        print i[1], b[1], wakeup, runtime;
+        if (b[2] == 0 || c[2] == 0 || c[2] < b[2]) next;
+        wakeup = a[2] != 0 ? (b[2] - a[2]) / 1000 : "NaN";
+        runtime = (c[2] - b[2]) / 1000;
+        print i[1], b[2], wakeup, runtime;
     }
 }
 ' "$LOG" > "$DATA_FILE"
