@@ -29,6 +29,7 @@ class InferenceEngine {
   // Processes all lanes in one cycle:
   // For each lane, take frame, run inference, transfer to sink.
   void runOneCycle();
+  void warmUp(const Resolution& inputResolution);
 
  private:
   IModelBackend& backend_;

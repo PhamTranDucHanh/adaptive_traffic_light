@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "traffic_perception/core/frame_pool.h"
+#include "traffic_perception/core/startup_gate.h"
 #include "traffic_perception/core/types.h"
 #include "traffic_perception/ingestion/atomic_frame_buffer.h"
 
@@ -23,8 +24,7 @@ class StreamWorker {
                   std::chrono::milliseconds phase, int32_t decodeCore,
                   int32_t streamPriority);
 
-  void run(AtomicFrameBuffer& frameBuffer,
-           std::chrono::steady_clock::time_point startTime);
+  void run(AtomicFrameBuffer& frameBuffer, StartupGate& startupGate);
   void stop();
 
   int32_t getHealthStatus() const;

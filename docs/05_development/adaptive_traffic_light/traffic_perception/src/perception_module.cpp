@@ -19,6 +19,7 @@
 namespace {
 
 constexpr std::array<std::int32_t, 2> kAllowedPerceptionCpus{0, 2};
+constexpr auto kStartupLeadTime = std::chrono::milliseconds{100};
 
 struct BackendBootstrapContext {
   const AppConfig* config{nullptr};
@@ -124,7 +125,7 @@ void* StreamThreadEntry(void* arg) {
 
   pthread_setname_np(pthread_self(), name);
 
-  ctx->worker->run(*ctx->buffer, ctx->startTime);
+  ctx->worker->run(*ctx->buffer, *ctx->startupGate);
   return nullptr;
 }
 
@@ -133,7 +134,7 @@ void* PipelineThreadEntry(void* arg) {
 
   pthread_setname_np(pthread_self(), "PIPE");
 
-  ctx->pipeline->run(ctx->startTime);
+  ctx->pipeline->run(*ctx->startupGate);
   return nullptr;
 }
 
@@ -158,8 +159,6 @@ bool PerceptionModule::initModule(const AppConfig& config) {
   cv::setNumThreads(1);
 
   config_ = config;
-  startTime_ = std::chrono::steady_clock::now();
-
   if (!pool_.init(20, config_.videoResolution.width, config_.videoResolution.height)) {
     return false;
   }
@@ -187,8 +186,9 @@ bool PerceptionModule::initModule(const AppConfig& config) {
 
   pipelineManager_ = std::make_unique<PipelineManager>(
       *backend_, buffer_, pool_, laneRois, config_.PipelinePeriod,
-      config_.PipelinePhase);
+      config_.PipelinePhase, config_.videoResolution);
   pipelineThreadContext_.pipeline = pipelineManager_.get();
+  pipelineThreadContext_.startupGate = &startupGate_;
 
   if (!snapshotSender_.open()) {
     score::mw::log::LogError()
@@ -207,6 +207,7 @@ bool PerceptionModule::initModule(const AppConfig& config) {
 
     streamThreadContexts_[i].worker = &workers_[i];
     streamThreadContexts_[i].buffer = &buffer_;
+    streamThreadContexts_[i].startupGate = &startupGate_;
   }
 
   for (std::size_t i = 0; i < NUM_LANES; ++i) {
@@ -230,11 +231,6 @@ bool PerceptionModule::startThreads() {
   }
 
   for (std::size_t i = 0; i < NUM_LANES; ++i) {
-    streamThreadContexts_[i].startTime = startTime_;
-  }
-  pipelineThreadContext_.startTime = startTime_;
-
-  for (std::size_t i = 0; i < NUM_LANES; ++i) {
     int ret = pthread_create(&streamThreads_[i], &streamThreadAttrs_[i],
                              StreamThreadEntry, &streamThreadContexts_[i]);
 
@@ -255,6 +251,8 @@ bool PerceptionModule::startThreads() {
       score::mw::log::LogError()
           << "Failed to create stream thread " << i << " errno=" << ret << " "
           << std::string{strerror(ret)};
+
+      startupGate_.cancel();
 
       // Join any stream threads that were already started before this failure
       for (auto& worker : workers_) {
@@ -285,6 +283,8 @@ bool PerceptionModule::startThreads() {
     score::mw::log::LogError() << "Failed to create pipeline thread " << ret
                                << " " << std::string{strerror(ret)};
 
+    startupGate_.cancel();
+
     // All stream threads were started; stop and join them before returning
     for (auto& worker : workers_) {
       worker.stop();
@@ -292,6 +292,22 @@ bool PerceptionModule::startThreads() {
     for (auto& thread : streamThreads_) {
       pthread_join(thread, nullptr);
     }
+    return false;
+  }
+
+  constexpr std::size_t kWorkerCount = NUM_LANES + 1U;
+  if (!startupGate_.releaseWhenReady(kWorkerCount, kStartupLeadTime)) {
+    score::mw::log::LogError()
+        << "[PerceptionModule] worker startup failed";
+    startupGate_.cancel();
+    for (auto& worker : workers_) {
+      worker.stop();
+    }
+    pipelineManager_->stop();
+    for (auto& thread : streamThreads_) {
+      pthread_join(thread, nullptr);
+    }
+    pthread_join(pipelineThread_, nullptr);
     return false;
   }
 

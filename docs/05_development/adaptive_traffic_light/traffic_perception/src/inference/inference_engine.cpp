@@ -16,6 +16,10 @@ InferenceEngine::InferenceEngine(IModelBackend& backend,
       sink_(sink),
       laneRois_(laneRois) {}
 
+void InferenceEngine::warmUp(const Resolution& inputResolution) {
+  backend_.warmUp(inputResolution);
+}
+
 void InferenceEngine::runOneCycle() {
   for (uint32_t laneId = 0; laneId < 4; ++laneId) {
     // 1. Ownership Transfer: Engine takes Frame from Buffer

@@ -22,15 +22,26 @@ PipelineManager::PipelineManager(IModelBackend& backend,
                                  AtomicFrameBuffer& buffer, FramePool& pool,
                                  const std::array<Roi, NUM_LANES>& laneRois,
                                  std::chrono::milliseconds period,
-                                 std::chrono::milliseconds phase)
+                                 std::chrono::milliseconds phase,
+                                 const Resolution& inputResolution)
     : period_(period),
       phase_(phase),
+      inputResolution_(inputResolution),
       laneRois_(laneRois),
       analyzer_(pool, laneRois_),
       publisher_(),
       engine_(backend, buffer, pool, analyzer_, laneRois_) {}
 
-void PipelineManager::run(std::chrono::steady_clock::time_point startTime) {
+void PipelineManager::run(StartupGate& startupGate) {
+  getPipelineBenchmarkLogger().LogInfo() << "Warm-up begin";
+  engine_.warmUp(inputResolution_);
+  getPipelineBenchmarkLogger().LogInfo() << "Warm-up end";
+
+  std::chrono::steady_clock::time_point startTime;
+  if (!startupGate.arriveAndWait(startTime)) {
+    return;
+  }
+
   running_ = true;
 
   auto nextRelease = startTime + phase_;

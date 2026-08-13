@@ -8,6 +8,7 @@
 
 #include "traffic_perception/core/config_manager.h"
 #include "traffic_perception/core/frame_pool.h"
+#include "traffic_perception/core/startup_gate.h"
 #include "traffic_perception/inference/imodel_backend.h"
 #include "traffic_perception/inference/inference_engine.h"
 #include "traffic_perception/pipeline/analyzer.h"
@@ -20,9 +21,10 @@ class PipelineManager {
   PipelineManager(IModelBackend& backend, AtomicFrameBuffer& buffer,
                   FramePool& pool, const std::array<Roi, NUM_LANES>& laneRois,
                   std::chrono::milliseconds period,
-                  std::chrono::milliseconds phase);
+                  std::chrono::milliseconds phase,
+                  const Resolution& inputResolution);
 
-  void run(std::chrono::steady_clock::time_point startTime);
+  void run(StartupGate& startupGate);
   void stop();
 
   Analyzer& analyzer() { return analyzer_; }
@@ -34,6 +36,7 @@ class PipelineManager {
   std::atomic<bool> running_{false};
   std::chrono::milliseconds period_;
   std::chrono::milliseconds phase_;
+  Resolution inputResolution_;
 
   std::array<Roi, NUM_LANES> laneRois_{};
 

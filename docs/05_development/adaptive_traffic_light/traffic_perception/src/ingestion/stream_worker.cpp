@@ -78,7 +78,7 @@ cv::VideoCapture StreamWorker::createCapture(const std::string& source) {
 void StreamWorker::stop() { running_.store(false, std::memory_order_relaxed); }
 
 void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
-                       std::chrono::steady_clock::time_point startTime) {
+                       StartupGate& startupGate) {
   cv::VideoCapture cap;
 
   struct ThreadTask {
@@ -118,6 +118,7 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
         << "[StreamWorker] Failed to create RT decoder bootstrap for lane "
         << LaneId << " core=" << DecodeCore
         << " priority=" << DecodePriority << " ret=" << createResult;
+    startupGate.cancel();
     return;
   }
 
@@ -126,12 +127,20 @@ void StreamWorker::run(AtomicFrameBuffer& frameBuffer,
     getBenchmarkLogger().LogError()
         << "[StreamWorker] Failed to join decoder bootstrap for lane "
         << LaneId << " ret=" << joinResult;
+    startupGate.cancel();
     return;
   }
 
   if (!cap.isOpened()) {
     getBenchmarkLogger().LogError()
         << "[StreamWorker] Failed to open source " << SourceUri;
+    startupGate.cancel();
+    return;
+  }
+
+  std::chrono::steady_clock::time_point startTime;
+  if (!startupGate.arriveAndWait(startTime)) {
+    cap.release();
     return;
   }
 

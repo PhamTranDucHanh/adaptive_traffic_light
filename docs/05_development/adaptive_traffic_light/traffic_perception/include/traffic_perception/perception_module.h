@@ -11,6 +11,7 @@
 
 #include "traffic_perception/core/config_manager.h"
 #include "traffic_perception/core/frame_pool.h"
+#include "traffic_perception/core/startup_gate.h"
 #include "traffic_perception/core/types.h"
 #include "traffic_perception/inference/imodel_backend.h"
 #include "traffic_perception/ingestion/atomic_frame_buffer.h"
@@ -23,12 +24,12 @@ namespace traffic_perception {
 struct StreamThreadContext {
   StreamWorker* worker{nullptr};
   AtomicFrameBuffer* buffer{nullptr};
-  std::chrono::steady_clock::time_point startTime;
+  StartupGate* startupGate{nullptr};
 };
 
 struct PipelineThreadContext {
   PipelineManager* pipeline{nullptr};
-  std::chrono::steady_clock::time_point startTime;
+  StartupGate* startupGate{nullptr};
 };
 
 class PerceptionModule final {
@@ -45,9 +46,8 @@ class PerceptionModule final {
   static bool ConfigureRealtimeThreadAttr(pthread_attr_t& attr,
                                           const ThreadConfig& config);
 
-  std::chrono::steady_clock::time_point startTime_;
-
   FramePool pool_{};
+  StartupGate startupGate_{};
 
   std::array<StreamWorker, NUM_LANES> workers_{};
   AtomicFrameBuffer buffer_{};
