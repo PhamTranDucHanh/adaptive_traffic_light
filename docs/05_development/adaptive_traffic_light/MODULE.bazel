@@ -86,7 +86,10 @@ bazel_dep(
 git_override(
     module_name = "score_lifecycle_health",
     commit = "654ac348e1cb9327e5c8c4d84fd0028ad3ef2714",
-    patches = ["//third_party:lifecycle_shutdown_stability.patch"],
+    patches = [
+        "//third_party:lifecycle_shutdown_stability.patch",
+        "//third_party:lifecycle_heartbeat_tolerance.patch",
+    ],
     patch_strip = 1,
     remote = "https://github.com/eclipse-score/lifecycle.git",
 )

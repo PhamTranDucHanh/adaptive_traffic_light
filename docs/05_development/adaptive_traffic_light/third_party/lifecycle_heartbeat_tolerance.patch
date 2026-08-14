@@ -1,0 +1,200 @@
+diff --git a/score/health_monitor/src/rust/heartbeat/heartbeat_monitor.rs b/score/health_monitor/src/rust/heartbeat/heartbeat_monitor.rs
+--- a/score/health_monitor/src/rust/heartbeat/heartbeat_monitor.rs
++++ b/score/health_monitor/src/rust/heartbeat/heartbeat_monitor.rs
+@@ -36,6 +36,11 @@
+     MultipleHeartbeats,
+ }
+ 
++/// Number of consecutive heartbeat timing violations accepted before the
++/// violation is reported to the HealthMonitor worker. This absorbs isolated
++/// scheduler/virtualization jitter while keeping persistent failures fatal.
++const HEARTBEAT_FAILURE_TOLERANCE: u64 = 3;
++
+ /// Builder for [`HeartbeatMonitor`].
+ #[derive(Debug)]
+ pub struct HeartbeatMonitorBuilder {
+@@ -101,6 +106,7 @@
+         MonitorEvalHandle::new(Arc::new(HeartbeatMonitorHandle {
+             inner: Arc::clone(&self.inner),
+             start_timestamp: AtomicU64::new(0),
++            consecutive_failures: AtomicU64::new(0),
+         }))
+     }
+ }
+@@ -112,12 +118,21 @@
+     /// `AtomicU64` is used to allow mutability inside `Arc`.
+     /// Variable is only accessed by worker thread.
+     start_timestamp: AtomicU64,
++
++    /// Consecutive invalid heartbeat observations. Atomic storage keeps the
++    /// evaluation handle `Sync`; only the monitoring worker updates it.
++    consecutive_failures: AtomicU64,
+ }
+ 
+ impl MonitorEvaluator for HeartbeatMonitorHandle {
+     fn evaluate(&self, hmon_starting_point: Instant, on_error: &mut dyn FnMut(&MonitorTag, MonitorEvaluationError)) {
+         let start_timestamp = self.start_timestamp.load(Ordering::Acquire);
+-        let evaluate_result = self.inner.evaluate(start_timestamp, hmon_starting_point, on_error);
++        let evaluate_result = self.inner.evaluate(
++            start_timestamp,
++            hmon_starting_point,
++            &self.consecutive_failures,
++            on_error,
++        );
+         if let Some(new_start_timestamp) = evaluate_result {
+             self.start_timestamp.store(new_start_timestamp, Ordering::Release);
+         }
+@@ -200,10 +215,33 @@
+         });
+     }
+ 
++    fn record_failure(
++        &self,
++        consecutive_failures: &AtomicU64,
++        error: HeartbeatEvaluationError,
++        on_error: &mut dyn FnMut(&MonitorTag, MonitorEvaluationError),
++    ) {
++        const FIRST_FAILURE: u64 = 1;
++        let failure_count = consecutive_failures
++            .load(Ordering::Acquire)
++            .saturating_add(FIRST_FAILURE);
++        consecutive_failures.store(failure_count, Ordering::Release);
++
++        if failure_count <= HEARTBEAT_FAILURE_TOLERANCE {
++            warn!(
++                "Heartbeat timing violation tolerated ({}/{}): {:?}",
++                failure_count, HEARTBEAT_FAILURE_TOLERANCE, error
++            );
++        } else {
++            on_error(&self.monitor_tag, error.into());
++        }
++    }
++
+     pub fn evaluate(
+         &self,
+         start_timestamp: u64,
+         hmon_starting_point: Instant,
++        consecutive_failures: &AtomicU64,
+         on_error: &mut dyn FnMut(&MonitorTag, MonitorEvaluationError),
+     ) -> Option<u64> {
+         // Get current timestamp, with offset to HMON time.
+@@ -230,8 +268,14 @@
+         // Disallow multiple heartbeats in same heartbeat cycle.
+         if counter > 1 {
+             warn!("Multiple heartbeats detected");
+-            on_error(&self.monitor_tag, HeartbeatEvaluationError::MultipleHeartbeats.into());
+-            return None;
++            self.record_failure(
++                consecutive_failures,
++                HeartbeatEvaluationError::MultipleHeartbeats,
++                on_error,
++            );
++            // The state contains the newest observed heartbeat. Rebase the
++            // next interval on it so an isolated evaluator delay can recover.
++            return Some(heartbeat_timestamp);
+         }
+         // Handle no heartbeats.
+         else if counter == 0 {
+@@ -240,7 +284,11 @@
+             if monitor_now > range.max {
+                 let offset = monitor_now - range.max;
+                 warn!("No heartbeat detected, observed after range: {}", offset);
+-                on_error(&self.monitor_tag, HeartbeatEvaluationError::TooLate.into());
++                self.record_failure(
++                    consecutive_failures,
++                    HeartbeatEvaluationError::TooLate,
++                    on_error,
++                );
+             }
+             // Either way - execution is stopped here.
+             return None;
+@@ -251,19 +299,32 @@
+         if heartbeat_timestamp < range.min {
+             let offset = range.min - heartbeat_timestamp;
+             warn!("Heartbeat occurred too early, offset to range: {}", offset);
+-            on_error(&self.monitor_tag, HeartbeatEvaluationError::TooEarly.into());
+-            None
++            self.record_failure(
++                consecutive_failures,
++                HeartbeatEvaluationError::TooEarly,
++                on_error,
++            );
++            // Rebase on the received heartbeat. Persistent early heartbeats
++            // remain consecutive failures; a correctly spaced one recovers.
++            Some(heartbeat_timestamp)
+         }
+         // Heartbeat after allowed range.
+         else if heartbeat_timestamp > range.max {
+             let offset = heartbeat_timestamp - range.max;
+             warn!("Heartbeat occurred too late, offset to range: {}", offset);
+-            on_error(&self.monitor_tag, HeartbeatEvaluationError::TooLate.into());
+-            None
++            self.record_failure(
++                consecutive_failures,
++                HeartbeatEvaluationError::TooLate,
++                on_error,
++            );
++            // A late heartbeat proves the producer is alive. Use it only as
++            // the new timing baseline; this evaluation remains unhealthy.
++            Some(heartbeat_timestamp)
+         }
+         // Heartbeat in allowed state.
+         else {
+             // Update heartbeat monitor state with a current heartbeat as a beginning of a new cycle.
++            consecutive_failures.store(0, Ordering::Release);
+             Some(heartbeat_timestamp)
+         }
+     }
+@@ -292,6 +353,7 @@
+ #[score_testing_macros::test_mod_with_log]
+ #[cfg(all(test, not(loom)))]
+ mod tests {
++    use super::HEARTBEAT_FAILURE_TOLERANCE;
+     use crate::common::{Monitor, MonitorEvaluationError, MonitorEvaluator, TimeRange};
+     use crate::health_monitor::HealthMonitorError;
+     use crate::heartbeat::heartbeat_monitor::test_common::{range_from_ms, sleep_until, TAG};
+@@ -474,6 +536,32 @@
+     }
+ 
+     #[test]
++    fn heartbeat_monitor_reports_only_after_failure_tolerance_is_exceeded() {
++        let range = range_from_ms(80, 120);
++        let monitor = create_monitor_single_cycle(range);
++        let evaluation_handle = monitor.get_eval_handle();
++        let hmon_starting_point = Instant::now();
++        let mut reported_errors = 0_u64;
++
++        for failure_count in 1..=(HEARTBEAT_FAILURE_TOLERANCE + 1) {
++            monitor.heartbeat();
++            monitor.heartbeat();
++            evaluation_handle.evaluate(hmon_starting_point, &mut |monitor_tag, error| {
++                assert_eq!(*monitor_tag, MonitorTag::from(TAG));
++                assert_eq!(error, HeartbeatEvaluationError::MultipleHeartbeats.into());
++                reported_errors += 1;
++            });
++
++            let expected_reports = if failure_count > HEARTBEAT_FAILURE_TOLERANCE {
++                1
++            } else {
++                0
++            };
++            assert_eq!(reported_errors, expected_reports);
++        }
++    }
++
++    #[test]
+     fn heartbeat_monitor_multiple_beats_early_evaluate_early() {
+         multiple_beats_eval_test(Duration::from_millis(25), Duration::from_millis(50))
+     }
+@@ -751,7 +839,10 @@
+                 });
+ 
+             heartbeat_thread.join().unwrap();
+-            assert!(error_detected);
++            assert!(
++                !error_detected,
++                "the first heartbeat timing violation must be tolerated"
++            );
+         });
+     }
+ }

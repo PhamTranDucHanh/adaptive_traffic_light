@@ -1,4 +1,5 @@
 exports_files([
+    "lifecycle_heartbeat_tolerance.patch",
     "lifecycle_shutdown_stability.patch",
     "opencv.BUILD.bazel",
 ])
