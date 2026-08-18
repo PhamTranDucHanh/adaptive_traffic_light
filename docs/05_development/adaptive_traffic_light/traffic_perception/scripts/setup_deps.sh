@@ -55,7 +55,7 @@ download_file() {
     elif command -v wget >/dev/null 2>&1; then
         wget --tries=3 --output-document="${output_file}" "${source_url}"
     else
-        echo "ERROR: curl hoặc wget chưa được cài đặt." >&2
+        echo "ERROR: neither curl nor wget is installed." >&2
         exit 1
     fi
 }
@@ -63,11 +63,11 @@ download_file() {
 install_onnx_runtime() {
     if [[ -e "${ONNX_DIR}/lib/libonnxruntime.so.1" && \
           -f "${ONNX_DIR}/BUILD.bazel" ]]; then
-        echo "[SETUP][ONNX] ONNX Runtime ${ONNX_VERSION} đã tồn tại."
+        echo "[SETUP][ONNX] ONNX Runtime ${ONNX_VERSION} is already installed."
         return
     fi
 
-    echo "[SETUP][ONNX] Đang tải ONNX Runtime ${ONNX_VERSION} (${ONNX_ARCH})..."
+    echo "[SETUP][ONNX] Downloading ONNX Runtime ${ONNX_VERSION} (${ONNX_ARCH})..."
     download_file "${URL}" "${TMP_DIR}/${ARCHIVE}"
     tar -xzf "${TMP_DIR}/${ARCHIVE}" -C "${TMP_DIR}"
 
@@ -75,7 +75,7 @@ install_onnx_runtime() {
     extract_dir="$(find "${TMP_DIR}" -maxdepth 1 -type d \
         -name 'onnxruntime-linux-*' -print -quit)"
     if [[ -z "${extract_dir}" ]]; then
-        echo "ERROR: Không tìm thấy thư mục ONNX Runtime sau khi giải nén." >&2
+        echo "ERROR: ONNX Runtime directory was not found after extraction." >&2
         exit 1
     fi
 
@@ -85,10 +85,10 @@ install_onnx_runtime() {
         "${ONNX_DIR}/BUILD.bazel"
 
     if [[ ! -e "${ONNX_DIR}/lib/libonnxruntime.so.1" ]]; then
-        echo "ERROR: Thiếu libonnxruntime.so.1 sau khi cài đặt." >&2
+        echo "ERROR: libonnxruntime.so.1 is missing after installation." >&2
         exit 1
     fi
-    echo "[SETUP][ONNX] Đã cài tại ${ONNX_DIR}."
+    echo "[SETUP][ONNX] Installed in ${ONNX_DIR}."
 }
 
 run_gdown() {
@@ -103,12 +103,12 @@ run_gdown() {
     fi
 
     if ! python3 -m pip --version >/dev/null 2>&1; then
-        echo "ERROR: Cần gdown hoặc python3-pip để tải Google Drive." >&2
+        echo "ERROR: gdown or python3-pip is required to download from Google Drive." >&2
         exit 1
     fi
 
     local gdown_python_dir="${TMP_DIR}/gdown-python"
-    echo "[SETUP][DATA] Đang cài tạm gdown 5.2.0..."
+    echo "[SETUP][DATA] Installing temporary gdown 5.2.0..."
     python3 -m pip install --disable-pip-version-check --quiet \
         --target "${gdown_python_dir}" "gdown==5.2.0"
     PYTHONPATH="${gdown_python_dir}${PYTHONPATH:+:${PYTHONPATH}}" \
@@ -125,12 +125,12 @@ install_runtime_assets() {
     done
 
     if (( ${#missing_assets[@]} == 0 )); then
-        echo "[SETUP][DATA] Đủ 4 video và 3 model trong ${DATA_DIR}."
+        echo "[SETUP][DATA] All required videos and models are available in ${DATA_DIR}."
         return
     fi
 
-    echo "[SETUP][DATA] Thiếu: ${missing_assets[*]}"
-    echo "[SETUP][DATA] Đang tải thư mục Google Drive..."
+    echo "[SETUP][DATA] Missing assets: ${missing_assets[*]}"
+    echo "[SETUP][DATA] Downloading the Google Drive folder..."
     local download_dir="${TMP_DIR}/google-drive-assets"
     mkdir -p "${download_dir}"
     run_gdown --folder --remaining-ok --output "${download_dir}" \
@@ -141,12 +141,12 @@ install_runtime_assets() {
         source_file="$(find "${download_dir}" -type f -name "${asset}" \
             -print -quit)"
         if [[ -z "${source_file}" || ! -s "${source_file}" ]]; then
-            echo "ERROR: Google Drive không cung cấp file ${asset}." >&2
-            echo "Kiểm tra quyền chia sẻ và tên file trong: ${GDRIVE_FOLDER_URL}" >&2
+            echo "ERROR: Google Drive did not provide ${asset}." >&2
+            echo "Check the sharing permissions and file name at: ${GDRIVE_FOLDER_URL}" >&2
             exit 1
         fi
         install -m 0644 "${source_file}" "${DATA_DIR}/${asset}"
-        echo "[SETUP][DATA] Đã cài ${asset}."
+        echo "[SETUP][DATA] Installed ${asset}."
     done
 }
 
@@ -155,7 +155,7 @@ install_runtime_assets
 
 echo
 echo "========================================"
-echo "Setup dependencies thành công."
+echo "Dependency setup completed successfully."
 echo "ONNX Runtime: ${ONNX_DIR}"
 echo "Runtime assets: ${DATA_DIR}"
 echo "========================================"

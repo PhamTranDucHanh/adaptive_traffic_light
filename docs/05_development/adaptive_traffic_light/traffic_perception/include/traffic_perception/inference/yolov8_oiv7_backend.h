@@ -46,6 +46,13 @@ class YoloV8OIV7Backend : public IModelBackend {
   float dw_{0.0f};
   float dh_{0.0f};
 
+  std::vector<float> inputTensorValues_;
+  cv::Mat resizedBuffer_;
+  cv::Mat letterboxBuffer_;
+  cv::Mat rgbBuffer_;
+  cv::Mat normalizedBuffer_;
+  cv::Mat transposedOutputBuffer_;
+
   void preprocess(const cv::Mat& frame,
                   std::vector<float>& input_tensor_values);
   void postprocess(const cv::Mat& frame,

@@ -1,7 +1,5 @@
 # Adaptive Traffic Light — End-to-End Integrated Execution
 
-> The full command to "copy and run" is at the end of this README
-
 The deployment runs three actual processes under Eclipse S-CORE Lifecycle:
 
 ```text
@@ -12,26 +10,34 @@ traffic_timing_decision
 traffic_signal_controller
 ```
 
-## 1. Prepare Dependencies and Data
+## 1. Prerequisites and Runtime Data
 
-From the `integrate` directory, run the setup script first:
+From the repository root, enter the Bazel workspace:
 
 ```bash
-cd /adaptive_traffic_light/docs/05_development/adaptive_traffic_light
+cd docs/05_development/adaptive_traffic_light
+```
+
+The recommended end-to-end runner calls the dependency setup script
+automatically. To prepare dependencies without starting the system, run:
+
+```bash
+cd /adaptive_traffic_light/docs/05_development/adaptive_traffic_light/integrate
 bash traffic_perception/scripts/setup_deps.sh
 ```
 
-The script performs the following two tasks and can be safely executed multiple times:
+The setup is idempotent and performs the following tasks:
 
 - Downloads ONNX Runtime `1.27.1` for either `x86_64` or `aarch64` into
   `traffic_perception/lib/onnxruntime` if it is not already available.
 - Downloads any missing files from [Google Drive](https://drive.google.com/drive/folders/1nXzpFTzbHLYzKeyYwoBCRkDmDqH5TnIM)
   into the `data` directory: `traffic.mp4` through `traffic4.mp4`,
-  `yolov8m-oiv7.onnx`, `yolov8m.onnx`, and `yolov8n.onnx`.
+  `yolov8m-oiv7.onnx`, `yolov8n-oiv7.onnx`, `yolov8m.onnx`,
+  `yolov8n.onnx`, and `rt-detrv2-s.onnx`.
 
-The system must have `python3`, `python3-pip`, and either `curl` or `wget`
-installed. If `gdown` is not available, the script temporarily installs
-`gdown 5.2.0` without installing Python packages system-wide.
+The host must provide `bazel`, `sudo`, `dlt-convert`, `gnuplot`, `python3`,
+`python3-pip`, and either `curl` or `wget`. If `gdown` is unavailable, setup
+temporarily installs `gdown 5.2.0` without modifying system Python packages.
 
 The Google Drive folder must allow files to be downloaded by anyone with the
 link.
@@ -43,36 +49,67 @@ test -e traffic_perception/lib/onnxruntime/lib/libonnxruntime.so.1
 ls -lh data/*.mp4 data/*.onnx
 ```
 
-## 2. Configure Real-Time Resource Limits for the Current Terminal
+## 2. Run the System and Generate Analytics
+
+Recommended command:
 
 ```bash
-sudo prlimit --pid $$ --rtprio=99:99 --memlock=unlimited:unlimited
+./deployment/run_end_to_end_analytics.sh [duration] [--vendor-dir <path>]
 ```
 
-If the Bazel server was started before these limits were configured, stop it
-so that the new server inherits the real-time limits from the current terminal:
+Duration is optional. No value means run until `Ctrl-C`; a bare number or `s`
+means seconds, `m` means minutes, and `h` means hours.
+
+Common examples:
 
 ```bash
-bazel shutdown
+./deployment/run_end_to_end_analytics.sh       # until Ctrl-C
+./deployment/run_end_to_end_analytics.sh 120   # 120 seconds
+./deployment/run_end_to_end_analytics.sh 5m    # five minutes
 ```
 
-## 3. Build and Run the End-to-End System
+The runner prepares dependencies, configures RT limits, restarts Bazel, runs
+the Lifecycle deployment, and generates all analytics. It sets the system-wide
+`kernel.sched_rt_runtime_us=-1` value and does not restore its previous value.
+
+### Bazel vendor mode
+
+Default execution uses normal Bazel dependency resolution. To use the existing
+vendor directory:
 
 ```bash
-bazel run --config=x86_64-linux //deployment:traffic_light_system
+./deployment/run_end_to_end_analytics.sh 5m --vendor-dir vendor
 ```
 
-The deployment automatically performs the following steps:
+`--vendor-dir=<path>` and `--vendor_dir <path>` are also accepted. Relative
+paths use the workspace root; the directory must contain `VENDOR.bazel`.
+Vendor mode affects Bazel dependencies only, not model/video setup.
 
-1. Builds the three applications and the Launch Manager.
-2. Stages the binaries, configuration files, ONNX Runtime libraries, model,
-   and video files in `/tmp/linux_rt_application`.
-3. Removes stale IPC resources while the entire system is stopped.
-4. Starts the processes in the following order:
-   Perception -> Timing Decision -> Signal Controller.
+### Generated output
 
-There is no need to manually export `LD_LIBRARY_PATH`. The deployment sets
-`/tmp/linux_rt_application/lib` as the library path for the child processes.
+Each run writes reports, logs, and plots below:
+
+```text
+output/end_to_end/<YYYYMMDD_HHMMSS>/
+```
+
+Override the root when needed:
+
+```bash
+E2E_ANALYTICS_OUTPUT_DIR=/tmp/traffic-e2e \
+  ./deployment/run_end_to_end_analytics.sh 120
+```
+
+Traffic Perception keeps its source logs, `perc_*_statistic.txt` reports, and
+final PNGs; temporary plotting datasets are removed. Check `postprocess.log`
+for optional analytics warnings.
+
+## 3. Runtime Behavior and Logs
+
+The deployment stages binaries, configuration, ONNX Runtime, models, and video
+files below `/tmp/linux_rt_application`. There is no need to export
+`LD_LIBRARY_PATH`; the deployment configures
+`/tmp/linux_rt_application/lib` for its child processes.
 
 Valid output should include traffic light phases similar to:
 
@@ -97,9 +134,18 @@ Stop the system by pressing `Ctrl-C`. The Lifecycle Manager will stop the
 processes according to their dependency order. The current `shutdown_timeout`
 is 10 seconds.
 
-## Complete Command Sequence
+## 4. Run the Deployment Without Analytics
+
+For runtime-only execution:
 
 ```bash
 cd docs/05_development/adaptive_traffic_light
-./deployment/run_end_to_end_analytics.sh 
+bash traffic_perception/scripts/setup_deps.sh
+sudo prlimit --pid $$ --rtprio=99:99 --memlock=unlimited:unlimited
+sudo sysctl -w kernel.sched_rt_runtime_us=-1 
+bazel shutdown
+bazel run --config=x86_64-linux //deployment:traffic_light_system
 ```
+
+Direct runtime execution does not extract DLT logs or generate the timestamped
+analytics output described above.

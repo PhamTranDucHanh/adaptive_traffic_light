@@ -10,7 +10,10 @@ readonly RUN_ID="$(date +%Y%m%d_%H%M%S)"
 readonly RUN_START_EPOCH="$(date +%s)"
 readonly OUTPUT_ROOT="${E2E_ANALYTICS_OUTPUT_DIR:-$WORKSPACE_ROOT/output/end_to_end}"
 readonly RUN_OUTPUT="$OUTPUT_ROOT/$RUN_ID"
-readonly DURATION="${1:-}"
+
+DURATION=""
+VENDOR_DIR=""
+BAZEL_BUILD_ARGS=(--config=x86_64-linux)
 
 APP_PID=""
 TIMER_PID=""
@@ -20,13 +23,19 @@ readonly POSTPROCESS_LOG="$RUN_OUTPUT/postprocess.log"
 
 usage() {
   cat <<EOF
-Usage: $0 [duration]
+Usage: $0 [duration] [--vendor-dir <path>]
 
 Examples:
-  $0          Run until Ctrl+C
-  $0 60       Run for 60 seconds
-  $0 5m       Run for 5 minutes
-  $0 1h       Run for 1 hour
+  $0                         Run normally until Ctrl+C
+  $0 60                      Run normally for 60 seconds
+  $0 5m --vendor-dir vendor  Run for 5 minutes using vendored dependencies
+  $0 --vendor-dir=/data/vendor
+                             Run until Ctrl+C using an absolute vendor path
+
+Options:
+  --vendor-dir <path>  Pass --vendor_dir=<path> to every Bazel build/run.
+                       Relative paths are resolved from the workspace root.
+  -h, --help           Show this help.
 EOF
 }
 
@@ -93,10 +102,10 @@ request_stop() {
     if "$RUNTIME_ROOT/bin/lmcontrol" Stop; then
       return
     fi
-    warn "Lifecycle Stop request failed; forwarding SIGINT to Bazel."
-    [[ -n "$APP_PID" ]] && kill -INT "$APP_PID" 2>/dev/null || true
+    warn "Lifecycle Stop request failed; forwarding SIGTERM to Bazel."
+    [[ -n "$APP_PID" ]] && kill -TERM "$APP_PID" 2>/dev/null || true
   elif [[ -n "$APP_PID" ]] && kill -0 "$APP_PID" 2>/dev/null; then
-    kill -INT "$APP_PID" 2>/dev/null || true
+    kill -TERM "$APP_PID" 2>/dev/null || true
   fi
 }
 
@@ -156,16 +165,118 @@ extract_report_section() {
   fi
 }
 
-if [[ $# -gt 1 || "$DURATION" == "-h" || "$DURATION" == "--help" ]]; then
-  usage
-  [[ $# -le 1 && ("$DURATION" == "-h" || "$DURATION" == "--help") ]] && exit 0
-  exit 2
-fi
+cleanup_perception_intermediates() {
+  local perception_dir="$1"
+  local -a intermediate_files=(
+    "$perception_dir/pipeline.log_statistics.txt"
+    "$perception_dir/stream.log_statistics.txt"
+    "$perception_dir/pipeline_metrics.txt"
+    "$perception_dir/wakeup_latency.txt"
+    "$perception_dir/execution_time.txt"
+    "$perception_dir/pipeline_line_metrics.txt"
+    "$perception_dir/stream_line_metrics_lane0.txt"
+    "$perception_dir/stream_line_metrics_lane1.txt"
+    "$perception_dir/stream_line_metrics_lane2.txt"
+    "$perception_dir/stream_line_metrics_lane3.txt"
+    "$perception_dir/wakeup_latency_lane0.txt"
+    "$perception_dir/wakeup_latency_lane1.txt"
+    "$perception_dir/wakeup_latency_lane2.txt"
+    "$perception_dir/wakeup_latency_lane3.txt"
+    "$perception_dir/execution_time_lane0.txt"
+    "$perception_dir/execution_time_lane1.txt"
+    "$perception_dir/execution_time_lane2.txt"
+    "$perception_dir/execution_time_lane3.txt"
+    "$perception_dir/plots/wakeup_latency.dat"
+  )
+  local removed_count=0
+  local intermediate_file=""
+
+  # These files are inputs generated solely for the reports and PNGs above.
+  # Keep the converted/source logs because the ftrace diagnostic consumes them
+  # after this script exits, and keep all final reports and plots.
+  for intermediate_file in "${intermediate_files[@]}"; do
+    if [[ -e "$intermediate_file" ]]; then
+      if rm -f -- "$intermediate_file"; then
+        removed_count=$((removed_count + 1))
+      else
+        warn "Could not remove Traffic Perception intermediate: $intermediate_file"
+        POSTPROCESS_FAILURES=$((POSTPROCESS_FAILURES + 1))
+      fi
+    fi
+  done
+
+  log "Removed $removed_count intermediate Traffic Perception file(s)."
+}
+
+while (($# > 0)); do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --vendor-dir|--vendor_dir)
+      if [[ -n "$VENDOR_DIR" ]]; then
+        printf '[E2E][ERROR] vendor directory was specified more than once\n' >&2
+        exit 2
+      fi
+      if (($# < 2)) || [[ -z "$2" ]]; then
+        printf '[E2E][ERROR] %s requires a directory path\n' "$1" >&2
+        exit 2
+      fi
+      VENDOR_DIR="$2"
+      shift 2
+      ;;
+    --vendor-dir=*|--vendor_dir=*)
+      if [[ -n "$VENDOR_DIR" ]]; then
+        printf '[E2E][ERROR] vendor directory was specified more than once\n' >&2
+        exit 2
+      fi
+      VENDOR_DIR="${1#*=}"
+      if [[ -z "$VENDOR_DIR" ]]; then
+        printf '[E2E][ERROR] vendor directory path must not be empty\n' >&2
+        exit 2
+      fi
+      shift
+      ;;
+    --*)
+      printf '[E2E][ERROR] unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      if [[ -n "$DURATION" ]]; then
+        printf '[E2E][ERROR] unexpected argument: %s\n' "$1" >&2
+        usage >&2
+        exit 2
+      fi
+      DURATION="$1"
+      shift
+      ;;
+  esac
+done
 
 if [[ -n "$DURATION" && ! "$DURATION" =~ ^[1-9][0-9]*([smh])?$ ]]; then
   printf '[E2E][ERROR] invalid duration: %s (use 60, 60s, 5m, or 1h)\n' \
     "$DURATION" >&2
   exit 2
+fi
+
+if [[ -n "$VENDOR_DIR" ]]; then
+  if [[ "$VENDOR_DIR" != /* ]]; then
+    VENDOR_DIR="$WORKSPACE_ROOT/$VENDOR_DIR"
+  fi
+  if [[ ! -d "$VENDOR_DIR" ]]; then
+    printf '[E2E][ERROR] Bazel vendor directory does not exist: %s\n' \
+      "$VENDOR_DIR" >&2
+    exit 2
+  fi
+  if [[ ! -f "$VENDOR_DIR/VENDOR.bazel" ]]; then
+    printf '[E2E][ERROR] Bazel vendor metadata is missing: %s/VENDOR.bazel\n' \
+      "$VENDOR_DIR" >&2
+    exit 2
+  fi
+  VENDOR_DIR="$(cd "$VENDOR_DIR" && pwd -P)"
+  BAZEL_BUILD_ARGS+=("--vendor_dir=$VENDOR_DIR")
 fi
 
 for command in bazel dlt-convert gnuplot sudo; do
@@ -179,6 +290,12 @@ mkdir -p \
 : >"$POSTPROCESS_LOG"
 
 cd "$WORKSPACE_ROOT"
+
+if [[ -n "$VENDOR_DIR" ]]; then
+  log "Bazel vendor mode enabled: $VENDOR_DIR"
+else
+  log "Bazel vendor mode disabled; using normal dependency resolution."
+fi
 
 log "Preparing executable permissions for deployment and module scripts..."
 prepare_script_permissions
@@ -202,14 +319,18 @@ else
   log "Running until Ctrl+C"
 fi
 
-bazel run --config=x86_64-linux //deployment:traffic_light_system &
+bazel run "${BAZEL_BUILD_ARGS[@]}" //deployment:traffic_light_system &
 APP_PID=$!
 
 if [[ -n "$DURATION" ]]; then
   parent_pid=$$
   (
     sleep "$DURATION"
-    kill -INT "$parent_pid" 2>/dev/null || true
+    # This script can itself be launched as a background job. Bash starts
+    # asynchronous jobs with SIGINT ignored, so an INT-based timer may never
+    # reach request_stop. SIGTERM remains trappable and follows the same
+    # graceful lifecycle shutdown path.
+    kill -TERM "$parent_pid" 2>/dev/null || true
   ) &
   TIMER_PID=$!
 fi
@@ -335,11 +456,11 @@ fi
 if [[ -s "$PERCEPTION_DIR/pipeline.log" || -s "$PERCEPTION_DIR/stream.log" ]]; then
   run_with_report "Analyzing Traffic Perception pipeline logs" \
     "$PERCEPTION_DIR/perc_pipe_statistic.txt" \
-    bazel run --config=x86_64-linux //traffic_perception:analyze_log \
+    bazel run "${BAZEL_BUILD_ARGS[@]}" //traffic_perception:analyze_log \
     "$PERCEPTION_DIR/pipeline.log"
   run_with_report "Analyzing Traffic Perception stream logs" \
     "$PERCEPTION_DIR/perc_stream_statistic.txt" \
-    bazel run --config=x86_64-linux //traffic_perception:analyze_log \
+    bazel run "${BAZEL_BUILD_ARGS[@]}" //traffic_perception:analyze_log \
     "$PERCEPTION_DIR/stream.log"
   run_optional "Plotting Traffic Perception pipeline histograms" \
     "$WORKSPACE_ROOT/traffic_perception/scripts/gen_histogram.sh" \
@@ -365,7 +486,7 @@ if [[ -s "$RUNTIME_LOGS/timing_decision.dlt" && \
       -s "$RUNTIME_LOGS/wakeup_latency.dlt" && \
       -s "$RUNTIME_LOGS/execution_time.dlt" ]]; then
   run_optional "Building Traffic Timing Decision analytics" \
-    bazel build --config=x86_64-linux //traffic_timing_decision:analytics
+    bazel build "${BAZEL_BUILD_ARGS[@]}" //traffic_timing_decision:analytics
   run_with_report "Printing Traffic Timing Decision analytics" \
     "$TIMING_DIR/deci_statistic.txt" \
     "$WORKSPACE_ROOT/bazel-bin/traffic_timing_decision/analytics" \
@@ -457,6 +578,8 @@ else
   warn "Signal Controller converted log is missing or empty."
   POSTPROCESS_FAILURES=$((POSTPROCESS_FAILURES + 1))
 fi
+
+cleanup_perception_intermediates "$PERCEPTION_DIR"
 
 log "Generated analytics reports and plots: $RUN_OUTPUT"
 

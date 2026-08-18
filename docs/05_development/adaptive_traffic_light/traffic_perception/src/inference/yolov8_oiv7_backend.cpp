@@ -4,6 +4,7 @@
 #include <cstring>
 #include <iostream>
 #include <opencv2/imgproc.hpp>
+#include <stdexcept>
 #include <unordered_map>
 
 #include "score/mw/log/logging.h"
@@ -17,8 +18,11 @@ namespace traffic_perception {
 // -----------------------------------------------------------------------
 
 static const std::unordered_map<std::string, bool> kOiv7VehicleNames = {
-    {"Car", true}, {"Bus", true}, {"Truck", true},
-    {"Bicycle", true}, {"Van", true}};
+    {"Car", true},
+    {"Bus", true},
+    {"Truck", true},
+    {"Bicycle", true},
+    {"Van", true}};
 
 static const std::vector<std::string> kOiv7Labels = {
     "Accordion", "Adhesive tape", "Aircraft", "Airplane", "Alarm clock",
@@ -85,14 +89,19 @@ InferenceResult YoloV8OIV7Backend::infer(const Frame& frame) {
   auto runtimeEnd = traceBegin;
   const char* currentStage = "preprocess";
 
+  const std::uint64_t callIndex = inferenceCallCount_++;
+  const auto traceBegin = InferenceTraceClock::now();
+  auto preprocessEnd = traceBegin;
+  auto runtimeEnd = traceBegin;
+  const char* currentStage = "preprocess";
+
   try {
-    std::vector<float> input_tensor_values;
-    preprocess(frame.Image, input_tensor_values);
+    preprocess(frame.Image, inputTensorValues_);
     preprocessEnd = InferenceTraceClock::now();
 
     std::array<int64_t, 4> input_shape = {1, 3, 640, 640};
     auto input_tensor = Ort::Value::CreateTensor<float>(
-        memory_info_, input_tensor_values.data(), input_tensor_values.size(),
+        memory_info_, inputTensorValues_.data(), inputTensorValues_.size(),
         input_shape.data(), input_shape.size());
 
     currentStage = "runtime";
@@ -148,35 +157,32 @@ void YoloV8OIV7Backend::preprocess(const cv::Mat& frame,
   dh_ = static_cast<float>(top);
 
   // Resize image conserving aspect ratio
-  cv::Mat resized;
+  const cv::Mat* resized = &frame;
   if (frame.cols != new_unpad_w || frame.rows != new_unpad_h) {
-    cv::resize(frame, resized, cv::Size(new_unpad_w, new_unpad_h), 0, 0,
+    cv::resize(frame, resizedBuffer_, cv::Size(new_unpad_w, new_unpad_h), 0, 0,
                cv::INTER_LINEAR);
-  } else {
-    resized = frame;
+    resized = &resizedBuffer_;
   }
 
-  cv::Mat letterboxed;
-  cv::copyMakeBorder(resized, letterboxed, top, bottom, left, right,
+  cv::copyMakeBorder(*resized, letterboxBuffer_, top, bottom, left, right,
                      cv::BORDER_CONSTANT, cv::Scalar(114, 114, 114));
 
   // Convert from BGR to RGB
-  cv::Mat rgb;
-  cv::cvtColor(letterboxed, rgb, cv::COLOR_BGR2RGB);
+  cv::cvtColor(letterboxBuffer_, rgbBuffer_, cv::COLOR_BGR2RGB);
 
   // Normalize
-  rgb.convertTo(rgb, CV_32FC3, 1.0 / 255.0);
+  rgbBuffer_.convertTo(normalizedBuffer_, CV_32FC3, 1.0 / 255.0);
 
   // HWC to CHW
-  input_tensor_values.resize(3 * 640 * 640);
-  std::vector<cv::Mat> channels(3);
-  cv::split(rgb, channels);
-  int offset = 0;
-  for (int i = 0; i < 3; ++i) {
-    memcpy(input_tensor_values.data() + offset, channels[i].data,
-           640 * 640 * sizeof(float));
-    offset += 640 * 640;
+  constexpr std::size_t kPlaneSize = 640U * 640U;
+  if (input_tensor_values.size() != 3U * kPlaneSize) {
+    input_tensor_values.resize(3U * kPlaneSize);
   }
+  std::array<cv::Mat, 3> channels{
+      cv::Mat(640, 640, CV_32F, input_tensor_values.data()),
+      cv::Mat(640, 640, CV_32F, input_tensor_values.data() + kPlaneSize),
+      cv::Mat(640, 640, CV_32F, input_tensor_values.data() + 2U * kPlaneSize)};
+  cv::split(normalizedBuffer_, channels.data());
 }
 
 void YoloV8OIV7Backend::postprocess(
@@ -187,6 +193,9 @@ void YoloV8OIV7Backend::postprocess(
   auto tensor_info = output_tensors[0].GetTensorTypeAndShapeInfo();
   auto shape = tensor_info.GetShape();
   const float* data = output_tensors[0].GetTensorData<float>();
+  if (shape.size() != 3U || shape[0] != 1 || shape[1] <= 4 || shape[2] <= 0) {
+    throw std::runtime_error("YOLOv8-OIV7 returned an invalid output shape");
+  }
 
   // Ultralytics YOLOv8 ONNX exports (including OIV7 600-class models [1, 604,
   // 8400]) output format: [1, 4 + num_classes, num_anchors] with NO objectness
@@ -196,7 +205,10 @@ void YoloV8OIV7Backend::postprocess(
   const bool has_objectness = (shape[1] == 85);
   const int numClasses =
       static_cast<int>(shape[1]) - 4 - (has_objectness ? 1 : 0);
-  const int numAnchors = static_cast<int>(shape[2]);
+  const auto numAnchors = static_cast<std::size_t>(shape[2]);
+  const cv::Mat output(static_cast<int>(shape[1]), static_cast<int>(numAnchors),
+                       CV_32F, const_cast<float*>(data));
+  cv::transpose(output, transposedOutputBuffer_);
 
   if (frameCount_ < 5) {
     score::mw::log::LogDebug()
@@ -216,16 +228,9 @@ void YoloV8OIV7Backend::postprocess(
         << "[YoloV8OIV7Backend][debug] numAnchors: " << numAnchors << "\n";
   }
 
-  cv::Mat output(static_cast<int>(shape[1]), static_cast<int>(shape[2]), CV_32F,
-                 const_cast<float*>(data));
-  cv::Mat transposed = output.t();
-
   std::vector<int> classIds;
   std::vector<float> confidences;
   std::vector<cv::Rect> boxes;
-
-  float x_scale = static_cast<float>(frame.cols) / 640.0f;
-  float y_scale = static_cast<float>(frame.rows) / 640.0f;
 
   float global_max_score = -1.0f;
   double sum_scores = 0.0;
@@ -235,26 +240,26 @@ void YoloV8OIV7Backend::postprocess(
   int count_gt_050 = 0;
   int max_class_id_found = -1;
 
-  for (int i = 0; i < transposed.rows; ++i) {
-    float* row = transposed.ptr<float>(i);
-    float cx = row[0];
-    float cy = row[1];
-    float w = row[2];
-    float h = row[3];
+  for (std::size_t i = 0; i < numAnchors; ++i) {
+    const float* row = transposedOutputBuffer_.ptr<float>(static_cast<int>(i));
+    const float cx = row[0];
+    const float cy = row[1];
+    const float w = row[2];
+    const float h = row[3];
 
     float obj_score = 1.0f;
-    int class_offset = 4;
+    std::size_t class_offset = 4U;
     if (has_objectness) {
       obj_score = row[4];
-      class_offset = 5;
+      class_offset = 5U;
     }
 
-    float* class_scores = row + class_offset;
     int class_id = -1;
     float best_class_score = -1.0f;
     for (int j = 0; j < numClasses; ++j) {
-      if (class_scores[j] > best_class_score) {
-        best_class_score = class_scores[j];
+      const float score = row[class_offset + static_cast<std::size_t>(j)];
+      if (score > best_class_score) {
+        best_class_score = score;
         class_id = j;
       }
     }
@@ -272,7 +277,7 @@ void YoloV8OIV7Backend::postprocess(
     if (confidence > 0.25f) count_gt_025++;
     if (confidence > 0.50f) count_gt_050++;
 
-    if (frameCount_ == 0 && i < 10) {
+    if (frameCount_ == 0 && i < 10U) {
       score::mw::log::LogDebug()
           << "[YoloV8OIV7Backend][anchor " << i << "]" << " cx=" << cx
           << " cy=" << cy << " w=" << w << " h=" << h
@@ -280,7 +285,8 @@ void YoloV8OIV7Backend::postprocess(
           << " max_class_score=" << best_class_score
           << " confidence=" << confidence << " first 5 scores: ";
       for (int k = 0; k < std::min(5, numClasses); ++k) {
-        score::mw::log::LogDebug() << class_scores[k] << " ";
+        score::mw::log::LogDebug()
+            << row[class_offset + static_cast<std::size_t>(k)] << " ";
       }
       score::mw::log::LogDebug() << "\n";
     }

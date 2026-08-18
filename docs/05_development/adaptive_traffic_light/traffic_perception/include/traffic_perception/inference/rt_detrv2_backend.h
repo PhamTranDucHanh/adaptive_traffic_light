@@ -30,7 +30,7 @@ class RtDetrv2Backend final : public IModelBackend {
 
  private:
   void inspectModelContract();
-  void preprocess(const cv::Mat& frame, std::vector<float>& tensor) const;
+  void preprocess(const cv::Mat& frame, std::vector<float>& tensor);
   void postprocess(const cv::Mat& frame, const std::vector<Ort::Value>& outputs,
                    InferenceResult& result) const;
 
@@ -50,6 +50,10 @@ class RtDetrv2Backend final : public IModelBackend {
 
   std::int64_t inputHeight_{640};
   std::int64_t inputWidth_{640};
+  std::vector<float> inputTensorValues_;
+  cv::Mat resizedBuffer_;
+  cv::Mat rgbBuffer_;
+  cv::Mat normalizedBuffer_;
   std::size_t labelsOutputIndex_{0};
   std::size_t boxesOutputIndex_{1};
   std::size_t scoresOutputIndex_{2};

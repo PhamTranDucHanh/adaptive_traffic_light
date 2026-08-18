@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <limits>
 #include <opencv2/imgproc.hpp>
 #include <stdexcept>
 #include <utility>
@@ -45,10 +46,18 @@ std::size_t FindName(const std::vector<std::string>& names,
 std::size_t ElementCount(const std::vector<std::int64_t>& shape) {
   std::size_t count{1U};
   for (const auto dimension : shape) {
-    if (dimension <= 0) {
+    if (dimension < 0) {
       throw std::runtime_error("RT-DETRv2 produced a dynamic output shape");
     }
-    count *= static_cast<std::size_t>(dimension);
+    if (dimension == 0) {
+      count = 0U;
+      continue;
+    }
+    const auto size = static_cast<std::size_t>(dimension);
+    if (count != 0U && count > std::numeric_limits<std::size_t>::max() / size) {
+      throw std::runtime_error("RT-DETRv2 output tensor size overflow");
+    }
+    count *= size;
   }
   return count;
 }
@@ -112,6 +121,8 @@ void RtDetrv2Backend::inspectModelContract() {
   }
   if (inputShape[2] > 0) inputHeight_ = inputShape[2];
   if (inputShape[3] > 0) inputWidth_ = inputShape[3];
+  inputTensorValues_.resize(3U * static_cast<std::size_t>(inputHeight_) *
+                            static_cast<std::size_t>(inputWidth_));
 
   // Run inputs in the model's declared order, regardless of their positions.
   inputNames_.reserve(inputNamesStorage_.size());
@@ -139,8 +150,7 @@ InferenceResult RtDetrv2Backend::infer(const Frame& frame) {
   const char* currentStage = "preprocess";
 
   try {
-    std::vector<float> imageData;
-    preprocess(frame.Image, imageData);
+    preprocess(frame.Image, inputTensorValues_);
     preprocessEnd = InferenceTraceClock::now();
 
     const std::array<std::int64_t, 4> imageShape{1, 3, inputHeight_,
@@ -151,8 +161,8 @@ InferenceResult RtDetrv2Backend::infer(const Frame& frame) {
     const std::array<std::int64_t, 2> originalSizeShape{1, 2};
 
     auto imageTensor = Ort::Value::CreateTensor<float>(
-        memoryInfo_, imageData.data(), imageData.size(), imageShape.data(),
-        imageShape.size());
+        memoryInfo_, inputTensorValues_.data(), inputTensorValues_.size(),
+        imageShape.data(), imageShape.size());
     auto originalSizeTensor = Ort::Value::CreateTensor<std::int64_t>(
         memoryInfo_, originalSize.data(), originalSize.size(),
         originalSizeShape.data(), originalSizeShape.size());
@@ -197,23 +207,21 @@ InferenceResult RtDetrv2Backend::infer(const Frame& frame) {
 }
 
 void RtDetrv2Backend::preprocess(const cv::Mat& frame,
-                                 std::vector<float>& tensor) const {
+                                 std::vector<float>& tensor) {
   if (frame.empty()) {
     throw std::runtime_error("RT-DETRv2 received an empty frame");
   }
 
-  cv::Mat resized;
   cv::resize(
-      frame, resized,
+      frame, resizedBuffer_,
       cv::Size(static_cast<int>(inputWidth_), static_cast<int>(inputHeight_)),
       0.0, 0.0, cv::INTER_LINEAR);
-  cv::Mat rgb;
-  cv::cvtColor(resized, rgb, cv::COLOR_BGR2RGB);
-  rgb.convertTo(rgb, CV_32FC3, 1.0 / 255.0);
+  cv::cvtColor(resizedBuffer_, rgbBuffer_, cv::COLOR_BGR2RGB);
+  rgbBuffer_.convertTo(normalizedBuffer_, CV_32FC3, 1.0 / 255.0);
 
   const std::size_t planeSize =
       static_cast<std::size_t>(inputHeight_ * inputWidth_);
-  tensor.resize(3U * planeSize);
+  if (tensor.size() != 3U * planeSize) tensor.resize(3U * planeSize);
   std::array<cv::Mat, 3> channels{
       cv::Mat(static_cast<int>(inputHeight_), static_cast<int>(inputWidth_),
               CV_32F, tensor.data()),
@@ -221,7 +229,7 @@ void RtDetrv2Backend::preprocess(const cv::Mat& frame,
               CV_32F, tensor.data() + planeSize),
       cv::Mat(static_cast<int>(inputHeight_), static_cast<int>(inputWidth_),
               CV_32F, tensor.data() + 2U * planeSize)};
-  cv::split(rgb, channels.data());
+  cv::split(normalizedBuffer_, channels.data());
 }
 
 void RtDetrv2Backend::postprocess(const cv::Mat& frame,

@@ -16,9 +16,8 @@ namespace traffic_perception {
 
 class YOLOv8Backend : public IModelBackend {
  public:
-  YOLOv8Backend(const std::string& modelPath,
-                const std::string& emergencyClass,
-                int inferenceCallerCpu = 2);
+  YOLOv8Backend(const std::string& modelPath, const std::string& emergencyClass,
+                int inferenceCallerCpu = 2, int inferenceCallerPriority = 70);
   ~YOLOv8Backend() override = default;
 
   InferenceResult infer(const Frame& frame) override;
@@ -59,6 +58,13 @@ class YOLOv8Backend : public IModelBackend {
   float ratio_{1.0f};
   float dw_{0.0f};
   float dh_{0.0f};
+
+  std::vector<float> inputTensorValues_;
+  cv::Mat resizedBuffer_;
+  cv::Mat letterboxBuffer_;
+  cv::Mat rgbBuffer_;
+  cv::Mat normalizedBuffer_;
+  cv::Mat transposedOutputBuffer_;
 
   void preprocess(const cv::Mat& frame,
                   std::vector<float>& input_tensor_values);
