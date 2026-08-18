@@ -5,7 +5,6 @@
 
 #include <atomic>
 #include <cstdint>
-#include <thread>
 
 #include "traffic_signal_controller/signal_fsm_engine.h"
 #include "traffic_ipc/latest_value_queue.h"
@@ -21,7 +20,11 @@ class OutputSimulator final {
   OutputSimulator(OutputSimulator&&) = delete;
   OutputSimulator& operator=(OutputSimulator&&) = delete;
 
+  // Resource lifecycle is separate from thread ownership. The application
+  // creates and joins the worker that executes run().
   void start();
+  void run() noexcept;
+  void requestStop() noexcept;
   void stop() noexcept;
   void submit(const SignalDisplay& display) noexcept;
 
@@ -43,7 +46,6 @@ class OutputSimulator final {
                     kCountdownMask,
                 "Packed output countdown is too small for configured phases");
 
-  void run() noexcept;
   void publish(const SignalDisplay& display) noexcept;
   static const char* phaseName(PhaseId phaseId) noexcept;
 
@@ -51,6 +53,7 @@ class OutputSimulator final {
   std::atomic<std::uint64_t> mailbox_{0U};
   std::atomic<bool> notificationPending_{false};
   std::atomic<std::uint64_t> notificationFailureCount_{0U};
+  bool started_{false};
 
   traffic_ipc::LatestValuePublisher<traffic_ipc::SignalStateMessageV1>
       signalStatePublisher_{traffic_ipc::kSignalStateQueueName,
@@ -63,7 +66,6 @@ class OutputSimulator final {
   std::uint64_t nextSequence_{0U};
 
   sem_t notificationSemaphore_{};
-  std::thread worker_;
 };
 
 #endif  // ANALYTICS_SERVICE_OUTPUT_SIMULATOR_H_

@@ -24,6 +24,7 @@ DEFAULT_INPUT_FILE="${ANALYTICS_LOG_FILE}.txt"
 RUNTIME_DIRECTORY="/tmp/traffic_signal_controller"
 RUNTIME_LOG_DIRECTORY="${RUNTIME_DIRECTORY}/logs"
 OUTPUT_DIRECTORY="${RUNTIME_LOG_DIRECTORY}/output"
+DEFAULT_PLOT_DIRECTORY="${RUNTIME_LOG_DIRECTORY}/plots"
 PLOT_WORK_DIRECTORY="${RUNTIME_LOG_DIRECTORY}/plot_work"
 
 INPUT_FILE=${2:-$DEFAULT_INPUT_FILE}
@@ -31,21 +32,27 @@ INPUT_FILE=${2:-$DEFAULT_INPUT_FILE}
 case "$METRIC" in
     both)
         TITLE="FSM Execution Time and Wakeup Latency Over Time"
+        OUTPUT_STEM="ctrl_fsm"
         ;;
     wakeup)
         TITLE="FSM Wakeup Latency Over Time"
+        OUTPUT_STEM="ctrl_wakeup"
         ;;
     execution)
         TITLE="FSM Execution Time Over Time"
+        OUTPUT_STEM="ctrl_execution"
         ;;
     end_to_end)
         TITLE="Timing Decision Receive-to-Controller Receive Latency Over Time"
+        OUTPUT_STEM="deci_to_ctrl"
         ;;
     perception_to_controller)
         TITLE="Perception Publish-to-Controller Receive Latency Over Time"
+        OUTPUT_STEM="perc_to_ctrl"
         ;;
     emergency)
         TITLE="Emergency Receive-to-Apply Latency Over Time"
+        OUTPUT_STEM="ctrl_emergency"
         ;;
     *)
         echo "Error: Unsupported metric: $METRIC"
@@ -97,7 +104,7 @@ PERCEPTION_PLOT_DATA="${PLOT_WORK_DIRECTORY}/${RUN_BASENAME}_perception_to_contr
 EMERGENCY_PLOT_DATA="${PLOT_WORK_DIRECTORY}/${RUN_BASENAME}_emergency.dat"
 VALUE_DATA_NS="${PLOT_WORK_DIRECTORY}/${RUN_BASENAME}_values_ns.dat"
 GNUPLOT_FILE="${PLOT_WORK_DIRECTORY}/${RUN_BASENAME}.gnu"
-DEFAULT_OUTPUT_IMAGE="${OUTPUT_DIRECTORY}/${RUN_BASENAME}.png"
+DEFAULT_OUTPUT_IMAGE="${DEFAULT_PLOT_DIRECTORY}/${OUTPUT_STEM}_timeseries.png"
 OUTPUT_IMAGE=${3:-$DEFAULT_OUTPUT_IMAGE}
 
 mkdir -p "$(dirname "$OUTPUT_IMAGE")"
@@ -392,6 +399,7 @@ TOTAL_X=$(awk -v seconds="$TOTAL_SECONDS" -v scale="$X_SCALE" \
     'BEGIN {printf "%.3f", seconds / scale}')
 X_MAX=$(awk -v seconds="$TOTAL_SECONDS" -v scale="$X_SCALE" \
     'BEGIN {value=seconds/scale; printf "%.9f", (value > 0 ? value : 1)}')
+X_END_LABEL=$(awk -v value="$X_MAX" 'BEGIN {printf "%.6g", value}')
 X_LABEL="Elapsed time ($X_UNIT)"
 
 #-------------------------------------------------------
@@ -406,6 +414,7 @@ set title "$TITLE"
 set xlabel "$X_LABEL"
 set ylabel "Time ($UNIT)"
 set xrange [0:$X_MAX]
+set xtics add ("$X_END_LABEL" $X_MAX)
 set yrange [0:*]
 set format x "%.3g"
 set format y "%.4g"

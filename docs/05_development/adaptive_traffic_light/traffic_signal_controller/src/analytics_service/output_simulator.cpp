@@ -1,8 +1,6 @@
 #include "analytics_service/output_simulator.h"
 
 #include <cerrno>
-#include <pthread.h>
-#include <sched.h>
 #include <semaphore.h>
 
 #include <cstdint>
@@ -28,30 +26,6 @@ score::mw::log::Logger& Logger() {
   static auto& logger = score::mw::log::CreateLogger(
       ctrl::logging::kCtxOut, "Output Simulator");
   return logger;
-}
-
-void ConfigureCurrentThreadRealtime() noexcept {
-  sched_param parameters{};
-  parameters.sched_priority = kOutputSimulatorPriority;
-
-  const int result =
-      pthread_setschedparam(pthread_self(), SCHED_FIFO, &parameters);
-
-  if (result == 0) {
-    Logger().LogInfo() << "event=THREAD_SCHEDULING_CONFIGURED"
-                       << ", thread=output_simulator"
-                       << ", policy=SCHED_FIFO"
-                       << ", priority=" << parameters.sched_priority
-                       << ", realtime=true";
-    return;
-  }
-
-  Logger().LogWarn() << "event=THREAD_SCHEDULING_FAILED"
-                     << ", thread=output_simulator"
-                     << ", policy=SCHED_FIFO"
-                     << ", priority=" << parameters.sched_priority
-                     << ", error=" << result
-                     << ", reason=" << std::string_view{std::strerror(result)};
 }
 
 }  // namespace
@@ -80,6 +54,7 @@ void OutputSimulator::start() {
   notificationPending_.store(false, std::memory_order_release);
   signalStateSequence_ = 0U;
   signalStatePublishFailureCount_ = 0U;
+  started_ = true;
 
   const auto openStatus = signalStatePublisher_.open();
   signalStatePublisherOpen_ =
@@ -101,28 +76,22 @@ void OutputSimulator::start() {
     }
     break;
   }
+}
 
-  try {
-    worker_ = std::thread{&OutputSimulator::run, this};
-  } catch (...) {
-    running_.store(false, std::memory_order_release);
-    signalStatePublisher_.close();
-    signalStatePublisherOpen_ = false;
-    throw;
+void OutputSimulator::requestStop() noexcept {
+  if (running_.exchange(false, std::memory_order_acq_rel)) {
+    (void)sem_post(&notificationSemaphore_);
   }
 }
 
 void OutputSimulator::stop() noexcept {
-  const bool wasRunning = running_.exchange(false, std::memory_order_acq_rel);
-  if (!wasRunning && !worker_.joinable()) {
+  requestStop();
+
+  if (!started_) {
     return;
   }
 
-  (void)sem_post(&notificationSemaphore_);
-
-  if (worker_.joinable()) {
-    worker_.join();
-  }
+  started_ = false;
 
   signalStatePublisher_.close();
   signalStatePublisherOpen_ = false;
@@ -172,20 +141,6 @@ void OutputSimulator::submit(const SignalDisplay& display) noexcept {
 }
 
 void OutputSimulator::run() noexcept {
-
-  const int nameResult =
-      pthread_setname_np(pthread_self(), "tsc_output");
-
-  if (nameResult != 0) {
-    Logger().LogWarn() << "event=THREAD_NAME_FAILED"
-                       << ", thread=tsc_output"
-                       << ", error=" << nameResult
-                       << ", reason="
-                       << std::string_view{std::strerror(nameResult)};
-  }
-
-  ConfigureCurrentThreadRealtime();
-
   std::cout.setf(std::ios::unitbuf);
 
   std::uint64_t lastSequence{0U};

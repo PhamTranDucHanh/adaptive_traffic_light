@@ -87,8 +87,7 @@
                     "TPER_ROOT": "/tmp/linux_rt_application",
                     "LD_LIBRARY_PATH": "/tmp/linux_rt_application/lib",
                     "DISPLAY": ":0",
-                    "WAYLAND_DISPLAY": "wayland-0",
-                    "XDG_RUNTIME_DIR": "/run/user/0"
+                    "WAYLAND_DISPLAY": "wayland-0"
                 }
             }
         },

@@ -63,84 +63,24 @@ std::uint32_t advancePastNow(timespec& release, const std::uint32_t periodMs,
   return skipped;
 }
 
-PeriodicWait::PeriodicWait() noexcept {
-  if (pthread_mutex_init(&mutex_, nullptr) != std::int32_t{}) {
-    return;
-  }
-  mutexReady_ = true;
-
-  pthread_condattr_t attributes{};
-  if (pthread_condattr_init(&attributes) != std::int32_t{}) {
-    return;
-  }
-  const std::int32_t clockResult =
-      pthread_condattr_setclock(&attributes, CLOCK_MONOTONIC);
-  if (clockResult == std::int32_t{} &&
-      pthread_cond_init(&condition_, &attributes) == std::int32_t{}) {
-    conditionReady_ = true;
-  }
-  (void)pthread_condattr_destroy(&attributes);
-}
-
-PeriodicWait::~PeriodicWait() {
-  if (conditionReady_) {
-    (void)pthread_cond_destroy(&condition_);
-  }
-  if (mutexReady_) {
-    (void)pthread_mutex_destroy(&mutex_);
-  }
-}
-
-bool PeriodicWait::valid() const noexcept {
-  return mutexReady_ && conditionReady_;
-}
-
 std::int32_t PeriodicWait::waitUntil(const timespec& absoluteRelease) noexcept {
-  if (!valid()) {
-    return EINVAL;
+  if (stopRequested_.load(std::memory_order_acquire)) {
+    return ECANCELED;
   }
 
-  timespec now{};
-  if (!monotonicNow(now)) {
-    return errno != std::int32_t{} ? errno : EINVAL;
-  }
+  std::int32_t result{};
+  do {
+    result = static_cast<std::int32_t>(
+        clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &absoluteRelease,
+                        nullptr));
+  } while (result == EINTR &&
+           !stopRequested_.load(std::memory_order_acquire));
 
-  if (isAfter(absoluteRelease, now)) {
-    std::int32_t result = pthread_mutex_lock(&mutex_);
-    if (result != std::int32_t{}) {
-      return result;
-    }
-
-    while (!stopRequested_) {
-      result = pthread_cond_timedwait(&condition_, &mutex_, &absoluteRelease);
-      if (result == ETIMEDOUT) {
-        break;
-      }
-      if (result != std::int32_t{}) {
-        (void)pthread_mutex_unlock(&mutex_);
-        return result;
-      }
-    }
-    const bool stopped = stopRequested_;
-    result = pthread_mutex_unlock(&mutex_);
-    if (result != std::int32_t{}) {
-      return result;
-    }
-    if (stopped) {
-      return ECANCELED;
-    }
-  }
-
-  return std::int32_t{};
+  return stopRequested_.load(std::memory_order_acquire) ? ECANCELED : result;
 }
 
 void PeriodicWait::requestStop() noexcept {
-  if (!valid() || pthread_mutex_lock(&mutex_) != std::int32_t{}) {
-    return;
-  }
-  stopRequested_ = true;
-  (void)pthread_cond_broadcast(&condition_);
-  (void)pthread_mutex_unlock(&mutex_);
+  stopRequested_.store(true, std::memory_order_release);
 }
 
 }  // namespace common

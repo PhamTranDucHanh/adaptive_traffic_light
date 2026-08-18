@@ -3,12 +3,12 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <opencv2/imgproc.hpp>
 #include <stdexcept>
 #include <utility>
 
-#include <opencv2/imgproc.hpp>
-
 #include "score/mw/log/logging.h"
+#include "traffic_perception/inference/inference_trace.h"
 
 namespace traffic_perception {
 namespace {
@@ -67,12 +67,13 @@ RtDetrv2Backend::RtDetrv2Backend(const std::string& modelPath,
   try {
     Ort::SessionOptions sessionOptions;
     ConfigureOrtThreadPool(sessionOptions, ortThreadPoolConfig_);
-    session_ = std::make_unique<Ort::Session>(env_, modelPath.c_str(),
-                                              sessionOptions);
+    session_ =
+        std::make_unique<Ort::Session>(env_, modelPath.c_str(), sessionOptions);
     inspectModelContract();
   } catch (const Ort::Exception& error) {
-    throw std::runtime_error("ONNX Runtime exception loading RT-DETRv2 model: " +
-                             std::string{error.what()});
+    throw std::runtime_error(
+        "ONNX Runtime exception loading RT-DETRv2 model: " +
+        std::string{error.what()});
   }
 }
 
@@ -105,8 +106,7 @@ void RtDetrv2Backend::inspectModelContract() {
   const auto inputInfo = inputTypeInfo.GetTensorTypeAndShapeInfo();
   const auto inputShape = inputInfo.GetShape();
   if (inputInfo.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT ||
-      inputShape.size() != 4U ||
-      (inputShape[1] > 0 && inputShape[1] != 3)) {
+      inputShape.size() != 4U || (inputShape[1] > 0 && inputShape[1] != 3)) {
     throw std::runtime_error(
         "RT-DETRv2 images input must be a float NCHW tensor with 3 channels");
   }
@@ -115,13 +115,15 @@ void RtDetrv2Backend::inspectModelContract() {
 
   // Run inputs in the model's declared order, regardless of their positions.
   inputNames_.reserve(inputNamesStorage_.size());
-  for (const auto& name : inputNamesStorage_) inputNames_.push_back(name.c_str());
+  for (const auto& name : inputNamesStorage_)
+    inputNames_.push_back(name.c_str());
   outputNames_.reserve(outputNamesStorage_.size());
   for (const auto& name : outputNamesStorage_)
     outputNames_.push_back(name.c_str());
 
   score::mw::log::LogInfo()
-      << "[RT_DETRV2][INIT] contract=images+orig_target_sizes->labels+boxes+scores"
+      << "[RT_DETRV2][INIT] "
+         "contract=images+orig_target_sizes->labels+boxes+scores"
       << "; input_width=" << inputWidth_ << "; input_height=" << inputHeight_
       << "; outputs=" << outputCount;
 }
@@ -130,9 +132,16 @@ InferenceResult RtDetrv2Backend::infer(const Frame& frame) {
   InferenceResult result{};
   result.FrameId = frame.FrameId;
 
+  const std::uint64_t callIndex = inferenceCallCount_++;
+  const auto traceBegin = InferenceTraceClock::now();
+  auto preprocessEnd = traceBegin;
+  auto runtimeEnd = traceBegin;
+  const char* currentStage = "preprocess";
+
   try {
     std::vector<float> imageData;
     preprocess(frame.Image, imageData);
+    preprocessEnd = InferenceTraceClock::now();
 
     const std::array<std::int64_t, 4> imageShape{1, 3, inputHeight_,
                                                  inputWidth_};
@@ -160,15 +169,29 @@ InferenceResult RtDetrv2Backend::infer(const Frame& frame) {
       }
     }
 
-    auto outputs = session_->Run(
-        Ort::RunOptions{nullptr}, inputNames_.data(), inputTensors.data(),
-        inputTensors.size(), outputNames_.data(), outputNames_.size());
+    currentStage = "runtime";
+    auto outputs = session_->Run(Ort::RunOptions{nullptr}, inputNames_.data(),
+                                 inputTensors.data(), inputTensors.size(),
+                                 outputNames_.data(), outputNames_.size());
+    runtimeEnd = InferenceTraceClock::now();
+    currentStage = "postprocess";
     postprocess(frame.Image, outputs, result);
   } catch (const std::exception& error) {
+    const auto traceEnd = InferenceTraceClock::now();
+    LogInferenceTraceFailure("rt_detrv2", callIndex, frame.FrameId,
+                             currentStage, traceBegin, preprocessEnd,
+                             runtimeEnd, traceEnd);
     score::mw::log::LogError()
         << "[RT_DETRV2][INFERENCE][ERROR] " << error.what();
     return InferenceResult{};
   }
+
+  const auto traceEnd = InferenceTraceClock::now();
+  result.InferenceLatencyMs =
+      InferenceTraceElapsedUs(traceBegin, traceEnd) / 1000;
+  LogInferenceTrace("rt_detrv2", callIndex, frame.FrameId, traceBegin,
+                    preprocessEnd, runtimeEnd, traceEnd,
+                    result.Detections.size());
 
   return result;
 }
@@ -180,10 +203,10 @@ void RtDetrv2Backend::preprocess(const cv::Mat& frame,
   }
 
   cv::Mat resized;
-  cv::resize(frame, resized,
-             cv::Size(static_cast<int>(inputWidth_),
-                      static_cast<int>(inputHeight_)),
-             0.0, 0.0, cv::INTER_LINEAR);
+  cv::resize(
+      frame, resized,
+      cv::Size(static_cast<int>(inputWidth_), static_cast<int>(inputHeight_)),
+      0.0, 0.0, cv::INTER_LINEAR);
   cv::Mat rgb;
   cv::cvtColor(resized, rgb, cv::COLOR_BGR2RGB);
   rgb.convertTo(rgb, CV_32FC3, 1.0 / 255.0);
@@ -221,7 +244,8 @@ void RtDetrv2Backend::postprocess(const cv::Mat& frame,
       boxesInfo.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT ||
       scoresInfo.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT ||
       boxesShape.empty() || boxesShape.back() != 4) {
-    throw std::runtime_error("RT-DETRv2 output tensor types/shapes are invalid");
+    throw std::runtime_error(
+        "RT-DETRv2 output tensor types/shapes are invalid");
   }
 
   const std::size_t detectionCount = ElementCount(labelsShape);
@@ -240,14 +264,10 @@ void RtDetrv2Backend::postprocess(const cv::Mat& frame,
     if (scores[index] < confidenceThreshold_) continue;
 
     const float* box = boxes + index * 4U;
-    const float x1 =
-        std::clamp(box[0], 0.0F, static_cast<float>(frame.cols));
-    const float y1 =
-        std::clamp(box[1], 0.0F, static_cast<float>(frame.rows));
-    const float x2 =
-        std::clamp(box[2], 0.0F, static_cast<float>(frame.cols));
-    const float y2 =
-        std::clamp(box[3], 0.0F, static_cast<float>(frame.rows));
+    const float x1 = std::clamp(box[0], 0.0F, static_cast<float>(frame.cols));
+    const float y1 = std::clamp(box[1], 0.0F, static_cast<float>(frame.rows));
+    const float x2 = std::clamp(box[2], 0.0F, static_cast<float>(frame.cols));
+    const float y2 = std::clamp(box[3], 0.0F, static_cast<float>(frame.rows));
     if (x2 <= x1 || y2 <= y1) continue;
 
     const std::string className = ResolveCocoClassName(labels[index]);
@@ -256,9 +276,9 @@ void RtDetrv2Backend::postprocess(const cv::Mat& frame,
     if (!isVehicle) continue;
 
     Detection detection{};
-    detection.Box = cv::Rect{
-        static_cast<int>(x1), static_cast<int>(y1),
-        static_cast<int>(x2 - x1), static_cast<int>(y2 - y1)};
+    detection.Box =
+        cv::Rect{static_cast<int>(x1), static_cast<int>(y1),
+                 static_cast<int>(x2 - x1), static_cast<int>(y2 - y1)};
     detection.ClassId = static_cast<std::int32_t>(labels[index]);
     detection.Confidence = scores[index];
     detection.ClassName = className;
@@ -281,15 +301,13 @@ std::string RtDetrv2Backend::getModelName() const {
   return "RT-DETRv2 (ONNX Runtime)";
 }
 
-void RtDetrv2Backend::draw(cv::Mat& image,
-                           const InferenceResult& inference) {
+void RtDetrv2Backend::draw(cv::Mat& image, const InferenceResult& inference) {
   for (const auto& detection : inference.Detections) {
-    const cv::Scalar color = detection.IsEmergency
-                                 ? cv::Scalar{0, 0, 255}
-                                 : cv::Scalar{0, 255, 0};
+    const cv::Scalar color =
+        detection.IsEmergency ? cv::Scalar{0, 0, 255} : cv::Scalar{0, 255, 0};
     cv::rectangle(image, detection.Box, color, 2);
-    const std::string label = detection.ClassName + ": " +
-                              std::to_string(detection.Confidence);
+    const std::string label =
+        detection.ClassName + ": " + std::to_string(detection.Confidence);
     cv::putText(image, label, detection.Box.tl() - cv::Point{0, 5},
                 cv::FONT_HERSHEY_SIMPLEX, 0.5, color, 2);
   }

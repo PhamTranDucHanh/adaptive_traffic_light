@@ -17,6 +17,7 @@
 #include "common/config.h"
 #include "common/logging_contexts.h"
 #include "score/concurrency/interruptible_wait.h"
+#include "score/mw/lifecycle/runapplication.h"
 #include "score/mw/log/logger.h"
 #include "score/mw/log/rust/stdout_logger_init.h"
 
@@ -88,7 +89,7 @@ void ResetAnalyticsOutputFiles() {
 SignalControlApplication::~SignalControlApplication() {
   StopPlanReceiverWorker();
   StopFsmWorker();
-  outputSimulator_.stop();
+  StopOutputWorker();
 }
 
 std::int32_t SignalControlApplication::Initialize(
@@ -135,10 +136,20 @@ std::int32_t SignalControlApplication::Initialize(
     return EXIT_FAILURE;
   }
 
-  if (!StartPlanReceiverWorker()) {
+  if (!StartOutputWorker()) {
     fsmRunning_.store(false, std::memory_order_release);
     planReceiverRunning_.store(false, std::memory_order_release);
     outputSimulator_.stop();
+    healthReporter_.shutdown();
+    AppLogger().LogWarn() << "event=APP_INIT_FAILED"
+                          << ", reason=OUTPUT_THREAD_CREATE_FAILED";
+    return EXIT_FAILURE;
+  }
+
+  if (!StartPlanReceiverWorker()) {
+    fsmRunning_.store(false, std::memory_order_release);
+    planReceiverRunning_.store(false, std::memory_order_release);
+    StopOutputWorker();
     healthReporter_.shutdown();
     AppLogger().LogWarn() << "event=APP_INIT_FAILED"
                           << ", reason=PLAN_RECEIVER_THREAD_CREATE_FAILED";
@@ -149,7 +160,7 @@ std::int32_t SignalControlApplication::Initialize(
     fsmRunning_.store(false, std::memory_order_release);
     StopPlanReceiverWorker();
     planSyncChannel_.RequestShutdown();
-    outputSimulator_.stop();
+    StopOutputWorker();
     healthReporter_.shutdown();
     AppLogger().LogWarn() << "event=APP_INIT_FAILED"
                           << ", reason=FSM_THREAD_CREATE_FAILED";
@@ -232,7 +243,7 @@ std::int32_t SignalControlApplication::Run(
 
   StopPlanReceiverWorker();
   StopFsmWorker();
-  outputSimulator_.stop();
+  StopOutputWorker();
   WriteAnalyticsReport();
   healthReporter_.shutdown();
   initialized_ = false;
@@ -258,6 +269,16 @@ void* SignalControlApplication::PlanReceiverWorkerEntry(
   }
 
   static_cast<SignalControlApplication*>(argument)->RunPlanReceiverWorker();
+  return nullptr;
+}
+
+void* SignalControlApplication::OutputWorkerEntry(
+    void* const argument) noexcept {
+  if (argument == nullptr) {
+    return nullptr;
+  }
+
+  static_cast<SignalControlApplication*>(argument)->RunOutputWorker();
   return nullptr;
 }
 
@@ -340,6 +361,40 @@ bool SignalControlApplication::StartPlanReceiverWorker() noexcept {
   return true;
 }
 
+bool SignalControlApplication::StartOutputWorker() noexcept {
+  constexpr std::int32_t priority{kOutputSimulatorPriority};
+  constexpr std::int32_t cpu{kTrafficSignalControllerCpu};
+
+  pthread_attr_t attributes{};
+  std::int32_t result = pthread_attr_init(&attributes);
+  if (result != EXIT_SUCCESS) {
+    return false;
+  }
+
+  if (!ConfigureRealtimeThreadAttributes(attributes, priority, cpu,
+                                         "output_simulator", AppLogger())) {
+    (void)pthread_attr_destroy(&attributes);
+    return false;
+  }
+
+  result = pthread_create(&outputWorker_, &attributes,
+                          &SignalControlApplication::OutputWorkerEntry, this);
+  (void)pthread_attr_destroy(&attributes);
+
+  if (result != EXIT_SUCCESS) {
+    AppLogger().LogWarn() << "event=OUTPUT_THREAD_CREATE_FAILED"
+                          << ", error=" << result
+                          << ", reason=" << std::strerror(result);
+    return false;
+  }
+
+  outputWorkerCreated_ = true;
+  AppLogger().LogInfo() << "event=OUTPUT_THREAD_CREATED"
+                        << ", policy=SCHED_FIFO"
+                        << ", priority=" << priority << ", cpu=" << cpu;
+  return true;
+}
+
 void SignalControlApplication::RunFsmWorker() noexcept {
   try {
     (void)pthread_setname_np(pthread_self(), "tsc_fsm");
@@ -369,6 +424,12 @@ void SignalControlApplication::RunPlanReceiverWorker() noexcept {
   } catch (...) {
     planReceiverFailed_.store(true, std::memory_order_release);
   }
+}
+
+void SignalControlApplication::RunOutputWorker() noexcept {
+  (void)pthread_setname_np(pthread_self(), "tsc_output");
+  PrefaultCurrentThreadStack("output_simulator", AppLogger());
+  outputSimulator_.run();
 }
 
 void SignalControlApplication::StopPlanReceiverWorker() noexcept {
@@ -407,6 +468,23 @@ void SignalControlApplication::StopFsmWorker() noexcept {
 
   fsmWorkerCreated_ = false;
   signalFsmEngine_.dumpWakeupSamplesToLog();
+}
+
+void SignalControlApplication::StopOutputWorker() noexcept {
+  outputSimulator_.requestStop();
+
+  if (outputWorkerCreated_) {
+    const std::int32_t result =
+        static_cast<std::int32_t>(pthread_join(outputWorker_, nullptr));
+    if (result != EXIT_SUCCESS) {
+      AppLogger().LogWarn() << "event=OUTPUT_THREAD_JOIN_FAILED"
+                            << ", error=" << result
+                            << ", reason=" << std::strerror(result);
+    }
+    outputWorkerCreated_ = false;
+  }
+
+  outputSimulator_.stop();
 }
 
 void SignalControlApplication::WriteAnalyticsReport() const {
@@ -453,3 +531,8 @@ void SignalControlApplication::WriteAnalyticsReport() const {
 }
 
 }  // namespace traffic_signal_controller
+
+int main(const int argc, char** const argv) {
+  return score::mw::lifecycle::run_application<
+      traffic_signal_controller::SignalControlApplication>(argc, argv);
+}

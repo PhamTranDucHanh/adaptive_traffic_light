@@ -69,6 +69,7 @@ TOTAL_SECONDS="$(awk -v first="$SESSION_START_NS" -v last="$SESSION_END_NS" \
 select_elapsed_axis "$TOTAL_SECONDS"
 X_MAX="$(awk -v total="$TOTAL_SECONDS" -v scale="$ELAPSED_SCALE" \
     'BEGIN {value=total/scale; printf "%.9f", (value > 0 ? value : 1)}')"
+X_END_LABEL="$(awk -v value="$X_MAX" 'BEGIN {printf "%.6g", value}')"
 
 LANE_COLORS=("#d62728" "#1f77b4" "#2ca02c" "#9467bd")
 
@@ -101,6 +102,7 @@ set title "${title}"
 set xlabel "Elapsed time (${ELAPSED_UNIT})"
 set ylabel "${ylabel} (${TIME_UNIT})"
 set xrange [0:${X_MAX}]
+set xtics add ("${X_END_LABEL}" ${X_MAX})
 set yrange [0:*]
 set format x "%.3g"
 set format y "%.4g"
@@ -112,10 +114,10 @@ EOF
     echo "Unit     : ${ylabel} = ${TIME_UNIT}"
 }
 
-plot_metric 3 "Stream Worker Wake-up Latency over Time" "Wake-up Latency" "$OUTDIR/plots/stream_wakeup_latency_line.png"
-plot_metric 4 "Stream Worker Execution Time over Time" "Execution Time" "$OUTDIR/plots/stream_execution_time_line.png"
+plot_metric 3 "Stream Worker Wake-up Latency over Time" "Wake-up Latency" "$OUTDIR/plots/perc_stream_wakeup_timeseries.png"
+plot_metric 4 "Stream Worker Execution Time over Time" "Execution Time" "$OUTDIR/plots/perc_stream_execution_timeseries.png"
 
 echo "X axis   : elapsed ${ELAPSED_UNIT} (0..${ELAPSED_TOTAL} ${ELAPSED_SHORT_UNIT})"
 echo "Session  : CLOCK_MONOTONIC ${SESSION_START_NS}..${SESSION_END_NS} ns"
-echo "Generated: $OUTDIR/plots/stream_wakeup_latency_line.png"
-echo "Generated: $OUTDIR/plots/stream_execution_time_line.png"
+echo "Generated: $OUTDIR/plots/perc_stream_wakeup_timeseries.png"
+echo "Generated: $OUTDIR/plots/perc_stream_execution_timeseries.png"

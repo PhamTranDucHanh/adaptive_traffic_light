@@ -1,11 +1,11 @@
 {
-  "capture_period_ms": 200,
+  "capture_period_ms": 500,
   "capture_phase_ms": 0,
 
-  "pipeline_period_ms": 5000,
+  "pipeline_period_ms": 10000,
   "pipeline_phase_ms": 50,
 
-  "viewer_period_ms": 5000,
+  "viewer_period_ms": 10000,
   "viewer_phase_ms": 260,
   "video_resolution": {
     "width": 1920,

@@ -340,12 +340,6 @@ std::int32_t TimingDecisionApplication::Initialize(
   applicationLogger().LogInfo()
       << "[INIT][CPU_AFFINITY] process pinned; cpu=" << kTimingDecisionCpu;
 
-  if (!periodicWait_.valid()) {
-    applicationLogger().LogError()
-        << "[INIT][PERIODIC] condition variable initialization failed";
-    return EXIT_FAILURE;
-  }
-
   if (!timingReportLogger_.initialize(timingReportDirectory())) {
     applicationLogger().LogError()
         << "[INIT][TIMING_REPORT] could not create WKUP/EXEC DLT recorders";
@@ -413,11 +407,12 @@ std::int32_t TimingDecisionApplication::Run(
   }
   common::addMilliseconds(nextRelease, service_.periodMs());
 
-  score::cpp::stop_callback stopWake{
+  score::cpp::stop_callback stopRequestCallback{
       stopToken, [this]() noexcept { periodicWait_.requestStop(); }};
   applicationLogger().LogInfo()
       << "[RUN] periodic loop started; clock=CLOCK_MONOTONIC; "
-         "wait=pthread_cond_timedwait; deadline=absolute";
+         "wait=clock_nanosleep; deadline=absolute; stop_wait_bound_ms="
+      << service_.periodMs();
 
   std::uint64_t cycleId = 0;
   std::int32_t sleepResult = 0;

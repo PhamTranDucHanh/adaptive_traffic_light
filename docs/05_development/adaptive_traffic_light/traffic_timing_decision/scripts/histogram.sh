@@ -36,11 +36,13 @@ fi
 
 if grep -q "execution_time_us[[:space:]]*=" "$INPUT_FILE"; then
   readonly FIELD_NAME="execution_time_us"
+  readonly METRIC_NAME="execution"
   readonly PLOT_TITLE="Decision Execution Time Histogram"
   readonly X_AXIS_NAME="Execution Time"
   readonly LEGEND_NAME="Execution Time"
 elif grep -q "wakeup_latency_us[[:space:]]*=" "$INPUT_FILE"; then
   readonly FIELD_NAME="wakeup_latency_us"
+  readonly METRIC_NAME="wakeup"
   readonly PLOT_TITLE="Wake-up Latency Histogram"
   readonly X_AXIS_NAME="Wake-up Latency"
   readonly LEGEND_NAME="Wake-up Latency"
@@ -52,9 +54,7 @@ fi
 
 readonly INPUT_DIRECTORY="$(dirname "$INPUT_FILE")"
 readonly PLOT_DIRECTORY="${INPUT_DIRECTORY}/plots"
-readonly INPUT_BASENAME="$(basename "$INPUT_FILE")"
-readonly OUTPUT_BASENAME="${INPUT_BASENAME%.*}"
-readonly OUTPUT_PNG="${PLOT_DIRECTORY}/${OUTPUT_BASENAME}.png"
+readonly OUTPUT_PNG="${PLOT_DIRECTORY}/deci_${METRIC_NAME}_histogram.png"
 
 mkdir -p "$PLOT_DIRECTORY"
 

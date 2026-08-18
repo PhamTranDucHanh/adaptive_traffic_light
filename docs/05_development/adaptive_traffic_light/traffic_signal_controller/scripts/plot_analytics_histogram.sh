@@ -19,6 +19,7 @@ DEFAULT_INPUT_FILE="${ANALYTICS_LOG_FILE}.txt"
 
 RUNTIME_DIRECTORY="/tmp/traffic_signal_controller"
 RUNTIME_LOG_DIRECTORY="${RUNTIME_DIRECTORY}/logs"
+RUNTIME_PLOT_DIRECTORY="${RUNTIME_LOG_DIRECTORY}/plots"
 ANALYTICS_REPORT_FILE="${RUNTIME_LOG_DIRECTORY}/analytics_report.txt"
 
 INPUT_FILE=${2:-$DEFAULT_INPUT_FILE}
@@ -30,7 +31,7 @@ case "$METRIC" in
         TITLE="FSM Wakeup Latency Histogram"
         X_AXIS_NAME="FSM Wakeup Latency"
         LEGEND_NAME="Wakeup Latency"
-        DEFAULT_OUTPUT_IMAGE="${RUNTIME_LOG_DIRECTORY}/fsm_wakeup_latency_histogram.png"
+        DEFAULT_OUTPUT_IMAGE="${RUNTIME_PLOT_DIRECTORY}/ctrl_wakeup_histogram.png"
         ;;
     execution)
         EVENT_NAME="FSM_EXECUTION"
@@ -38,7 +39,7 @@ case "$METRIC" in
         TITLE="FSM Execution Time Histogram"
         X_AXIS_NAME="FSM Execution Time"
         LEGEND_NAME="Execution Time"
-        DEFAULT_OUTPUT_IMAGE="${RUNTIME_LOG_DIRECTORY}/fsm_execution_time_histogram.png"
+        DEFAULT_OUTPUT_IMAGE="${RUNTIME_PLOT_DIRECTORY}/ctrl_execution_histogram.png"
         ;;
     end_to_end)
         EVENT_NAME="TIMING_DECISION_RECEIVE_TO_CONTROLLER_RECEIVE"
@@ -46,7 +47,7 @@ case "$METRIC" in
         TITLE="Timing Decision Receive-to-Controller Receive Latency Histogram"
         X_AXIS_NAME="Decision-to-Controller Latency"
         LEGEND_NAME="Decision-to-Controller Latency"
-        DEFAULT_OUTPUT_IMAGE="${RUNTIME_LOG_DIRECTORY}/decision_to_controller_latency_histogram.png"
+        DEFAULT_OUTPUT_IMAGE="${RUNTIME_PLOT_DIRECTORY}/deci_to_ctrl_histogram.png"
         ;;
     perception_to_controller)
         EVENT_NAME="PERCEPTION_PUBLISH_TO_CONTROLLER_RECEIVE"
@@ -54,7 +55,7 @@ case "$METRIC" in
         TITLE="Perception Publish-to-Controller Receive Latency Histogram"
         X_AXIS_NAME="Perception-to-Controller Latency"
         LEGEND_NAME="Perception-to-Controller Latency"
-        DEFAULT_OUTPUT_IMAGE="${RUNTIME_LOG_DIRECTORY}/perception_to_controller_latency_histogram.png"
+        DEFAULT_OUTPUT_IMAGE="${RUNTIME_PLOT_DIRECTORY}/perc_to_ctrl_histogram.png"
         ;;
     emergency)
         EVENT_NAME="EMERGENCY_RECEIVE_TO_APPLY"
@@ -62,7 +63,7 @@ case "$METRIC" in
         TITLE="Emergency Receive-to-Apply Latency Histogram"
         X_AXIS_NAME="Emergency Receive-to-Apply Latency"
         LEGEND_NAME="Receive-to-Apply Latency"
-        DEFAULT_OUTPUT_IMAGE="${RUNTIME_LOG_DIRECTORY}/emergency_receive_to_apply_latency_histogram.png"
+        DEFAULT_OUTPUT_IMAGE="${RUNTIME_PLOT_DIRECTORY}/ctrl_emergency_histogram.png"
         ;;
     *)
         echo "Error: Unsupported metric: $METRIC"

@@ -7,6 +7,7 @@
 #include <unordered_map>
 
 #include "score/mw/log/logging.h"
+#include "traffic_perception/inference/inference_trace.h"
 
 namespace traffic_perception {
 
@@ -16,8 +17,8 @@ namespace traffic_perception {
 // -----------------------------------------------------------------------
 
 static const std::unordered_map<std::string, bool> kOiv7VehicleNames = {
-    {"Car", true},        {"Bus", true},     {"Truck", true},
-    {"Motorcycle", true}, {"Bicycle", true}, {"Van", true}};
+    {"Car", true}, {"Bus", true}, {"Truck", true},
+    {"Bicycle", true}, {"Van", true}};
 
 static const std::vector<std::string> kOiv7Labels = {
     "Accordion", "Adhesive tape", "Aircraft", "Airplane", "Alarm clock",
@@ -46,9 +47,10 @@ static std::string resolveOiv7ClassName(int classId) {
   }
 }
 
-YoloV8OIV7Backend::YoloV8OIV7Backend(
-    const std::string& modelPath, const std::string& emergencyClass,
-    int inferenceCallerCpu, int inferenceCallerPriority)
+YoloV8OIV7Backend::YoloV8OIV7Backend(const std::string& modelPath,
+                                     const std::string& emergencyClass,
+                                     int inferenceCallerCpu,
+                                     int inferenceCallerPriority)
     : emergencyClass_(emergencyClass),
       env_(ORT_LOGGING_LEVEL_WARNING, "YoloV8OIV7Backend"),
       ortThreadPoolConfig_(inferenceCallerCpu, inferenceCallerPriority),
@@ -57,8 +59,8 @@ YoloV8OIV7Backend::YoloV8OIV7Backend(
   try {
     Ort::SessionOptions sessionOptions;
     ConfigureOrtThreadPool(sessionOptions, ortThreadPoolConfig_);
-    session_ = std::make_unique<Ort::Session>(env_, modelPath.c_str(),
-                                              sessionOptions);
+    session_ =
+        std::make_unique<Ort::Session>(env_, modelPath.c_str(), sessionOptions);
 
     Ort::AllocatorWithDefaultOptions allocator;
     auto input_name = session_->GetInputNameAllocated(0, allocator);
@@ -74,27 +76,48 @@ YoloV8OIV7Backend::YoloV8OIV7Backend(
 }
 
 InferenceResult YoloV8OIV7Backend::infer(const Frame& frame) {
-  InferenceResult result;
+  InferenceResult result{};
   result.FrameId = frame.FrameId;
+
+  const std::uint64_t callIndex = inferenceCallCount_++;
+  const auto traceBegin = InferenceTraceClock::now();
+  auto preprocessEnd = traceBegin;
+  auto runtimeEnd = traceBegin;
+  const char* currentStage = "preprocess";
 
   try {
     std::vector<float> input_tensor_values;
     preprocess(frame.Image, input_tensor_values);
+    preprocessEnd = InferenceTraceClock::now();
 
     std::array<int64_t, 4> input_shape = {1, 3, 640, 640};
     auto input_tensor = Ort::Value::CreateTensor<float>(
         memory_info_, input_tensor_values.data(), input_tensor_values.size(),
         input_shape.data(), input_shape.size());
 
+    currentStage = "runtime";
     auto output_tensors = session_->Run(
         Ort::RunOptions{nullptr}, (const char* const*)input_node_names_.data(),
         &input_tensor, 1, (const char* const*)output_node_names_.data(), 1);
+    runtimeEnd = InferenceTraceClock::now();
 
+    currentStage = "postprocess";
     postprocess(frame.Image, output_tensors, result);
   } catch (const std::exception& e) {
+    const auto traceEnd = InferenceTraceClock::now();
+    LogInferenceTraceFailure("yolov8_oiv7", callIndex, frame.FrameId,
+                             currentStage, traceBegin, preprocessEnd,
+                             runtimeEnd, traceEnd);
     score::mw::log::LogDebug() << "Inference failed: " << e.what() << "\n";
-    return InferenceResult();
+    return InferenceResult{};
   }
+
+  const auto traceEnd = InferenceTraceClock::now();
+  result.InferenceLatencyMs =
+      InferenceTraceElapsedUs(traceBegin, traceEnd) / 1000;
+  LogInferenceTrace("yolov8_oiv7", callIndex, frame.FrameId, traceBegin,
+                    preprocessEnd, runtimeEnd, traceEnd,
+                    result.Detections.size());
 
   return result;
 }
@@ -359,14 +382,18 @@ void YoloV8OIV7Backend::postprocess(
         << "\n";
   }
 
-  std::vector<Detection> persons;
   std::vector<Detection> final_detections;
-  int motorcycleCount = 0;
-  int personCount = 0;
 
   int loggedDetections = 0;
   for (int idx : indices) {
     const std::string class_name = resolveOiv7ClassName(classIds[idx]);
+
+    // OIV7 motorcycle detections are not reliable enough for this application.
+    // Reject the native class and do not synthesize motorcycles from Person.
+    if (class_name == "Motorcycle") {
+      continue;
+    }
+
     const bool isVehicle = isVehicleClass(class_name);
     const bool isEmergency = isEmergencyClass(class_name);
     Detection d = populateDetection(boxes[idx], classIds[idx], class_name,
@@ -383,47 +410,9 @@ void YoloV8OIV7Backend::postprocess(
       loggedDetections++;
     }
 
-    if (class_name == "Person") {
-      persons.push_back(d);
-      personCount++;
-    } else {
-      if (class_name == "Motorcycle") {
-        motorcycleCount++;
-      }
-      if (isVehicle) {
-        final_detections.push_back(d);
-      }
+    if (isVehicle) {
+      final_detections.push_back(d);
     }
-  }
-
-  int estimatedMotorcycles = std::max(motorcycleCount, personCount);
-  int syntheticAdded = 0;
-  if (personCount > motorcycleCount) {
-    syntheticAdded = personCount - motorcycleCount;
-    for (int i = 0; i < syntheticAdded; ++i) {
-      Detection synth;
-      synth.Box = persons[i].Box;
-      synth.Confidence = persons[i].Confidence;
-      synth.ClassId = 342;  // Motorcycle in OIV7
-      synth.ClassName = "Motorcycle";
-      synth.IsVehicle = true;
-      synth.IsEmergency = false;
-      final_detections.push_back(synth);
-    }
-  }
-
-  if (frameCount_ < 5) {
-    score::mw::log::LogDebug()
-        << "[YoloV8OIV7Backend] Motorcycles detected: " << motorcycleCount
-        << "\n"
-        << "[YoloV8OIV7Backend] Persons detected: " << personCount << "\n"
-        << "[YoloV8OIV7Backend] Estimated motorcycles: " << estimatedMotorcycles
-        << "\n"
-        << "[YoloV8OIV7Backend] Synthetic motorcycles added: " << syntheticAdded
-        << "\n"
-        << "[YoloV8OIV7Backend] Motorcycle=" << motorcycleCount
-        << " Person=" << personCount << " Estimated=" << estimatedMotorcycles
-        << " SyntheticAdded=" << syntheticAdded << "\n";
   }
 
   result.Detections = std::move(final_detections);
@@ -431,8 +420,7 @@ void YoloV8OIV7Backend::postprocess(
 }
 
 bool YoloV8OIV7Backend::isVehicleClass(const std::string& className) const {
-  return kOiv7VehicleNames.count(className) > 0 ||
-         isEmergencyClass(className);
+  return kOiv7VehicleNames.count(className) > 0 || isEmergencyClass(className);
 }
 
 bool YoloV8OIV7Backend::isEmergencyClass(const std::string& className) const {
@@ -455,10 +443,12 @@ Detection YoloV8OIV7Backend::populateDetection(const cv::Rect& box, int classId,
 
 void YoloV8OIV7Backend::draw(cv::Mat& image, const InferenceResult& inference) {
   for (const auto& det : inference.Detections) {
-    cv::rectangle(image, det.Box, cv::Scalar(0, 255, 0), 2);
+    const cv::Scalar color =
+        det.IsEmergency ? cv::Scalar{0, 0, 255} : cv::Scalar{0, 255, 0};
+    cv::rectangle(image, det.Box, color, 2);
     std::string label = det.ClassName + ": " + std::to_string(det.Confidence);
     cv::putText(image, label, det.Box.tl() - cv::Point(0, 5),
-                cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0), 2);
+                cv::FONT_HERSHEY_SIMPLEX, 0.5, color, 2);
   }
 }
 

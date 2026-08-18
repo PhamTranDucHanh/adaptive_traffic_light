@@ -181,7 +181,7 @@ make_hist \
     "Stream Worker Wake-up Latency Histogram" \
     "Wake-up Latency" \
     "All Lanes" \
-    "$OUTDIR/plots/wakeup_latency.png"
+    "$OUTDIR/plots/perc_stream_wakeup_histogram.png"
 
 make_hist \
     "$EXEC_BASE" \
@@ -190,6 +190,6 @@ make_hist \
     "Stream Worker Execution Time Histogram" \
     "Execution Time" \
     "All Lanes" \
-    "$OUTDIR/plots/execution_time.png"
+    "$OUTDIR/plots/perc_stream_execution_histogram.png"
 
 echo "Done."

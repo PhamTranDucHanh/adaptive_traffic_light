@@ -32,15 +32,19 @@ class SignalControlApplication final
  private:
   static void* FsmWorkerEntry(void* argument) noexcept;
   static void* PlanReceiverWorkerEntry(void* argument) noexcept;
+  static void* OutputWorkerEntry(void* argument) noexcept;
 
   bool StartFsmWorker() noexcept;
   bool StartPlanReceiverWorker() noexcept;
+  bool StartOutputWorker() noexcept;
 
   void RunFsmWorker() noexcept;
   void RunPlanReceiverWorker() noexcept;
+  void RunOutputWorker() noexcept;
 
   void StopPlanReceiverWorker() noexcept;
   void StopFsmWorker() noexcept;
+  void StopOutputWorker() noexcept;
   void WriteAnalyticsReport() const;
 
   HealthReporter healthReporter_{};
@@ -53,8 +57,10 @@ class SignalControlApplication final
 
   pthread_t fsmWorker_{};
   pthread_t planReceiverWorker_{};
+  pthread_t outputWorker_{};
   bool fsmWorkerCreated_{false};
   bool planReceiverWorkerCreated_{false};
+  bool outputWorkerCreated_{false};
 
   std::atomic_bool fsmRunning_{false};
   std::atomic_bool fsmFailed_{false};

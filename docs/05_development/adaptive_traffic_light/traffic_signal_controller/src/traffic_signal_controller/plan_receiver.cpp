@@ -53,8 +53,7 @@ bool PlanReceiver::ReceivePlan(const TimingPlan& plan) {
                      << ", plan_id=" << plan.planId
                      << ", result=" << (result ? "SUCCESS" : "FAILED");
 
-  if (result && receiveTimestampValid &&
-      plan.generationTimestampNs > 0U) {
+  if (result && receiveTimestampValid && plan.generationTimestampNs > 0U) {
     const std::uint64_t decisionRxNs = plan.generationTimestampNs;
 
     if (receiveTimestampNs >= decisionRxNs) {
@@ -77,12 +76,13 @@ bool PlanReceiver::ReceivePlan(const TimingPlan& plan) {
         plan.perceptionPublishTimestampUs * kNanosecondsPerMicrosecond;
 
     if (receiveTimestampNs >= perceptionTxNs) {
-      Logger().LogInfo()
-          << "event=PERCEPTION_PUBLISH_TO_CONTROLLER_RECEIVE"
-          << ", plan_id=" << plan.planId
-          << ", perception_publish_timestamp_ns=" << perceptionTxNs
-          << ", controller_receive_timestamp_ns=" << receiveTimestampNs
-          << ", latency_ns=" << (receiveTimestampNs - perceptionTxNs);
+      Logger().LogInfo() << "event=PERCEPTION_PUBLISH_TO_CONTROLLER_RECEIVE"
+                         << ", plan_id=" << plan.planId
+                         << ", perception_publish_timestamp_ns="
+                         << perceptionTxNs
+                         << ", controller_receive_timestamp_ns="
+                         << receiveTimestampNs << ", latency_ns="
+                         << (receiveTimestampNs - perceptionTxNs);
     }
   }
 

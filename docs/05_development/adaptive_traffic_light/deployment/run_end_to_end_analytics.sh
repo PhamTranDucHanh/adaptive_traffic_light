@@ -138,6 +138,24 @@ run_with_report() {
   return 0
 }
 
+extract_report_section() {
+  local input_file="$1"
+  local start_title="$2"
+  local next_title="$3"
+  local output_file="$4"
+
+  awk -v start="$start_title" -v stop="$next_title" '
+    $0 == start {capture=1}
+    capture && $0 == stop {exit}
+    capture {print}
+  ' "$input_file" >"$output_file"
+
+  if [[ ! -s "$output_file" ]]; then
+    warn "Could not extract report section: $start_title"
+    POSTPROCESS_FAILURES=$((POSTPROCESS_FAILURES + 1))
+  fi
+}
+
 if [[ $# -gt 1 || "$DURATION" == "-h" || "$DURATION" == "--help" ]]; then
   usage
   [[ $# -le 1 && ("$DURATION" == "-h" || "$DURATION" == "--help") ]] && exit 0
@@ -154,7 +172,10 @@ for command in bazel dlt-convert gnuplot sudo; do
   require_command "$command"
 done
 
-mkdir -p "$RUN_OUTPUT"/{perception,timing_decision,signal_controller}
+mkdir -p \
+  "$RUN_OUTPUT"/{perception,timing_decision,signal_controller,end_to_end} \
+  "$RUN_OUTPUT/signal_controller/plots" \
+  "$RUN_OUTPUT/end_to_end/plots"
 : >"$POSTPROCESS_LOG"
 
 cd "$WORKSPACE_ROOT"
@@ -218,6 +239,9 @@ fi
 PERCEPTION_DIR="$RUN_OUTPUT/perception"
 TIMING_DIR="$RUN_OUTPUT/timing_decision"
 CONTROLLER_DIR="$RUN_OUTPUT/signal_controller"
+END_TO_END_DIR="$RUN_OUTPUT/end_to_end"
+CONTROLLER_PLOTS_DIR="$CONTROLLER_DIR/plots"
+END_TO_END_PLOTS_DIR="$END_TO_END_DIR/plots"
 TIMING_MODULE_OUTPUT="$WORKSPACE_ROOT/traffic_timing_decision/output"
 
 # Prepare every module's immutable input inside this run directory before any
@@ -310,11 +334,11 @@ fi
 
 if [[ -s "$PERCEPTION_DIR/pipeline.log" || -s "$PERCEPTION_DIR/stream.log" ]]; then
   run_with_report "Analyzing Traffic Perception pipeline logs" \
-    "$PERCEPTION_DIR/pipeline_analytics_report.txt" \
+    "$PERCEPTION_DIR/perc_pipe_statistic.txt" \
     bazel run --config=x86_64-linux //traffic_perception:analyze_log \
     "$PERCEPTION_DIR/pipeline.log"
   run_with_report "Analyzing Traffic Perception stream logs" \
-    "$PERCEPTION_DIR/stream_analytics_report.txt" \
+    "$PERCEPTION_DIR/perc_stream_statistic.txt" \
     bazel run --config=x86_64-linux //traffic_perception:analyze_log \
     "$PERCEPTION_DIR/stream.log"
   run_optional "Plotting Traffic Perception pipeline histograms" \
@@ -343,7 +367,7 @@ if [[ -s "$RUNTIME_LOGS/timing_decision.dlt" && \
   run_optional "Building Traffic Timing Decision analytics" \
     bazel build --config=x86_64-linux //traffic_timing_decision:analytics
   run_with_report "Printing Traffic Timing Decision analytics" \
-    "$TIMING_DIR/analytics_report.txt" \
+    "$TIMING_DIR/deci_statistic.txt" \
     "$WORKSPACE_ROOT/bazel-bin/traffic_timing_decision/analytics" \
     "$TIMING_DIR/wakeup_latency.txt" "$TIMING_DIR/execution_time.txt"
   run_optional "Plotting Timing Decision wakeup histogram" \
@@ -370,8 +394,25 @@ if [[ -s "$CONTROLLER_DIR/CTRL.dlt.txt" ]]; then
     CONTROLLER_REPORT_MTIME="$(stat -c %Y "$CONTROLLER_REPORT")"
   if [[ -s "$CONTROLLER_REPORT" && \
         "$CONTROLLER_REPORT_MTIME" -ge "$RUN_START_EPOCH" ]]; then
-    cp "$CONTROLLER_REPORT" \
-      "$CONTROLLER_DIR/analytics_report.txt"
+    extract_report_section \
+      "$CONTROLLER_REPORT" \
+      "PERCEPTION PUBLISH-TO-CONTROLLER RECEIVE LATENCY" \
+      "TIMING DECISION RECEIVE-TO-CONTROLLER RECEIVE LATENCY" \
+      "$END_TO_END_DIR/perc_to_ctrl_statistic.txt"
+    extract_report_section \
+      "$CONTROLLER_REPORT" \
+      "TIMING DECISION RECEIVE-TO-CONTROLLER RECEIVE LATENCY" \
+      "EMERGENCY RECEIVE-TO-APPLY LATENCY" \
+      "$END_TO_END_DIR/deci_to_ctrl_statistic.txt"
+
+    # The complete runtime report remains the source for E2E extraction.
+    # Hide the two E2E sections only from the Signal Controller report copy so
+    # the same statistics are not displayed in two output categories.
+    awk '
+      $0 == "PERCEPTION PUBLISH-TO-CONTROLLER RECEIVE LATENCY" {skip=1}
+      $0 == "EMERGENCY RECEIVE-TO-APPLY LATENCY" {skip=0}
+      !skip {print}
+    ' "$CONTROLLER_REPORT" >"$CONTROLLER_DIR/ctrl_statistic.txt"
   else
     warn "Signal Controller analytics report is missing or stale for this run."
     POSTPROCESS_FAILURES=$((POSTPROCESS_FAILURES + 1))
@@ -381,37 +422,37 @@ if [[ -s "$CONTROLLER_DIR/CTRL.dlt.txt" ]]; then
     run_optional "Plotting Signal Controller $metric time series" \
       "$WORKSPACE_ROOT/traffic_signal_controller/scripts/plot_analytics_timeseries.sh" \
       "$metric" "$CONTROLLER_DIR/CTRL.dlt.txt" \
-      "$CONTROLLER_DIR/${metric}_timeseries.png"
+      "$CONTROLLER_PLOTS_DIR/ctrl_${metric}_timeseries.png"
     run_optional "Plotting Signal Controller $metric histogram" \
       "$WORKSPACE_ROOT/traffic_signal_controller/scripts/plot_analytics_histogram.sh" \
       "$metric" "$CONTROLLER_DIR/CTRL.dlt.txt" \
-      "$CONTROLLER_DIR/${metric}_histogram.png"
+      "$CONTROLLER_PLOTS_DIR/ctrl_${metric}_histogram.png"
   done
 
   run_optional "Plotting Signal Controller end-to-end time series" \
     "$WORKSPACE_ROOT/traffic_signal_controller/scripts/plot_analytics_timeseries.sh" \
     end_to_end "$CONTROLLER_DIR/CTRL.dlt.txt" \
-    "$CONTROLLER_DIR/decision_to_controller_latency_timeseries.png"
+    "$END_TO_END_PLOTS_DIR/deci_to_ctrl_timeseries.png"
   run_optional "Plotting Signal Controller end-to-end histogram" \
     "$WORKSPACE_ROOT/traffic_signal_controller/scripts/plot_analytics_histogram.sh" \
     end_to_end "$CONTROLLER_DIR/CTRL.dlt.txt" \
-    "$CONTROLLER_DIR/decision_to_controller_latency_histogram.png"
+    "$END_TO_END_PLOTS_DIR/deci_to_ctrl_histogram.png"
   run_optional "Plotting Perception-to-Controller time series" \
     "$WORKSPACE_ROOT/traffic_signal_controller/scripts/plot_analytics_timeseries.sh" \
     perception_to_controller "$CONTROLLER_DIR/CTRL.dlt.txt" \
-    "$CONTROLLER_DIR/perception_to_controller_latency_timeseries.png"
+    "$END_TO_END_PLOTS_DIR/perc_to_ctrl_timeseries.png"
   run_optional "Plotting Perception-to-Controller histogram" \
     "$WORKSPACE_ROOT/traffic_signal_controller/scripts/plot_analytics_histogram.sh" \
     perception_to_controller "$CONTROLLER_DIR/CTRL.dlt.txt" \
-    "$CONTROLLER_DIR/perception_to_controller_latency_histogram.png"
+    "$END_TO_END_PLOTS_DIR/perc_to_ctrl_histogram.png"
   run_optional "Plotting Signal Controller emergency time series" \
     "$WORKSPACE_ROOT/traffic_signal_controller/scripts/plot_analytics_timeseries.sh" \
     emergency "$CONTROLLER_DIR/CTRL.dlt.txt" \
-    "$CONTROLLER_DIR/emergency_receive_to_apply_latency_timeseries.png"
+    "$CONTROLLER_PLOTS_DIR/ctrl_emergency_timeseries.png"
   run_optional "Plotting Signal Controller emergency histogram" \
     "$WORKSPACE_ROOT/traffic_signal_controller/scripts/plot_analytics_histogram.sh" \
     emergency "$CONTROLLER_DIR/CTRL.dlt.txt" \
-    "$CONTROLLER_DIR/emergency_receive_to_apply_latency_histogram.png"
+    "$CONTROLLER_PLOTS_DIR/ctrl_emergency_histogram.png"
 else
   warn "Signal Controller converted log is missing or empty."
   POSTPROCESS_FAILURES=$((POSTPROCESS_FAILURES + 1))

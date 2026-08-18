@@ -7,9 +7,7 @@ cc_library(
     srcs = glob(
         ["src/**/*.cpp"],
         exclude = [
-            "src/main.cpp",
             "src/signal_control_app.cpp",
-            "src/traffic_signal_controller_demo.cpp",
         ],
     ),
     hdrs = glob(
@@ -34,13 +32,14 @@ cc_library(
     ],
 )
 
-cc_library(
-    name = "traffic_signal_controller_application",
+cc_binary(
+    name = "traffic_signal_controller",
     srcs = [
+        "include/traffic_signal_controller/signal_control_app.h",
         "src/signal_control_app.cpp",
     ],
-    hdrs = [
-        "include/traffic_signal_controller/signal_control_app.h",
+    data = [
+        "//config:logging.json",
     ],
     copts = [
         "-Wall",
@@ -48,25 +47,6 @@ cc_library(
         "-Wpedantic",
     ],
     includes = ["include"],
-    deps = [
-        ":traffic_signal_control_lib",
-        "@score_baselibs//score/concurrency:interruptible_wait",
-        "@score_baselibs//src/log/stdout_logger_cpp_init",
-        "@score_lifecycle//score/launch_manager:lifecycle_cc",
-        "@score_baselibs//score/mw/log:frontend",
-        "@score_logging//score/mw/log/backend:file",
-        "@score_baselibs//score/mw/log:console",
-    ],
-)
-
-cc_binary(
-    name = "traffic_signal_controller",
-    srcs = [
-        "src/main.cpp",
-    ],
-    data = [
-        "//config:logging.json",
-    ],
     linkopts = select({
         "@platforms//os:linux": [
             "-lpthread",
@@ -75,21 +55,12 @@ cc_binary(
         "//conditions:default": [],
     }),
     deps = [
-        ":traffic_signal_controller_application",
-        "@score_baselibs//score/mw/log",
-        "@score_lifecycle//score/launch_manager:lifecycle_cc",
-    ],
-)
-
-cc_binary(
-    name = "traffic_signal_controller_demo",
-    srcs = [
-        "src/traffic_signal_controller_demo.cpp",
-    ],
-    data = [
-        "//config:logging.json",
-    ],
-    deps = [
         ":traffic_signal_control_lib",
+        "@score_baselibs//score/concurrency:interruptible_wait",
+        "@score_baselibs//src/log/stdout_logger_cpp_init",
+        "@score_lifecycle//score/launch_manager:lifecycle_cc",
+        "@score_baselibs//score/mw/log:frontend",
+        "@score_logging//score/mw/log/backend:file",
+        "@score_baselibs//score/mw/log:console",
     ],
 )

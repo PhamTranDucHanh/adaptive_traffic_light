@@ -48,7 +48,7 @@ WAKEUP_SCALE="$TIME_SCALE"
 gnuplot <<EOF
 
 set terminal pngcairo size 1800,900 enhanced font "Arial,15"
-set output "$OUTDIR/wakeup_latency_vs_frame.png"
+set output "$OUTDIR/perc_stream_wakeup_by_frame.png"
 
 set title "Stream Worker Wake-up Latency"
 
@@ -86,7 +86,7 @@ EXEC_SCALE="$TIME_SCALE"
 gnuplot <<EOF
 
 set terminal pngcairo size 1800,900 enhanced font "Arial,15"
-set output "$OUTDIR/execution_time_vs_frame.png"
+set output "$OUTDIR/perc_stream_execution_by_frame.png"
 
 set title "Stream Worker Execution Time"
 
@@ -116,5 +116,5 @@ echo
 echo "Generated:"
 echo "  Wake-up unit: $WAKEUP_UNIT"
 echo "  Execution unit: $EXEC_UNIT"
-echo "  $OUTDIR/wakeup_latency_vs_frame.png"
-echo "  $OUTDIR/execution_time_vs_frame.png"
+echo "  $OUTDIR/perc_stream_wakeup_by_frame.png"
+echo "  $OUTDIR/perc_stream_execution_by_frame.png"

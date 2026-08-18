@@ -34,6 +34,7 @@ fi
 
 if grep -q "wakeup_latency_us[[:space:]]*=" "$INPUT_FILE"; then
   readonly FIELD_NAME="wakeup_latency_us"
+  readonly METRIC_NAME="wakeup"
   readonly TIME_FIELD_NAME="actual_wakeup_ns"
   readonly PLOT_TITLE="Wake-up Latency over Time"
   readonly Y_AXIS_NAME="Wake-up Latency"
@@ -41,6 +42,7 @@ if grep -q "wakeup_latency_us[[:space:]]*=" "$INPUT_FILE"; then
   readonly POINT_COLOR="#0066cc"
 elif grep -q "execution_time_us[[:space:]]*=" "$INPUT_FILE"; then
   readonly FIELD_NAME="execution_time_us"
+  readonly METRIC_NAME="execution"
   readonly TIME_FIELD_NAME="execution_start_ns"
   readonly PLOT_TITLE="Decision Execution Time over Time"
   readonly Y_AXIS_NAME="Execution Time"
@@ -53,10 +55,8 @@ else
 fi
 
 readonly INPUT_DIRECTORY="$(dirname "$INPUT_FILE")"
-readonly INPUT_BASENAME="$(basename "$INPUT_FILE")"
-readonly OUTPUT_BASENAME="${INPUT_BASENAME%.*}"
 readonly PLOT_DIRECTORY="${INPUT_DIRECTORY}/plots"
-readonly OUTPUT_PNG="${PLOT_DIRECTORY}/${OUTPUT_BASENAME}_by_time.png"
+readonly OUTPUT_PNG="${PLOT_DIRECTORY}/deci_${METRIC_NAME}_timeseries.png"
 
 mkdir -p "$PLOT_DIRECTORY"
 
@@ -214,6 +214,7 @@ readonly TOTAL_X_EXACT="$(awk -v seconds="$TOTAL_SECONDS_EXACT" -v scale="$X_SCA
 readonly TOTAL_X="$(printf '%.3f' "$TOTAL_X_EXACT")"
 readonly X_MAX="$(awk -v value="$TOTAL_X_EXACT" \
   'BEGIN {printf "%.9f", (value > 0 ? value : 1)}')"
+readonly X_END_LABEL="$(awk -v value="$X_MAX" 'BEGIN {printf "%.6g", value}')"
 
 gnuplot <<EOF
 set terminal pngcairo size 1800,900 enhanced font "Arial,12"
@@ -224,6 +225,7 @@ set xlabel "Elapsed time (${X_UNIT})"
 set ylabel "${Y_AXIS_NAME} (${DISPLAY_UNIT})"
 
 set xrange [0:${X_MAX}]
+set xtics add ("${X_END_LABEL}" ${X_MAX})
 set yrange [0:*]
 
 set grid xtics ytics

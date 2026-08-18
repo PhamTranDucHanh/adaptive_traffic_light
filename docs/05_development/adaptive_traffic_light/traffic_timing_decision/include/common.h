@@ -1,8 +1,7 @@
 #ifndef TRAFFIC_TIMING_DECISION_COMMON_H
 #define TRAFFIC_TIMING_DECISION_COMMON_H
 
-#include <pthread.h>
-
+#include <atomic>
 #include <cstdint>
 #include <ctime>
 
@@ -14,27 +13,22 @@ void addMilliseconds(timespec& value, std::uint32_t milliseconds) noexcept;
 std::uint32_t advancePastNow(timespec& release, std::uint32_t periodMs,
                              const timespec& now) noexcept;
 
-// Waits until an absolute CLOCK_MONOTONIC release time. Lifecycle can wake the
-// periodic thread immediately by requesting stop through the condition
-// variable.
+// Waits until an absolute CLOCK_MONOTONIC release time. A stop request is
+// observed before and after the current sleep; clock_nanosleep itself remains
+// intentionally non-interruptible by an application wake channel.
 class PeriodicWait final {
  public:
-  PeriodicWait() noexcept;
-  ~PeriodicWait();
+  PeriodicWait() noexcept = default;
+  ~PeriodicWait() = default;
 
   PeriodicWait(const PeriodicWait&) = delete;
   PeriodicWait& operator=(const PeriodicWait&) = delete;
 
-  bool valid() const noexcept;
   std::int32_t waitUntil(const timespec& absoluteRelease) noexcept;
   void requestStop() noexcept;
 
  private:
-  pthread_mutex_t mutex_{};
-  pthread_cond_t condition_{};
-  bool mutexReady_{false};
-  bool conditionReady_{false};
-  bool stopRequested_{false};
+  std::atomic_bool stopRequested_{false};
 };
 
 }  // namespace common

@@ -2,10 +2,10 @@
 #define TRAFFIC_PERCEPTION_INFERENCE_RT_DETRV2_BACKEND_H_
 
 #include <onnxruntime_cxx_api.h>
-#include <opencv2/core.hpp>
 
 #include <cstdint>
 #include <memory>
+#include <opencv2/core.hpp>
 #include <string>
 #include <vector>
 
@@ -20,8 +20,7 @@ namespace traffic_perception {
 class RtDetrv2Backend final : public IModelBackend {
  public:
   RtDetrv2Backend(const std::string& modelPath,
-                  const std::string& emergencyClass,
-                  int inferenceCallerCpu = 2,
+                  const std::string& emergencyClass, int inferenceCallerCpu = 2,
                   int inferenceCallerPriority = 70);
   ~RtDetrv2Backend() override = default;
 
@@ -32,8 +31,7 @@ class RtDetrv2Backend final : public IModelBackend {
  private:
   void inspectModelContract();
   void preprocess(const cv::Mat& frame, std::vector<float>& tensor) const;
-  void postprocess(const cv::Mat& frame,
-                   const std::vector<Ort::Value>& outputs,
+  void postprocess(const cv::Mat& frame, const std::vector<Ort::Value>& outputs,
                    InferenceResult& result) const;
 
   bool isVehicleClass(std::int64_t classId) const;
@@ -56,6 +54,7 @@ class RtDetrv2Backend final : public IModelBackend {
   std::size_t boxesOutputIndex_{1};
   std::size_t scoresOutputIndex_{2};
   float confidenceThreshold_{0.5F};
+  std::uint64_t inferenceCallCount_{0};
 };
 
 }  // namespace traffic_perception

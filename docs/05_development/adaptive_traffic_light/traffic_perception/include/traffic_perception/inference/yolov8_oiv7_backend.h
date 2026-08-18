@@ -1,11 +1,14 @@
 #ifndef TRAFFIC_PERCEPTION_INFERENCE_YOLOV8_OIV7_BACKEND_H_
 #define TRAFFIC_PERCEPTION_INFERENCE_YOLOV8_OIV7_BACKEND_H_
 
+#include <onnxruntime_cxx_api.h>
+
+#include <cstdint>
+#include <memory>
 #include <opencv2/core.hpp>
 #include <string>
 #include <vector>
-#include <memory>
-#include <onnxruntime_cxx_api.h>
+
 #include "traffic_perception/inference/imodel_backend.h"
 #include "traffic_perception/inference/onnx_thread_pool.h"
 
@@ -21,8 +24,7 @@ class YoloV8OIV7Backend : public IModelBackend {
 
   InferenceResult infer(const Frame& frame) override;
   std::string getModelName() const override;
-  void draw(cv::Mat& image,
-            const InferenceResult& inference) override;
+  void draw(cv::Mat& image, const InferenceResult& inference) override;
 
  private:
   std::string emergencyClass_;
@@ -38,13 +40,17 @@ class YoloV8OIV7Backend : public IModelBackend {
   float confThreshold_ = 0.2f;
   float nmsThreshold_ = 0.4f;
   mutable int frameCount_ = 0;
+  std::uint64_t inferenceCallCount_{0};
 
   float ratio_{1.0f};
   float dw_{0.0f};
   float dh_{0.0f};
 
-  void preprocess(const cv::Mat& frame, std::vector<float>& input_tensor_values);
-  void postprocess(const cv::Mat& frame, const std::vector<Ort::Value>& output_tensors, InferenceResult& result);
+  void preprocess(const cv::Mat& frame,
+                  std::vector<float>& input_tensor_values);
+  void postprocess(const cv::Mat& frame,
+                   const std::vector<Ort::Value>& output_tensors,
+                   InferenceResult& result);
 
   bool isVehicleClass(const std::string& className) const;
   bool isEmergencyClass(const std::string& className) const;

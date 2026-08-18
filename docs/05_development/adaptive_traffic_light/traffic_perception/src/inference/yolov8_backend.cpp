@@ -6,6 +6,7 @@
 #include <opencv2/imgproc.hpp>
 
 #include "score/mw/log/logging.h"
+#include "traffic_perception/inference/inference_trace.h"
 
 namespace traffic_perception {
 
@@ -40,8 +41,8 @@ YOLOv8Backend::YOLOv8Backend(const std::string& modelPath,
   try {
     Ort::SessionOptions sessionOptions;
     ConfigureOrtThreadPool(sessionOptions, ortThreadPoolConfig_);
-    session_ = std::make_unique<Ort::Session>(env_, modelPath.c_str(),
-                                              sessionOptions);
+    session_ =
+        std::make_unique<Ort::Session>(env_, modelPath.c_str(), sessionOptions);
 
     // Setup input/output names
     Ort::AllocatorWithDefaultOptions allocator;
@@ -58,27 +59,47 @@ YOLOv8Backend::YOLOv8Backend(const std::string& modelPath,
 }
 
 InferenceResult YOLOv8Backend::infer(const Frame& frame) {
-  InferenceResult result;
+  InferenceResult result{};
   result.FrameId = frame.FrameId;
+
+  const std::uint64_t callIndex = inferenceCallCount_++;
+  const auto traceBegin = InferenceTraceClock::now();
+  auto preprocessEnd = traceBegin;
+  auto runtimeEnd = traceBegin;
+  const char* currentStage = "preprocess";
 
   try {
     std::vector<float> input_tensor_values;
     preprocess(frame.Image, input_tensor_values);
+    preprocessEnd = InferenceTraceClock::now();
 
     std::array<int64_t, 4> input_shape = {1, 3, 640, 640};
     auto input_tensor = Ort::Value::CreateTensor<float>(
         memory_info_, input_tensor_values.data(), input_tensor_values.size(),
         input_shape.data(), input_shape.size());
 
+    currentStage = "runtime";
     auto output_tensors = session_->Run(
         Ort::RunOptions{nullptr}, (const char* const*)input_node_names_.data(),
         &input_tensor, 1, (const char* const*)output_node_names_.data(), 1);
+    runtimeEnd = InferenceTraceClock::now();
 
+    currentStage = "postprocess";
     postprocess(frame.Image, output_tensors, result);
   } catch (const std::exception& e) {
+    const auto traceEnd = InferenceTraceClock::now();
+    LogInferenceTraceFailure("yolov8", callIndex, frame.FrameId, currentStage,
+                             traceBegin, preprocessEnd, runtimeEnd, traceEnd);
     score::mw::log::LogDebug() << "Inference failed: " << e.what() << "\n";
-    return InferenceResult();
+    return InferenceResult{};
   }
+
+  const auto traceEnd = InferenceTraceClock::now();
+  result.InferenceLatencyMs =
+      InferenceTraceElapsedUs(traceBegin, traceEnd) / 1000;
+  LogInferenceTrace("yolov8", callIndex, frame.FrameId, traceBegin,
+                    preprocessEnd, runtimeEnd, traceEnd,
+                    result.Detections.size());
 
   return result;
 }
@@ -94,10 +115,12 @@ void YOLOv8Backend::draw(cv::Mat& image, const InferenceResult& inference) {
 void YOLOv8Backend::draw(cv::Mat& image,
                          const std::vector<Detection>& detections) {
   for (const auto& det : detections) {
-    cv::rectangle(image, det.Box, cv::Scalar(0, 255, 0), 2);
+    const cv::Scalar color =
+        det.IsEmergency ? cv::Scalar{0, 0, 255} : cv::Scalar{0, 255, 0};
+    cv::rectangle(image, det.Box, color, 2);
     std::string label = det.ClassName + ": " + std::to_string(det.Confidence);
     cv::putText(image, label, det.Box.tl() - cv::Point(0, 5),
-                cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0), 2);
+                cv::FONT_HERSHEY_SIMPLEX, 0.5, color, 2);
   }
 }
 

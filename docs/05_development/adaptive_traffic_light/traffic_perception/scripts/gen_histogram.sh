@@ -153,7 +153,7 @@ make_hist \
     "Pipeline Wake-up Latency Histogram" \
     "Wake-up Latency" \
     "Wake-up Latency" \
-    "$OUTDIR/plots/wakeup_latency_histogram.png"
+    "$OUTDIR/plots/perc_pipe_wakeup_histogram.png"
 
 make_hist \
     "$EXEC_DATA" \
@@ -161,6 +161,6 @@ make_hist \
     "Pipeline Execution Time Histogram" \
     "Execution Time" \
     "Execution Time" \
-    "$OUTDIR/plots/execution_time_histogram.png"
+    "$OUTDIR/plots/perc_pipe_execution_histogram.png"
 
 echo "Done."
