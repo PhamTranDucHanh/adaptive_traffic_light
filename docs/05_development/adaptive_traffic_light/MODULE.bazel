@@ -11,6 +11,16 @@ bazel_dep(name = "score_logging", version = "0.2.2")
 bazel_dep(name = "nlohmann_json", version = "3.12.0")
 bazel_dep(name = "traffic_ipc", version = "0.1.0")
 
+# Generate compile_commands.json for clangd and other C/C++ tooling.
+# Pinned to the upstream-recommended revision so the development environment is
+# reproducible instead of following the repository's moving main branch.
+bazel_dep(name = "hedron_compile_commands", dev_dependency = True)
+git_override(
+    module_name = "hedron_compile_commands",
+    remote = "https://github.com/hedronvision/bazel-compile-commands-extractor.git",
+    commit = "0e990032f3c5a866e72615cf67e5ce22186dcb97",
+)
+
 local_path_override(
     module_name = "traffic_ipc",
     path = "ipc",

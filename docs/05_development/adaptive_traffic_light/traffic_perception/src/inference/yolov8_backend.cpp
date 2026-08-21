@@ -69,12 +69,6 @@ InferenceResult YOLOv8Backend::infer(const Frame& frame) {
   auto runtimeEnd = traceBegin;
   const char* currentStage = "preprocess";
 
-  const std::uint64_t callIndex = inferenceCallCount_++;
-  const auto traceBegin = InferenceTraceClock::now();
-  auto preprocessEnd = traceBegin;
-  auto runtimeEnd = traceBegin;
-  const char* currentStage = "preprocess";
-
   try {
     preprocess(frame.Image, inputTensorValues_);
     preprocessEnd = InferenceTraceClock::now();

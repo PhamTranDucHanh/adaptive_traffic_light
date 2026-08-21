@@ -1,4 +1,13 @@
+load("@hedron_compile_commands//:refresh_compile_commands.bzl", "refresh_compile_commands")
+
 package(default_visibility = ["//visibility:public"])
+
+refresh_compile_commands(
+    name = "refresh_compile_commands",
+    targets = {
+        "//traffic_perception:traffic_perception": "--config=host",
+    },
+)
 
 alias(
     name = "timing_decision",

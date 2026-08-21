@@ -29,6 +29,7 @@ etc/
 
 # Project Output
 **/output/
+**/output-*/
 .aider*
 
 # Bazel
@@ -42,6 +43,9 @@ MODULE.bazel.lock
 
 *.dat
 *.data 
+
+# Bazel vendor
+vendor/
 
 # Ignore stray .txt but keep CMake's build scripts
 *.txt

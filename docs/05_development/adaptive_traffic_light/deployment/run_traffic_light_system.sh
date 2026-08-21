@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-control_cpu=0
+control_cpu=5
 
 pin_dbus_helpers() {
   local allowed_cpus=""

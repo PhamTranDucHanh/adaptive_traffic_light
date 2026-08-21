@@ -72,6 +72,17 @@ case "$METRIC" in
         ;;
 esac
 
+# Match the Timing Decision histogram's 1 us resolution for short real-time
+# metrics. The Perception-to-Controller path spans seconds, so a 1 ms default
+# keeps the same presentation readable. BUCKET_WIDTH_NS can override either.
+if [[ -z "${BUCKET_WIDTH_NS:-}" ]]; then
+    if [[ "$METRIC" == "perception_to_controller" ]]; then
+        BUCKET_WIDTH_NS=1000000
+    else
+        BUCKET_WIDTH_NS=1000
+    fi
+fi
+
 OUTPUT_IMAGE=${3:-$DEFAULT_OUTPUT_IMAGE}
 
 if [ ! -f "$INPUT_FILE" ]; then
@@ -86,11 +97,15 @@ if ! command -v gnuplot >/dev/null 2>&1; then
     exit 1
 fi
 
+if [[ ! "$BUCKET_WIDTH_NS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: BUCKET_WIDTH_NS must be a positive integer."
+    exit 1
+fi
+
 mkdir -p "$RUNTIME_LOG_DIRECTORY"
 mkdir -p "$(dirname "$OUTPUT_IMAGE")"
 
 RAW_DATA_NS="${RUNTIME_LOG_DIRECTORY}/${METRIC}_samples_ns.dat"
-SCALED_DATA="${RUNTIME_LOG_DIRECTORY}/${METRIC}_samples_scaled.dat"
 HIST_DATA="${RUNTIME_LOG_DIRECTORY}/${METRIC}_histogram.dat"
 GNUPLOT_FILE="${RUNTIME_LOG_DIRECTORY}/plot_${METRIC}_histogram.gnu"
 
@@ -187,12 +202,6 @@ else
     SCALE=1000000000
 fi
 
-awk -v scale="$SCALE" '
-{
-    printf "%.9f\n", $1 / scale
-}
-' "$RAW_DATA_NS" > "$SCALED_DATA"
-
 convert_value() {
     awk -v value="$1" -v scale="$SCALE" '
     BEGIN {
@@ -242,113 +251,33 @@ P95_LABEL=$(format_value "$P95_VALUE")
 P99_LABEL=$(format_value "$P99_VALUE")
 
 #-------------------------------------------------------
-# Choose the main-distribution percentile
+# Use the same histogram layout as Timing Decision:
+#   - fixed 1 us bucket by default
+#   - first bucket anchored at the measured minimum
+#   - only non-empty buckets emitted
 #
-# If P99 is much larger than P95, treat the upper tail as
-# outliers and base the visible histogram on P95.
-# Otherwise use P99.
+# BUCKET_WIDTH_NS remains configurable without changing the
+# extracted analytics samples or their statistics.
 #-------------------------------------------------------
 
-OUTLIER_RATIO=$(awk -v p95="$P95_VALUE" -v p99="$P99_VALUE" '
-BEGIN {
-    if (p95 <= 0.0) {
-        print 1.0
-    } else {
-        printf "%.6f", p99 / p95
-    }
-}
-')
-
-if awk -v ratio="$OUTLIER_RATIO" 'BEGIN {exit !(ratio > 5.0)}'; then
-    RANGE_PERCENTILE="P95"
-    RANGE_ANCHOR="$P95_VALUE"
-else
-    RANGE_PERCENTILE="P99"
-    RANGE_ANCHOR="$P99_VALUE"
-fi
-
-#-------------------------------------------------------
-# Choose a readable bin width
-#
-# Aim for about 40 bins across the main distribution and
-# round the result to a 1, 2, 5, 10 ... step.
-#-------------------------------------------------------
-
-RAW_BIN_WIDTH=$(awk -v anchor="$RANGE_ANCHOR" '
-BEGIN {
-    width = anchor / 40.0
-
-    if (width <= 0.0) {
-        width = 1.0
-    }
-
-    printf "%.12f", width
-}
-')
-
-BIN_WIDTH=$(awk -v value="$RAW_BIN_WIDTH" '
-function power10(exponent, result, i) {
-    result = 1.0
-
-    if (exponent >= 0) {
-        for (i = 0; i < exponent; ++i) {
-            result *= 10.0
-        }
-    } else {
-        for (i = 0; i > exponent; --i) {
-            result /= 10.0
-        }
-    }
-
-    return result
-}
-
-BEGIN {
-    if (value <= 0.0) {
-        print 1.0
-        exit
-    }
-
-    exponent = int(log(value) / log(10.0))
-
-    if (value < 1.0 && value < power10(exponent)) {
-        exponent--
-    }
-
-    magnitude = power10(exponent)
-    normalized = value / magnitude
-
-    if (normalized <= 1.0) {
-        nice = 1.0
-    } else if (normalized <= 2.0) {
-        nice = 2.0
-    } else if (normalized <= 5.0) {
-        nice = 5.0
-    } else {
-        nice = 10.0
-    }
-
-    printf "%.9f", nice * magnitude
-}
-')
-
+BIN_WIDTH=$(convert_value "$BUCKET_WIDTH_NS")
 BIN_WIDTH_LABEL=$(format_value "$BIN_WIDTH")
 
 #-------------------------------------------------------
 # Build histogram
 #-------------------------------------------------------
 
-awk -v bw="$BIN_WIDTH" '
+awk -v minimum="$MIN_NS" -v width="$BUCKET_WIDTH_NS" '
 {
-    bin_index = int($1 / bw)
+    bin_index = int(($1 - minimum) / width)
     hist[bin_index]++
 }
 END {
     for (bin_index in hist) {
-        printf "%.9f %d\n", bin_index * bw, hist[bin_index]
+        print bin_index, hist[bin_index]
     }
 }
-' "$SCALED_DATA" | sort -n > "$HIST_DATA"
+' "$RAW_DATA_NS" | sort -n -k1,1 > "$HIST_DATA"
 
 #-------------------------------------------------------
 # Generate Gnuplot script
@@ -372,7 +301,8 @@ set grid xtics ytics
 set border linewidth 1
 set key top right
 
-plot "$HIST_DATA" using 1:2 \
+plot "$HIST_DATA" using \
+(($MIN_NS + (\$1 * $BUCKET_WIDTH_NS)) / $SCALE):2 \
 with impulses linewidth 1 linecolor rgb "#b000ff" \
 title "$LEGEND_NAME"
 
@@ -401,5 +331,3 @@ echo "  P90             : $P90_LABEL $UNIT"
 echo "  P95             : $P95_LABEL $UNIT"
 echo "  P99             : $P99_LABEL $UNIT"
 echo "  Maximum         : $MAX_LABEL $UNIT"
-echo "  Tail ratio      : P99/P95 = $OUTLIER_RATIO"
-echo "  Bin based on    : $RANGE_PERCENTILE"
