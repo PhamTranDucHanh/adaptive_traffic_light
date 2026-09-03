@@ -1,8 +1,8 @@
 # Introduction
 
-This project follows the **Docs as Code** approach — treating documentation the same way we treat source code.
+This project follows the **Docs as Code** approach - treating documentation the same way we treat source code.
 RST is a lightweight, plain-text format that is both human-readable and machine-friendly, 
-making it well-suited for integration with AI Agents — enabling automated 
+making it well-suited for integration with AI Agents - enabling automated 
 parsing, semantic search, and context retrieval in modern AI-powered workflows.
 
 Documentation is written in **reStructuredText (.rst)**, stored alongside 
@@ -29,9 +29,9 @@ and easy to maintain as the project evolves.
 
 **VS Code Extensions (for live preview):**
  
-- `restructuredtext`(LeXtudio Inc) — RST syntax support
-- `esbonio`(Swyddfa) — RST language server
-- `Live Server`(Ritwick Dey) — live HTML preview in browser
+- `restructuredtext`(LeXtudio Inc) - RST syntax support
+- `esbonio`(Swyddfa) - RST language server
+- `Live Server`(Ritwick Dey) - live HTML preview in browser
 
 # Installation
 
@@ -64,17 +64,17 @@ source .venv/bin/activate
 
 **View the output:**
  
-**Option 1 — Open file directly in browser**
+**Option 1 - Open file directly in browser**
  
 ```shell
 cd build/latest/html
 ```
  
-Open `index.html` in Chrome / Firefox / Edge. Simple and works on all platforms — no extra tools needed.
+Open `index.html` in Chrome / Firefox / Edge. Simple and works on all platforms - no extra tools needed.
  
 > Reload the page manually after each rebuild.
  
-**Option 2 — Live Server**
+**Option 2 - Live Server**
  
 See [Live Server](#option-2--live-server-browser-preview) for setup steps.
 
@@ -82,7 +82,7 @@ See [Live Server](#option-2--live-server-browser-preview) for setup steps.
 
 ### Linux & WSL Preview
 
-#### Option 1 — Preview in VS Code (RST Preview)
+#### Option 1 - Preview in VS Code (RST Preview)
  
 **Required extensions:** `restructuredtext`, `esbonio`
  
@@ -90,7 +90,7 @@ See [Live Server](#option-2--live-server-browser-preview) for setup steps.
 2. Press `Ctrl+K V` to open **Preview to the Side**
 3. The preview panel appears on the right and updates as you edit
 
-#### Option 2 — Live Server (Browser Preview)
+#### Option 2 - Live Server (Browser Preview)
  
 **Required extension:** `Live Server`
  
@@ -101,7 +101,7 @@ source .venv/bin/activate
 ```
  
 2. In the terminal, hold `Ctrl` and click the URL (e.g. `http://0.0.0.0:8000`)
-3. Select **Open in Browser** — the page auto-reloads on changes
+3. Select **Open in Browser** - the page auto-reloads on changes
 4. Press `Ctrl+C` in the terminal to stop
 
 ## Creating Tables

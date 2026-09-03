@@ -131,6 +131,7 @@ needs_layouts = {
     "layout_sys_req": _layout([
         'derives to: <<meta_links("derives", incoming=False)>>',
         'derives from: <<meta_links("derives", incoming=True)>>',
+        'is satisfied by: <<meta_links("satisfies", incoming=True)>>',
         'is verified by: <<meta_links("verifies", incoming=True)>>',
         '<<meta("req_covered", prefix="req_covered: ", show_empty=True)>>',
     ]),
@@ -155,6 +156,7 @@ needs_layouts = {
     "layout_sys_des": _layout([
         'derives to: <<meta_links("derives", incoming=False)>>',
         'derives from: <<meta_links("derives", incoming=True)>>',
+        'satisfies: <<meta_links("satisfies", incoming=False)>>',
         'is verified by: <<meta_links("verifies", incoming=True)>>',
         '<<meta("req_covered", prefix="req_covered: ", show_empty=True)>>',
     ]),
@@ -200,7 +202,7 @@ html_theme_options = {
     "color_mode": "dark",
     "light_logo": "_static/logo_bv.png",
     "dark_logo": "_static/logo_bv.png",
-    "gitlab_url": "https://gitlab-scm.banvien.com.vn/playground/adas-hackathon1/development/aspice/qac",
+    "gitlab_url": "https://gitlab-scm.banvien.com.vn/playground/internship/2026/adaptive_traffic_light",
 }
 
 html_favicon = 'docs/_static/logo_bv.png'
