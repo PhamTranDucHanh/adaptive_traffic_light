@@ -63,8 +63,9 @@ The proposal addresses the requirements in
 :doc:`../02_requirement/system_requirements`.  The current implementation also
 imposes these constraints:
 
-* Processes run on Linux and communicate domain data through non-blocking
-  POSIX latest-value message queues.
+* Processes run on Linux and communicate domain data through bounded POSIX
+  message queues.  Domain publishers are non-blocking, while consumers use
+  either non-blocking latest-value reads or a bounded receive wait.
 * The timing-decision process runs every 2.5 seconds; its integrated Health
   Monitor configuration allows a 10-second processing deadline.
 * Perception captures frames every 500 milliseconds and runs its configured
@@ -176,20 +177,24 @@ System timing budget and freshness
      - Overrun behaviour
    * - Four-lane frame capture
      - Absolute periodic stream workers
-     - Period 500 ms; phase 0 ms
-     - No independent end-to-end freshness limit
+     - Period 500 ms; base phase 0 ms; per-lane offsets 0/125/250/375 ms
+     - Offline response-time analytics threshold 100 ms; no independent
+       end-to-end freshness limit
      - Latest frame replaces the previous frame; processing does not wait for
        a backlog.
    * - Perception inference and snapshot publication
      - Absolute periodic pipeline worker
      - Period 10,000 ms; phase 50 ms
-     - Perception health deadline 0..30,000 ms
+     - Offline response-time analytics threshold 5,000 ms; Perception health
+       deadline 0..30,000 ms
      - A delayed release is recorded; the latest usable observation is
        published when complete.
    * - Perception content view / signal overlay
      - Periodic application loop
-     - Content 10,000 ms, phase 260 ms; overlay refresh 250 ms
-     - Heartbeat 100..10,000 ms
+     - Content 10,000 ms, phase 260 ms; overlay refresh 250 ms; SignalState
+       reopen retry 1,000 ms
+     - Offline content response-time analytics threshold 5,000 ms; SignalState is
+       stale after 3,000 ms; heartbeat 100..10,000 ms
      - Missed display releases are skipped; visualization cannot affect
        control output.
    * - Timing decision
@@ -203,12 +208,14 @@ System timing budget and freshness
      - Blocking receive with bounded timeout
      - Receive timeout 200 ms; reopen retry 100 ms
      - Envelope, publisher instance and sequence are validated
-     - Available entries are drained and only the newest valid plan is handed
-       to the controller.
+     - Available entries are drained; the newest transport-valid plan is handed
+       to Controller domain validation.
    * - Signal FSM
      - Absolute ``CLOCK_MONOTONIC`` tick
      - Tick 1,000 ms
-     - Wake-up latency samples; application health deadline 0..5,000 ms
+     - Wake-up latency samples; application health deadline 0..5,000 ms;
+       heartbeat every two control cycles (nominally 2,000 ms) with an
+       accepted interval of 500..15,000 ms
      - Normal plans wait for an ``ALL_RED`` boundary; emergency plans may
        interrupt a green phase only within the configured safe window.
    * - Lifecycle supervision
@@ -217,6 +224,11 @@ System timing budget and freshness
      - Perception reporting window 10 s; Decision and Controller 5 s
      - Readiness gets one restart attempt; runtime failure switches to the
        control-only fallback target.
+
+The Perception response-time thresholds above are used by post-run timeline
+analytics.  They classify measured deadline misses but do not directly trigger
+Lifecycle recovery.  The Health Monitor windows are the runtime supervision
+contracts.
 
 The nominal sensor-to-actuator latency is not a single constant.  A snapshot
 can wait up to one Timing Decision release (2.5 s), and a normal accepted plan
@@ -457,15 +469,18 @@ Interfaces and data flow
        (``0x54504C31``, ASCII ``TPL1``), version, message size, publisher
        instance and sequence are validated before decoding.  The signature
        distinguishes a timing-plan message from incompatible queue data; it
-       is not a security or encryption mechanism.  The consumer drains
-       available entries and applies only the newest accepted plan.
+       is not a security or encryption mechanism.  The consumer drains the
+       currently available entries, selects the newest transport-valid
+       envelope and then submits that plan to Controller domain validation.
    * - ``SignalState``
      - Signal Controller
      - Perception viewer
      - POSIX queue ``/traffic_signal_state_v1``; depth 4; latest value;
        non-blocking publish
      - ``SignalStateMessageV1`` is a 40-byte, versioned visualization contract
-       containing phase, lamp states and remaining times. It is telemetry only.
+       containing phase, lamp states and remaining times.  The viewer retries
+       queue open after 1,000 ms and marks data stale after 3,000 ms.  It is
+       telemetry only.
    * - Lifecycle command
      - Lifecycle Manager
      - Each managed process
@@ -518,10 +533,11 @@ separate lifecycle and health-control path.
        decision service.
    * - Timing Decision -> Signal Controller
      - POSIX MQ; receiver waits at most 200 ms per receive pass
-     - Versioned 72-byte envelope; newest valid publisher-instance/sequence
-       wins
+     - Versioned 72-byte envelope; newest transport-valid publisher-instance/
+       sequence is selected
      - Validate timing ranges, translate to six phases, then stage the plan
-     - Invalid/stale data is rejected without changing the active FSM plan.
+     - An invalid domain plan or stale transport sequence is rejected without
+       changing the active FSM plan.  Plan age is not an acceptance gate.
    * - Plan receiver -> Signal FSM
      - In-process synchronized latest pending plan
      - A newer normal plan supersedes an older pending plan
@@ -554,10 +570,11 @@ form a separate control plane and must not carry domain values.
 
    Perception publishes ``TrafficSnapshot`` to ``/traffic_snapshot_v1`` and
    Timing Decision publishes ``TimingPlanMessageV1`` to
-   ``/traffic_timing_plan_v1``.  Both channels are non-blocking and bounded;
-   their producer/consumer logic favors the newest usable value so a slow
-   consumer does not create an unbounded backlog of obsolete traffic
-   decisions.
+   ``/traffic_timing_plan_v1``.  Both publishers are non-blocking and both
+   queues are bounded.  Snapshot reads are non-blocking; TimingPlan reception
+   uses a bounded 200-ms wait and then drains available entries.  Their
+   producer/consumer logic favors the newest usable value so a slow consumer
+   does not create an unbounded backlog of obsolete traffic decisions.
 
 .. sys_des:: Return applied signal state as visualization-only telemetry
    :id: sys_des__signal_state_telemetry
@@ -589,10 +606,13 @@ Startup
 
 #. Deployment removes or validates stale IPC resources and starts the
    Lifecycle Manager and control service.
-#. Each managed process initializes its domain resources and health monitors.
-#. The Lifecycle Manager requests ``Running`` only after initialization
-   succeeds.
-#. Producers open their queues before regular periodic publication begins.
+#. After the Control Daemon endpoint becomes available, the deployment helper
+   requests ``Running``.  That transition starts and initializes the managed
+   Perception, Timing Decision and Signal Controller processes in dependency
+   order.
+#. Each component reports ready only after its required initialization
+   succeeds.  Producers open their queues before regular periodic publication
+   begins.
 
 :download:`Editable Lifecycle sequence source <Sequence Diagrams/Life Manager Seq.drawio>`
 
@@ -610,7 +630,8 @@ Normal operation
 #. Perception captures and analyzes configured input, then replaces the latest
    traffic snapshot.
 #. At each 2.5-second release, Timing Decision consumes the newest available
-   snapshot, computes a plan and replaces the latest timing plan.
+   snapshot, computes a plan and publishes it without blocking.  If the queue
+   is temporarily full, only its newest pending plan is retained for retry.
 #. Signal Controller validates an available plan and advances only through
    legal state-machine transitions.
 #. Signal Controller publishes its applied state to the Perception viewer for
@@ -649,10 +670,15 @@ Degraded and failure operation
   reports ``NO_NEW_DATA`` and retries a pending publication.  After 24
   consecutive 2.5-second misses (60 seconds), the integrated service reports
   input timeout and fails its cycle.
-* Invalid or missing plan: Signal Controller retains the current safe plan and
-  reports rejection or absence; it must not jump to an arbitrary signal state.
-* Queue attribute mismatch or open failure: the affected process fails
-  initialization rather than communicating with an incompatible endpoint.
+* Invalid or missing plan: Signal Controller retains its current plan and must
+  not jump to an arbitrary signal state.  Invalid messages are reported;
+  ordinary receive timeouts are tolerated without an absence diagnostic.
+* Required producer queue open or contract-validation failure: Perception or
+  Timing Decision fails initialization.  Signal Controller retries a missing
+  TimingPlan queue every 100 ms; a non-recoverable open/contract error fails
+  its receiver worker and is reported as a runtime application failure.
+  Failure to open the visualization-only SignalState queue is logged but does
+  not stop signal control.
 * Deadline, heartbeat or application failure: Health Monitor reports the
   failure to lifecycle supervision and diagnostics.  Readiness recovery makes
   one restart attempt; configured runtime recovery switches to the fallback
@@ -699,8 +725,8 @@ Verification plan
 
 * Unit-test message validation, latest-value replacement and signal-state
   transitions, including rejected and missing inputs.
-* Integration-test both POSIX queues with producer/consumer processes and
-  incompatible queue attributes.
+* Integration-test the TrafficSnapshot, TimingPlan and SignalState POSIX queues
+  with producer/consumer processes and incompatible queue attributes.
 * Run the managed deployment through Startup, Running and Stop and confirm
   health visibility for every process.
 * Measure wake-up latency, execution time and end-to-end perception-to-control
@@ -789,7 +815,8 @@ Applied design patterns
    * - Latest-Value Mailbox
      - Per-lane ``AtomicFrameBuffer`` and bounded snapshot/signal-state queues
        replace or drain older values.  Timing-plan reception drains available
-       entries and selects the newest valid transport sequence.
+       entries and selects the newest transport-valid sequence before domain
+       validation.
      - Traffic control needs the freshest usable state rather than complete
        historical delivery.
      - Memory and backlog are bounded, but intermediate observations may be
@@ -905,10 +932,12 @@ the current intersection.  Replacing/draining older entries bounds memory and
 lets a recovering consumer resume from the newest state.
 
 Non-blocking publication prevents a slow or failed downstream process from
-suspending an upstream periodic thread.  A named semaphore makes each
-replace/drain operation coherent across processes.  The cost is that delivery
-is not guaranteed and the consumer must distinguish empty, busy, stale,
-invalid and incompatible states.
+suspending an upstream periodic thread.  For the shared latest-value helper
+used by TrafficSnapshot and SignalState, a named semaphore makes each
+replace/drain operation coherent across processes.  TimingPlan instead uses a
+non-blocking producer, a bounded receive wait and consumer-side draining.  The
+cost is that delivery is not guaranteed and the consumer must distinguish
+empty, busy, stale, invalid and incompatible states.
 
 ``TimingPlanMessageV1`` adds a fixed-size versioned envelope because Timing
 Decision and Signal Controller evolve independently.  The ``TPL1`` format
