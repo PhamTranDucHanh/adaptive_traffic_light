@@ -85,9 +85,9 @@ System architecture
 System overview
 ^^^^^^^^^^^^^^^
 
-The SVG below is the reviewable web artifact for the editable
-:download:`System Component.drawio <Component Diagrams/System Component.drawio>`
-source.  The source remains authoritative for graphical edits.
+The SVG below is the reviewable web artifact.  Its corresponding ``.drawio``
+file remains authoritative for graphical edits and is maintained next to the
+exported SVG in this repository.
 
 .. image:: Component\ Diagrams/System\ Component.drawio.svg
    :alt: Adaptive Traffic Light system components and principal data flow
@@ -500,8 +500,6 @@ Module interaction rules
 The end-to-end sequence below shows the domain data path together with the
 separate lifecycle and health-control path.
 
-:download:`Editable system-sequence source <Sequence Diagrams/system.drawio>`
-
 .. figure:: Sequence\ Diagrams/system-sequence.drawio.svg
    :alt: End-to-end sequence between the Adaptive Traffic Light modules
    :align: center
@@ -614,8 +612,6 @@ Startup
    succeeds.  Producers open their queues before regular periodic publication
    begins.
 
-:download:`Editable Lifecycle sequence source <Sequence Diagrams/Life Manager Seq.drawio>`
-
 .. figure:: Sequence\ Diagrams/Life\ Manager\ Seq.drawio.svg
    :alt: Lifecycle Manager startup, state-transition and shutdown sequence
    :align: center
@@ -644,8 +640,6 @@ shown below.  The flowchart follows a snapshot through demand evaluation and
 plan constraints; the FSM shows the legal order of signal phases and safe
 transition points.
 
-:download:`Editable Timing Decision flowchart source <Flowchart/Traffic Timing Decision Flowchart.drawio>`
-
 .. figure:: Flowchart/Traffic\ Timing\ Decision\ Flowchart.drawio.svg
    :alt: Traffic Timing Decision processing flow
    :align: center
@@ -653,8 +647,6 @@ transition points.
 
    Traffic snapshot validation, demand calculation and constrained timing-plan
    generation.
-
-:download:`Editable Signal Controller FSM source <FSM/Traffic Signal Controller FSM.drawio>`
 
 .. figure:: FSM/Traffic\ Signal\ Controller\ FSM.drawio.svg
    :alt: Traffic Signal Controller finite-state machine
