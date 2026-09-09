@@ -246,15 +246,59 @@ boundary.
 The worst case must therefore be measured across the complete path; it cannot
 be inferred by simply adding the component periods.
 
+
 System-wide runtime constraints
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The processes use fixed-priority Linux real-time scheduling, CPU affinity,
-bounded memory and periodic workers.  Timing Decision and Signal Controller
-fail initialization when required real-time resources cannot be created;
-Perception contains overload by reusing a fixed frame pool and replacing old
-frames.  Exact worker policies, priorities, CPU assignments, periods and
-memory behaviour are documented on the three internal component pages.
+Scheduling and resources
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. list-table:: Process and worker real-time configuration
+   :header-rows: 1
+   :widths: 25 19 16 16 24
+
+   * - Process / worker
+     - Policy
+     - Priority
+     - CPU
+     - Memory or timing behaviour
+   * - Perception process and stream/pipeline workers
+     - ``SCHED_RR``
+     - 70
+     - Streams 4; pipeline 2; main/viewer 5
+     - Fixed frame pool; latest-frame replacement.
+   * - Perception Health Monitor
+     - ``SCHED_RR``
+     - 70
+     - 5
+     - Evaluation 100 ms; supervisor API 2,000 ms.
+   * - Timing Decision periodic thread
+     - ``SCHED_FIFO``
+     - 80
+     - 1
+     - Mandatory memory lock; 64-KiB stack prefault.
+   * - Timing Decision Health Monitor
+     - ``SCHED_FIFO``
+     - 50
+     - 5
+     - Evaluation 500 ms; supervisor API 1,000 ms.
+   * - Controller FSM / receiver / output
+     - ``SCHED_FIFO``
+     - 80 / 70 / 60
+     - 3
+     - Controller memory lock is attempted; stacks are prefaulted.
+   * - Controller Health Monitor
+     - ``SCHED_FIFO``
+     - 60
+     - 5
+     - Evaluation 500 ms; supervisor API 1,000 ms.
+
+Workers use fixed-priority Linux real-time scheduling, logical CPU affinity
+and bounded memory; a higher priority wins within the same policy.  Deployment
+must provide the configured CPUs and required scheduling/memory-lock privileges.
+Missing required resources fail Timing Decision or Controller initialization,
+while Perception contains overload through frame reuse and replacement.  Exact
+worker settings are documented on the three internal component pages.
 
 The main configuration sources are:
 
