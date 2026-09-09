@@ -1,351 +1,657 @@
 Adaptive Traffic Light - System Design
 ======================================
 
-Document control
-----------------
-
-:Author: Adaptive Traffic Light team
-:Document status: Draft
-:Required approver: Lead
-:Target branch: ``dev``
-:Last updated: 2026-09-03
-:Implementation baseline: ``origin/feat/integrate-full`` at ``06b3d77``
-:Related issues: BDCI-2160, BDCI-2161
-
-The document status describes the review lifecycle of this page.  The
-``valid`` status on individual needs below has the separate S-CORE meaning
-"sufficiently defined to enter review".  Approval is recorded by the Merge
-Request, not by changing a need to a non-configured status.
-
 Design Description
 ------------------
 
-This part defines what the system contains, its interfaces, configuration and
-observable runtime behaviour.  It is the Design Description deliverable for
-BDCI-2161 and applies the RST/docs-as-code method investigated in BDCI-2160.
+This part describes what the system does, what each component owns, how the
+components communicate, and how the deployed system behaves.  It moves from
+the complete system to individual components and then to their interactions.
+Design rationale, patterns and alternatives are kept in the
+`Design Explanation`_ that follows.
 
-Context and scope
-~~~~~~~~~~~~~~~~~
+System view
+~~~~~~~~~~~
 
-The project contains perception, timing-decision, signal-control and lifecycle
-code, plus editable draw.io diagrams, but it does not yet have a reviewed
-system-design page tying those assets to requirements.  The implementation
-baseline on ``origin/feat/integrate-full`` contains a unified Bazel workspace,
-one Lifecycle deployment and the complete three-process data path.  This
-proposal documents that integrated architecture and separates demonstrated
-implementation from remaining acceptance decisions.
+Purpose and scope
+^^^^^^^^^^^^^^^^^
 
-Goals and non-goals
-~~~~~~~~~~~~~~~~~~~
+The Adaptive Traffic Light system observes four approaches to an intersection,
+estimates current traffic demand, calculates green-light durations, and applies
+those durations through a controlled traffic-signal state machine.
 
-Goals
-^^^^^
+The current implementation is a software prototype.  It accepts configured
+video files, runs traffic perception and timing logic, and produces
+a simulated signal output with a visual overlay.  It does not yet connect to a
+physical traffic-light controller and does not claim production readiness or
+functional-safety certification.
 
-* Establish the system component boundaries and ownership.
-* Define the traffic-snapshot and timing-plan data flow.
-* Define periodic, lifecycle and failure behaviour at system level.
-* Trace each architecture decision to a minimal system requirement.
-
-Non-goals
-^^^^^^^^^
-
-* Specify perception algorithms or model accuracy.
-* Specify detailed C++ class design for every component.
-* Claim production readiness, functional-safety certification or complete
-  integration where the implementation still contains placeholders.
-* Select deployment hardware beyond the Linux targets already represented in
-  the repository.
-
-Requirements and constraints
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The proposal addresses the requirements in
-:doc:`../02_requirement/system_requirements`.  The current implementation also
-imposes these constraints:
-
-* Processes run on Linux and communicate domain data through bounded POSIX
-  message queues.  Domain publishers are non-blocking, while consumers use
-  either non-blocking latest-value reads or a bounded receive wait.
-* The timing-decision process runs every 2.5 seconds; its integrated Health
-  Monitor configuration allows a 10-second processing deadline.
-* Perception captures frames every 500 milliseconds and runs its configured
-  four-lane inference pipeline every 10 seconds in the reviewed baseline.
-* Managed processes use Eclipse S-CORE Lifecycle v0.3.0 and Health Monitor.
-* Native ``x86_64-linux`` output can run on the development host; an
-  ``arm64-linux`` output must run on an AArch64 target or configured runner.
-* Real-time scheduling and memory locking depend on deployment privileges and
-  resource limits.
-* The current design is a monitored, best-effort real-time Linux design.  It
-  does not claim hard real-time behaviour: WCET, blocking-time, schedulability
-  and target-load evidence have not yet been established.
+The reviewed implementation baseline is ``origin/dev``.  It contains one
+Bazel workspace, one managed Lifecycle deployment, and the complete
+three-process traffic-data path.  The source-code and configuration file
+paths in this document are relative to
+``docs/05_development/adaptive_traffic_light/``.
 
 System architecture
-~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^
 
-System overview
-^^^^^^^^^^^^^^^
+The system component diagram shows the four principal components and the
+direction of communication between them.
 
-The SVG below is the reviewable web artifact.  Its corresponding ``.drawio``
-file remains authoritative for graphical edits and is maintained next to the
-exported SVG in this repository.
-
-.. image:: Component\ Diagrams/System\ Component.drawio.svg
+.. figure:: Component\ Diagrams/System\ Component.drawio.svg
    :alt: Adaptive Traffic Light system components and principal data flow
    :align: center
    :width: 100%
 
-.. sys_des:: Separate the system into supervised pipeline components
-   :id: sys_des__supervised_pipeline_components
-   :status: valid
-   :satisfies: sys_req__publish_traffic_snapshot, sys_req__produce_adaptive_timing_plan, sys_req__apply_safe_signal_transitions, sys_req__publish_signal_state, sys_req__supervise_managed_processes
-   :req_covered: yes
+   Traffic data moves from Perception to Timing Decision and then to Signal
+   Controller.  Lifecycle commands and health reports use a separate path.
 
-   The system is decomposed into Traffic Perception and Acquisition, Traffic
-   Timing Decision, Traffic Signal Controller, and Lifecycle Manager.  Domain
-   data flows in one direction through the first three components; lifecycle
-   commands and health reporting form a separate control plane.
+At system level, operation is straightforward:
 
-Components and responsibilities
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#. Traffic Perception and Acquisition converts four video inputs into one
+   current ``TrafficSnapshot``.
+#. Traffic Timing Decision converts the latest usable snapshot into a
+   ``TimingPlan``.
+#. Traffic Signal Controller validates the plan and applies it through the
+   legal signal sequence.
+#. Signal Controller returns the applied ``SignalState`` to the Perception
+   viewer for display only.
+#. Lifecycle Manager starts, stops and supervises all three application
+   processes.
 
-Traffic Perception and Acquisition
-   Owns input capture, analysis and construction of ``TrafficSnapshot``.  It
-   publishes the latest snapshot without making signal-timing decisions.  In
-   the implementation baseline, its managed Lifecycle application starts the
-   real capture, ONNX inference, analysis and publication threads and consumes
-   signal-state telemetry for visualization.
+The domain-control path is one-way:
 
-Traffic Timing Decision
-   Consumes the latest snapshot, executes one deterministic decision cycle and
-   publishes ``TimingPlan``.  It owns the 2.5-second periodic release, deadline
-   measurement and timing diagnostics, but it does not directly drive signal
-   outputs.
+``Perception -> Timing Decision -> Signal Controller -> simulated signal output``.
 
-Traffic Signal Controller
-   Validates and applies accepted timing plans through its signal state
-   machine, emits the observable signal output and publishes the applied state
-   for visualization.  The implementation baseline runs separate real-time
-   plan-receiver, FSM and output workers under its managed application.
+The return path from Signal Controller to the Perception viewer is
+observability only.  It never feeds signal state back into traffic detection or
+timing decisions.
 
-Lifecycle Manager
-   Starts, transitions, stops and supervises each managed process.  Health
-   reporting is isolated from domain IPC so a data-flow fault and a process
-   health fault remain distinguishable.  The integrated deployment orders the
-   pipeline through explicit component dependencies.
+The system is decomposed into Traffic Perception and Acquisition, Traffic
+Timing Decision, Traffic Signal Controller, and Lifecycle Manager.  Domain
+data flows in one direction through the first three components; lifecycle
+commands and health reporting form a separate control plane.
 
-Real-time model and configuration
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Design boundaries
+^^^^^^^^^^^^^^^^^
+
+This description defines:
+
+* Component responsibilities and their boundaries.
+* The snapshot, timing-plan and signal-state interfaces.
+* Important periods, deadlines, freshness rules and resource allocation.
+* Startup, normal operation, failure handling and shutdown.
+* The implementation limitations that affect design review.
+
+It does not define perception-model accuracy, detailed C++ implementation,
+production hardware, a physical signal-lamp I/O adapter, or safety
+certification evidence.
 
 Real-time classification
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-The control path is designed to prefer fresh data, bounded memory use and
-absolute periodic releases.  A deadline miss is observable and can trigger
-supervision, but the present Linux/POSIX deployment does not prove that a
-deadline can never be missed.  Therefore this document classifies the system
-as **soft real-time with safety-oriented degraded behaviour**, pending WCET
-and schedulability evidence on the selected target hardware.
+The system prefers fresh data, bounded memory use and predictable periodic
+release times.  The implementation records wake-up-latency jitter and
+execution-time traces, but these measurements do not yet establish bounded
+WCET, blocking time or schedulability on a selected production target.  The baseline is therefore a
+**monitored soft real-time system with safety-oriented degraded behaviour**,
+not a proven hard real-time system.
 
-The following terms are intentionally distinct:
+Component design
+~~~~~~~~~~~~~~~~
 
-Period
-   Nominal interval between releases of a periodic activity.
-Phase
-   Offset used to stagger the first release relative to the common startup
-   gate.
-Functional deadline
-   Latest useful completion time used by timing analytics.  Timing Decision
-   uses its 2.5-second period as this deadline.
-Health window
-   Wider S-CORE Health Monitor acceptance window.  It detects loss of
-   responsiveness but is not evidence that the functional deadline was met.
-Freshness limit
-   Maximum acceptable age of input data.  A miss-count threshold is not the
-   same as a timestamp-based freshness check.
-
-System timing budget and freshness
+Traffic Perception and Acquisition
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. list-table:: End-to-end timing attributes in the implementation baseline
-   :header-rows: 1
-   :widths: 23 17 18 20 22
+Purpose
+"""""""
 
-   * - Activity
-     - Release/trigger
-     - Configured timing
-     - Monitoring/freshness
-     - Overrun behaviour
-   * - Four-lane frame capture
-     - Absolute periodic stream workers
-     - Period 500 ms; base phase 0 ms; per-lane offsets 0/125/250/375 ms
-     - Offline response-time analytics threshold 100 ms; no independent
-       end-to-end freshness limit
-     - Latest frame replaces the previous frame; processing does not wait for
-       a backlog.
-   * - Perception inference and snapshot publication
-     - Absolute periodic pipeline worker
+Traffic Perception and Acquisition is the system's observation component.  It
+owns video capture, object detection, per-approach traffic analysis, snapshot
+publication and the operator visualization.  It does not choose signal timing
+and cannot directly change a signal phase.
+
+Its primary inputs are four configured video file paths: one for each North,
+South, East and West approach.  Its primary output is the latest
+``TrafficSnapshot``,
+containing a timestamp plus vehicle count, queue length, occupancy and an
+emergency indication for every approach.
+
+Structure
+"""""""""
+
+The component view shows the functional processing blocks and their data flow.
+
+.. figure:: Component\ Diagrams/Traffic\ Perception\ &\ Acquisition\ (Component)-Page-2.drawio.svg
+   :alt: Traffic Perception and Acquisition component structure
+   :align: center
+   :width: 100%
+
+   Video capture feeds a bounded latest-frame path, followed by inference,
+   traffic analysis, snapshot publication and visualization.
+
+The component contains these functional blocks:
+
+Capture workers
+   Four periodic workers read the configured video sources.  Each lane keeps
+   only its latest available frame, so slow downstream processing cannot build
+   an unbounded frame backlog.
+
+Inference and traffic analysis
+   The pipeline takes the latest frame from each lane, runs the selected ONNX
+   model, filters relevant detections, and calculates the traffic measurements
+   needed by Timing Decision.
+
+Snapshot publisher
+   The pipeline publishes the newest ``TrafficSnapshot`` through a bounded
+   POSIX message queue.  Publication never blocks the inference worker.
+
+Viewer
+   The viewer renders traffic results and the latest applied signal state.
+   This block is outside the control loop: display delay or failure cannot
+   change a timing decision or signal output.
+
+Processing sequence
+"""""""""""""""""""
+
+The main sequence diagram shows one Perception processing cycle.
+
+.. figure:: Sequence\ Diagrams/Traffic\ Perception\ &\ Acquisition\ (Sequence)-main.drawio.svg
+   :alt: Traffic Perception and Acquisition main processing sequence
+   :align: center
+   :width: 100%
+
+   Periodic capture updates the latest lane frames; the inference pipeline
+   analyzes the newest available set and publishes a traffic snapshot.
+
+The four capture workers share a 500-ms period but are staggered across the
+period.  The inference pipeline runs independently every 10 seconds.  It
+therefore works from the latest available observation rather than waiting for
+a synchronized history of every captured frame.
+
+Configuration and timing
+""""""""""""""""""""""""
+
+Change runtime Perception settings in
+``config/traffic_perception_config.json``.  This file owns the video/model
+paths, ROIs, image resolution, capture/pipeline/viewer periods and phases, and
+stream/pipeline CPU priorities.  Process-level scheduling, environment and
+Lifecycle supervision are configured in
+``config/traffic_light_lifecycle.json``.
+
+The remaining values in the table are compiled settings and require a source
+change plus rebuild:
+
+* SignalState retry/staleness:
+  ``traffic_perception/src/viewer/opencv_lanes_viewer.cpp``;
+* analytics thresholds:
+  ``traffic_perception/src/io/timeline_analyzer.cpp``;
+* Health Monitor timing:
+  ``traffic_perception/src/lifecycle_health_reporter.cpp``; and
+* frame-pool size:
+  ``traffic_perception/src/perception_module.cpp``.
+
+.. list-table:: Traffic Perception configuration in the reviewed baseline
+   :header-rows: 1
+   :widths: 24 36 40
+
+   * - Area
+     - Configured value
+     - Observable behaviour
+   * - Input
+     - Four 1920x1080 video inputs; one polygonal ROI for each approach
+     - Each capture worker owns one North/South/East/West input.
+   * - Model
+     - ``yolov8_oiv7`` with ``yolov8m-oiv7.onnx``; emergency class
+       ``Van``
+     - Backend selection is configuration-driven and resolved at startup.
+   * - Capture
+     - Period 500 ms; base phase 0 ms; lane offsets 0/125/250/375 ms
+     - A new frame replaces the previous unconsumed frame.
+   * - Inference and snapshot
      - Period 10,000 ms; phase 50 ms
-     - Offline response-time analytics threshold 5,000 ms; Perception health
-       deadline 0..30,000 ms
-     - A delayed release is recorded; the latest usable observation is
-       published when complete.
-   * - Perception content view / signal overlay
-     - Periodic application loop
-     - Content 10,000 ms, phase 260 ms; overlay refresh 250 ms; SignalState
-       reopen retry 1,000 ms
-     - Offline content response-time analytics threshold 5,000 ms; SignalState is
-       stale after 3,000 ms; heartbeat 100..10,000 ms
-     - Missed display releases are skipped; visualization cannot affect
-       control output.
-   * - Timing decision
-     - Absolute ``CLOCK_MONOTONIC`` release
+     - The latest usable observation is published when processing completes.
+   * - Viewer
+     - Content period 10,000 ms; phase 260 ms; overlay refresh 250 ms
+     - Missed display releases are skipped and cannot delay control.
+   * - SignalState display
+     - Queue-open retry 1,000 ms; data stale after 3,000 ms
+     - Missing or stale telemetry is visible to the viewer only.
+   * - Health
+     - Deadline 0..30,000 ms; heartbeat 100..10,000 ms
+     - Local evaluation runs every 100 ms; supervisor API cycle is 2,000 ms.
+   * - Scheduling
+     - ``SCHED_RR`` priority 70; stream workers CPU 4; pipeline CPU 2;
+       main/viewer and Health Monitor CPU 5
+     - If worker creation is denied with ``EPERM``, the component falls back
+       to ``SCHED_OTHER`` for development and reports degraded operation.
+   * - Memory
+     - Fixed pool of 20 pre-created 1920x1080 image frames
+     - Pool exhaustion drops work instead of allocating an unbounded backlog.
+
+Failure behaviour
+"""""""""""""""""
+
+The Perception error sequence shows how unavailable frames or processing
+failures remain contained inside the component.
+
+.. figure:: Sequence\ Diagrams/Traffic\ Perception\ &\ Acquisition\ (Sequence)-error.drawio.svg
+   :alt: Traffic Perception and Acquisition error handling sequence
+   :align: center
+   :width: 100%
+
+   Perception reports failures and avoids publishing an observation that
+   falsely appears successful.
+
+If a frame-pool entry is unavailable, the capture cycle is skipped.  If the
+snapshot queue cannot be opened or its attributes are incompatible, component
+initialization fails.  Health and diagnostic failures are reported separately
+from ``TrafficSnapshot`` data.
+
+Traffic Timing Decision
+^^^^^^^^^^^^^^^^^^^^^^^
+
+Purpose
+"""""""
+
+Traffic Timing Decision converts current traffic measurements into proposed
+signal durations.  It owns the demand calculation, green-time constraints,
+periodic decision release and timing diagnostics.  It does not drive lamps or
+select the active signal phase.
+
+Its input is the latest valid ``TrafficSnapshot``.  Its output is a versioned
+``TimingPlanMessageV1`` for Signal Controller.
+
+Structure
+"""""""""
+
+.. figure:: Component\ Diagrams/Traffic\ Timing\ Decision-Page-2.drawio.svg
+   :alt: Traffic Timing Decision component structure
+   :align: center
+   :width: 100%
+
+   Snapshot reception, validation, demand calculation, plan generation,
+   publication, health reporting and timing analytics are separate concerns.
+
+Decision flow
+"""""""""""""
+
+.. figure:: Flowchart/Traffic\ Timing\ Decision\ Flowchart.drawio.svg
+   :alt: Traffic Timing Decision processing flow
+   :align: center
+   :width: 100%
+
+   A snapshot is validated before its measurements can influence a constrained
+   timing plan.
+
+One decision cycle performs these steps:
+
+#. Read the newest snapshot available at the 2.5-second release.
+#. Reject missing, stale, future-dated or structurally invalid input.
+#. Combine queue length, normalized vehicle count and occupancy into a demand
+   score for the North/South and East/West directions.
+#. Select a target green duration from the configured demand thresholds.
+#. Move the current green duration toward that target by a bounded step.
+#. Add fixed yellow and all-red clearance durations.
+#. Publish the resulting plan without blocking the periodic decision thread.
+
+The module sequence diagram shows how that processing fits into the managed
+application cycle.
+
+.. figure:: Sequence\ Diagrams/Traffic\ Timing\ Decision.drawio.svg
+   :alt: Traffic Timing Decision managed processing sequence
+   :align: center
+   :width: 100%
+
+   Lifecycle execution, snapshot consumption, plan publication, health
+   reporting and timing diagnostics remain coordinated but logically separate.
+
+Demand scoring and green-time selection
+"""""""""""""""""""""""""""""""""""""""
+
+The module does not compare a threshold directly with the number of detected
+vehicles.  Instead, it calculates a dimensionless demand score for each of the
+two controlled direction pairs: North/South and East/West.  Treating the pairs
+separately allows a busy direction to receive a longer target green time
+without assigning the same duration to the other direction.
+
+For each direction pair, the score combines three measurements from the latest
+valid ``TrafficSnapshot``:
+
+.. list-table:: Demand-score inputs
+   :header-rows: 1
+   :widths: 22 30 15 33
+
+   * - Measurement
+     - Conversion to a component score
+     - Weight
+     - Meaning
+   * - Queue length
+     - Average the two approach values and multiply by 100
+     - 0.2
+     - Represents how much of the configured approach region is occupied by a
+       continuous queue.  Perception normally supplies a value from 0 to 1.
+   * - Vehicle count
+     - Average the two approach counts, multiply by 6 and cap at 100
+     - 0.6
+     - Gives the largest influence to the current number of detected vehicles
+       while preventing this component from exceeding 100.
+   * - Occupancy
+     - Average the two approach values and multiply by 100
+     - 0.2
+     - Represents the fraction of the approach region covered by detected
+       vehicles.  Perception supplies a value from 0 to 1.
+
+The calculation is therefore equivalent to:
+
+``direction demand score = 0.2 * queue percentage + 0.6 * vehicle score + 0.2 * occupancy percentage``
+
+With normal Perception inputs, the resulting score ranges from 0 to 100.  The
+thresholds divide that range into demand levels and select a target green time:
+
+.. list-table:: Demand-score ranges and target green times
+   :header-rows: 1
+   :widths: 30 30 40
+
+   * - Direction demand score
+     - Demand level
+     - Target green time
+   * - Less than 30
+     - Low
+     - 20,000 ms
+   * - At least 30 but less than 60
+     - Moderate
+     - 30,000 ms
+   * - At least 60 but less than 90
+     - High
+     - 40,000 ms
+   * - At least 90
+     - Very high
+     - 50,000 ms
+
+For example, a queue percentage of 40, vehicle score of 60 and occupancy
+percentage of 50 produce ``0.2 * 40 + 0.6 * 60 + 0.2 * 50 = 54``.  The score
+therefore selects the moderate target of 30,000 ms.
+
+The selected value is a target rather than an immediate output.  On each
+2.5-second decision cycle, the module moves the previous green duration toward
+the target by no more than 5,000 ms.  For example, a current value of 20,000 ms
+and a high-demand target of 40,000 ms produce successive requested values of
+25,000, 30,000, 35,000 and 40,000 ms if the demand remains high.  This limits
+abrupt timing changes between consecutive plans.
+
+After both direction targets are updated, the constraint manager enforces the
+10,000..60,000-ms green bounds, adds the fixed yellow and all-red clearance
+times, and proportionally reduces green durations if the complete cycle would
+exceed 100,000 ms.  Emergency input bypasses demand-based target selection: the
+module preserves the previous green durations and forwards the relevant
+emergency flags to Signal Controller.
+
+Decision configuration
+""""""""""""""""""""""
+
+Timing Decision currently has no module runtime JSON.  Its functional values
+are compiled and require a source change plus rebuild:
+
+* decision period and consecutive-miss limit:
+  ``traffic_timing_decision/include/periodic_service.h``;
+* green-time bounds, steps and demand thresholds:
+  ``traffic_timing_decision/include/decision_constants.h``;
+* demand-score calculation and weights:
+  ``traffic_timing_decision/src/decision_engine.cpp``;
+* snapshot freshness and content validation:
+  ``traffic_timing_decision/src/traffic_data_receiver.cpp``; and
+* Health Monitor timing:
+  ``traffic_timing_decision/src/health_reporter.cpp``.
+
+Process scheduling, environment variables, readiness and shutdown values are
+configured in ``config/traffic_light_lifecycle.json``.  The TimingPlan queue
+contract is configured in
+``ipc/include/traffic_ipc/timing_plan_message_v1.h``.
+
+.. list-table:: Traffic Timing Decision configuration
+   :header-rows: 1
+   :widths: 26 34 40
+
+   * - Area
+     - Configured value
+     - Result
+   * - Release
      - Period and functional deadline 2,500 ms
-     - Snapshot age at most 6,000 ms (100 ms future tolerance); health
-       deadline 0..10,000 ms; heartbeat 500..15,000 ms
-     - Wake-up, execution and response-time overruns are logged.  After 24
-       consecutive missing snapshots (60 s), the cycle fails.
-   * - Timing-plan reception
-     - Blocking receive with bounded timeout
-     - Receive timeout 200 ms; reopen retry 100 ms
-     - Envelope, publisher instance and sequence are validated
-     - Available entries are drained; the newest transport-valid plan is handed
-       to Controller domain validation.
-   * - Signal FSM
-     - Absolute ``CLOCK_MONOTONIC`` tick
-     - Tick 1,000 ms
-     - Wake-up latency samples; application health deadline 0..5,000 ms;
-       heartbeat every two control cycles (nominally 2,000 ms) with an
-       accepted interval of 500..15,000 ms
-     - Normal plans wait for an ``ALL_RED`` boundary; emergency plans may
-       interrupt a green phase only within the configured safe window.
-   * - Lifecycle supervision
-     - S-CORE evaluation loop
-     - Evaluation cycle 100 ms
-     - Perception reporting window 10 s; Decision and Controller 5 s
-     - Readiness gets one restart attempt; runtime failure switches to the
-       control-only fallback target.
+     - Wake-up latency, execution time and response time are measured against
+       the same release.
+   * - Snapshot freshness
+     - Maximum age 6,000 ms; future tolerance 100 ms
+     - A snapshot outside this window is rejected.
+   * - Snapshot content
+     - Increasing non-zero frame ID; vehicle count at most 10,000 per
+       direction; queue length 0..1,000; occupancy 0..1
+     - Invalid values cannot reach the demand calculation.
+   * - Demand weights
+     - Queue length 0.2; normalized vehicle count 0.6; occupancy 0.2
+     - Average vehicle count is multiplied by 6 and capped at 100 before
+       weighting.
+   * - Demand thresholds
+     - 30 / 60 / 90
+     - Select low, moderate, high or very-high target timing.
+   * - Green timing
+     - Low 20,000 ms; initial/moderate 30,000 ms; high 40,000 ms; very-high
+       50,000 ms
+     - Each plan changes toward its target in 5,000-ms steps and remains within
+       10,000..60,000 ms.
+   * - Clearance timing
+     - Yellow 3,000 ms; all-red 1,000 ms; maximum cycle 100,000 ms
+     - Clearance values are added consistently for both directions.
+   * - Health
+     - Deadline 0..10,000 ms; heartbeat 500..15,000 ms
+     - Local evaluation runs every 500 ms; supervisor API cycle is 1,000 ms.
+   * - Scheduling
+     - ``SCHED_FIFO`` priority 80 on CPU 1; Health Monitor priority 50 on
+       CPU 5
+     - ``mlockall(MCL_CURRENT|MCL_FUTURE)`` and a prefaulted 64-KiB
+       periodic stack are required.
 
-The Perception response-time thresholds above are used by post-run timeline
-analytics.  They classify measured deadline misses but do not directly trigger
-Lifecycle recovery.  The Health Monitor windows are the runtime supervision
-contracts.
+Missing-input behaviour
+"""""""""""""""""""""""
 
-The nominal sensor-to-actuator latency is not a single constant.  A snapshot
-can wait up to one Timing Decision release (2.5 s), and a normal accepted plan
-can wait until the next safe ``ALL_RED`` application boundary.  In addition,
-Perception currently publishes only every 10 s.  The worst-case latency is
-therefore phase- and plan-dependent and must be measured; it must not be
-inferred by adding only the process periods.
+When no usable snapshot is available, Timing Decision keeps the previously
+published plan, reports ``NO_NEW_DATA`` and retries any pending publication.
+After 24 consecutive missed 2.5-second cycles, equivalent to 60 seconds, it
+reports an input timeout and fails the service cycle.
 
-Scheduling and resource allocation
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+The TimingPlan publisher is non-blocking.  If its depth-eight queue is full,
+the newest pending plan is retained locally and retried during a later decision
+cycle.
 
-.. list-table:: Process and worker real-time configuration
+Traffic Signal Controller
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Purpose
+"""""""
+
+Traffic Signal Controller is the only component allowed to apply signal state.
+It validates incoming plans, translates them into a six-phase representation,
+owns the active plan, advances the signal state machine, produces simulated
+lamp output and publishes the applied state for visualization.
+
+It does not calculate traffic demand.  Receipt of a ``TimingPlan`` is a
+proposal, not permission to write arbitrary lamp values.
+
+Plan reception and application
+""""""""""""""""""""""""""""""
+
+.. figure:: Sequence\ Diagrams/Traffic\ Signal\ Controller\ Sequence\ Diagram.drawio.svg
+   :alt: Traffic Signal Controller processing sequence
+   :align: center
+   :width: 100%
+
+   Plan reception and validation are separated from the real-time FSM and
+   output workers.
+
+The receiver waits at most 200 ms for a TimingPlan message and retries opening
+a missing queue every 100 ms.  During one receive pass, it drains available
+entries and selects the newest transport-valid publisher instance and sequence.
+The selected plan then passes through Controller domain validation.  If that
+plan is rejected, the active FSM plan remains unchanged; the receiver does not
+fall back to an older drained plan.
+
+Signal state machine
+""""""""""""""""""""
+
+.. figure:: FSM/Traffic\ Signal\ Controller\ FSM.drawio.svg
+   :alt: Traffic Signal Controller finite-state machine
+   :align: center
+   :width: 100%
+
+   The Controller owns the legal order of green, yellow and all-red states.
+
+The normal signal sequence is:
+
+``NS_GREEN -> YELLOW -> ALL_RED -> EW_GREEN -> YELLOW -> ALL_RED``.
+
+A normal plan is staged and becomes active only at an ``ALL_RED`` boundary.
+It cannot interrupt a current green, yellow or all-red state.  Yellow and
+all-red are always non-interruptible.
+
+An emergency plan is handled separately.  It may adjust the matching current
+green only when the remaining time is strictly between 3,000 and 15,000 ms.
+When accepted, the remaining green duration becomes 20,000 ms.  Emergency
+handling does not bypass yellow or all-red clearance.
+
+Controller configuration
+"""""""""""""""""""""""""
+
+Controller duration validation, startup phases, emergency window, FSM tick,
+worker priorities, CPU allocation and default environment values are compiled
+in ``traffic_signal_controller/include/common/config.h``.  Controller Health
+Monitor timing is compiled in
+``traffic_signal_controller/src/common/health_reporter.cpp``.  Both require a
+rebuild after modification.
+
+Process-level scheduling and deployment environment overrides are configured
+in ``config/traffic_light_lifecycle.json``.  TimingPlan and SignalState wire
+contracts are configured in
+``ipc/include/traffic_ipc/timing_plan_message_v1.h`` and
+``ipc/include/traffic_ipc/signal_state_message_v1.h`` respectively.
+
+.. list-table:: Traffic Signal Controller configuration
    :header-rows: 1
-   :widths: 24 20 16 16 24
+   :widths: 25 35 40
 
-   * - Process / worker
-     - Policy
-     - Priority
-     - CPU affinity
-     - Memory behaviour
-   * - Perception process
-     - ``SCHED_RR``
-     - 70
-     - Workers below; main/viewer CPU 5
-     - Fixed frame pool of 20 1920x1080 frames in the reviewed configuration.
-   * - Perception stream workers (4)
-     - ``SCHED_RR``
-     - 70 each
-     - CPU 4 each
-     - Atomic latest-frame exchange bounds queued work.
-   * - Perception pipeline
-     - ``SCHED_RR``
-     - 70
-     - CPU 2
-     - OpenCV helper parallelism is disabled; inference backend owns its
-       configured workers.
-   * - Perception Health Monitor
-     - ``SCHED_RR``
-     - 70
-     - CPU 5
-     - Internal evaluation 100 ms; supervisor API cycle 2,000 ms.
-   * - Timing Decision process / periodic thread
-     - ``SCHED_FIFO``
-     - 80 from Lifecycle
-     - CPU 1
-     - ``mlockall(MCL_CURRENT|MCL_FUTURE)`` is mandatory; 64 KiB of the
-       periodic stack is prefaulted.
-   * - Timing Decision Health Monitor
-     - ``SCHED_FIFO``
-     - 50
-     - CPU 5
-     - Internal evaluation 500 ms; supervisor API cycle 1,000 ms.
-   * - Signal Controller process
-     - ``SCHED_FIFO``
-     - 80 from Lifecycle
-     - CPU 3
-     - Memory lock is attempted and each relevant stack prefaults 64 KiB.
-   * - Signal FSM / plan receiver / output worker
-     - ``SCHED_FIFO``
-     - 80 / 70 / 60
-     - CPU 3
-     - FSM priority must remain greater than plan-receiver priority.
-   * - Signal Controller Health Monitor
-     - ``SCHED_FIFO``
-     - 60
-     - CPU 5
-     - Internal evaluation 500 ms; supervisor API cycle 1,000 ms.
+   * - Area
+     - Configured value
+     - Observable behaviour
+   * - Plan identity
+     - Non-zero plan ID; at most one emergency direction
+     - Invalid identity or emergency encoding is rejected.
+   * - Accepted durations
+     - Green 1,000..500,000 ms; yellow 1,000..10,000 ms; all-red
+       500..10,000 ms
+     - A non-zero declared cycle length must equal the six-phase sum.
+   * - Startup plan
+     - 30-s NS green, 3-s yellow, 1-s all-red, 30-s EW green, 3-s yellow,
+       1-s all-red
+     - The FSM can operate before receiving its first external plan.
+   * - FSM
+     - Absolute ``CLOCK_MONOTONIC`` tick every 1,000 ms
+     - Wake-up latency is recorded; late releases advance to a future tick
+       instead of running an unbounded catch-up burst.
+   * - Plan receiver
+     - Receive timeout 200 ms; queue-open retry 100 ms
+     - Missing input does not stop the FSM.  Invalid input is reported and
+       rejected.
+   * - SignalState telemetry
+     - 40-byte versioned message; queue depth 4; non-blocking latest-value
+       publication
+     - Queue failure affects visualization and diagnostics, not signal control.
+   * - Health
+     - Deadline 0..5,000 ms; heartbeat every two control cycles, nominally
+       2,000 ms; accepted interval 500..15,000 ms
+     - Local evaluation runs every 500 ms; supervisor API cycle is 1,000 ms.
+   * - Scheduling
+     - ``SCHED_FIFO`` on CPU 3: FSM priority 80, receiver 70, output 60;
+       Health Monitor priority 60 on CPU 5
+     - FSM priority must remain greater than receiver priority.  Relevant
+       stacks are prefaulted by 64 KiB.
+   * - Memory locking
+     - ``mlockall(MCL_CURRENT|MCL_FUTURE)`` is attempted
+     - Failure is logged, but does not fail Controller initialization.
 
-The priority values are Linux real-time priorities: a larger number wins
-within the same real-time policy.  CPU numbers are logical CPU indices and are
-valid only on a target exposing those CPUs.  The deployment must provide
-``RLIMIT_RTPRIO``/``CAP_SYS_NICE`` and sufficient ``RLIMIT_MEMLOCK`` or
-``CAP_IPC_LOCK``.  Failure to create required Timing Decision or Controller
-real-time execution resources is an initialization failure; Perception has a
-development fallback to ``SCHED_OTHER`` when worker creation returns
-``EPERM``, which must be reported as degraded operation.
+The Decision producer's output range is a subset of the Controller's accepted
+duration range.  TimingPlan timestamps are propagated for latency analytics;
+the Controller does not currently reject a plan because of its age.
 
-Configuration ownership and precedence
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Lifecycle Manager
+^^^^^^^^^^^^^^^^^
 
-.. list-table:: Configuration layers
-   :header-rows: 1
-   :widths: 18 27 27 28
+Purpose
+"""""""
 
-   * - Layer
-     - Owner / source
-     - Examples
-     - Change rule
-   * - Deployment
-     - ``config/traffic_light_lifecycle.json`` in the integrated baseline
-     - Process policy/priority, dependency order, health reporting windows,
-       readiness/shutdown timeout and recovery target
-     - Review as a system change because it affects several processes.
-   * - Module runtime
-     - ``config/traffic_perception_config.json`` and deployment environment
-     - Capture/pipeline/view periods and phases, model, videos, ROI, worker
-       CPU/priority and log/report paths
-     - Validate at startup; an invalid or incomplete configuration must fail
-       initialization.
-   * - Interface
-     - Shared IPC headers
-     - Queue names/depths, payload size, magic, version and field encoding
-     - Producer and consumer must change atomically in one Merge Request; add
-       a new version instead of silently changing a deployed payload.
-   * - Algorithm / safety constants
-     - Module headers and implementation constants
-     - Demand weights, green-time bounds, emergency window and FSM tick
-     - Treat as reviewed design parameters, not incidental implementation
-       details.  Move to validated runtime configuration only when required.
-   * - Runtime override
-     - Environment variables staged by Lifecycle
-     - ``TIMING_REPORT_LOG_DIR`` and Controller FSM priority/analytics paths
-     - Explicit environment value overrides the compiled default; invalid
-       priority falls back to the documented default and is logged.
+Lifecycle Manager owns process orchestration rather than traffic decisions.  It
+starts components in dependency order, waits for readiness, supervises health,
+selects the configured recovery action and performs ordered shutdown.
 
-System lifecycle configuration
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. figure:: Component\ Diagrams/Life\ Manager\ Component.drawio.svg
+   :alt: Lifecycle Manager component structure
+   :align: center
+   :width: 100%
+
+   Lifecycle control, process state and health supervision are separate from
+   TrafficSnapshot, TimingPlan and SignalState communication.
+
+Startup and supervision
+"""""""""""""""""""""""
+
+.. figure:: Sequence\ Diagrams/Life\ Manager\ Seq.drawio.svg
+   :alt: Lifecycle Manager startup, state-transition and shutdown sequence
+   :align: center
+   :width: 100%
+
+   The system moves from Startup to Running, supervises the managed processes,
+   and shuts them down in dependency order.
+
+Deployment first removes stale POSIX queue objects and starts Lifecycle Manager
+with the Control Daemon in the ``Startup`` target.  After the Control Daemon
+endpoint becomes available, a deployment helper requests ``Running``.
+Lifecycle Manager then starts Perception, Timing Decision and Signal Controller
+in dependency order.  A component becomes ready only after its required domain
+resources and health monitor have initialized successfully.
+
+Lifecycle configuration
+"""""""""""""""""""""""
+
+All values in this table are configured in
+``config/traffic_light_lifecycle.json``.  Edit that file to change component
+dependencies, run targets, readiness/shutdown timeouts, Alive reporting,
+scheduling policy or recovery actions.
+
+``Ready timeout``
+   The maximum time Lifecycle Manager waits after starting a component for it
+   to reach its configured ready condition.  Readiness means that the process
+   is running and has completed the initialization required to participate in
+   the system.  If the component is not ready before this time expires, the
+   startup transition fails and Lifecycle Manager applies the configured
+   readiness-recovery action.  This timeout applies to startup, not to normal
+   traffic processing.
+
+``Shutdown timeout``
+   The maximum time Lifecycle Manager allows a component to stop cleanly after
+   requesting shutdown.  If the process has not stopped when the timeout
+   expires, Lifecycle Manager treats the shutdown as failed and handles it
+   according to the platform's configured lifecycle recovery behaviour.  This
+   timeout therefore prevents a run-target transition from waiting forever for
+   one process.
+
+``Alive reporting``
+   The ongoing liveness contract between a managed component and S-CORE Health
+   Monitor while the component is running.  The component periodically sends
+   Alive indications to show that its supervised execution is still making
+   progress.  For example, ``10-s cycle; 1..8 indications; tolerance 6 failed
+   cycles`` means that Health Monitor evaluates ten-second windows, expects
+   between one and eight indications in each window, and tolerates up to six
+   failed windows before the configured recovery is initiated.  Alive reports
+   indicate process progress; they do not prove that TrafficSnapshot,
+   TimingPlan or SignalState data is correct.
 
 .. list-table:: Integrated Lifecycle configuration
    :header-rows: 1
@@ -354,216 +660,205 @@ System lifecycle configuration
    * - Component
      - Ready timeout
      - Shutdown timeout
-     - Alive reporting cycle
+     - Alive reporting
      - Dependency in ``Running``
    * - Control Daemon
      - 30 s
      - 30 s
-     - Not supervised (minimum indications 0)
-     - First component; owns run-target commands.
+     - Not supervised; minimum indications 0
+     - First component and owner of run-target commands.
    * - Traffic Perception
      - 120 s
      - 120 s
-     - 10 s; 1..8 indications; tolerance 6 failed cycles
-     - Depends on Control Daemon through the run target.
+     - 10-s cycle; 1..8 indications; tolerance 6 failed cycles
+     - Included after Control Daemon in the run target.
    * - Timing Decision
      - 60 s
      - 60 s
-     - 5 s; 1..8 indications; tolerance 6 failed cycles
+     - 5-s cycle; 1..8 indications; tolerance 6 failed cycles
      - Depends on Traffic Perception.
    * - Traffic Signal Controller
      - 60 s
      - 60 s
-     - 5 s; 1..8 indications; tolerance 6 failed cycles
+     - 5-s cycle; 1..8 indications; tolerance 6 failed cycles
      - Depends on Timing Decision.
 
-The initial run target is ``Startup`` (Control Daemon only).  ``Running``
-starts the ordered pipeline and has a 180-second transition timeout.  Default
-readiness recovery is one restart after 100 ms.  A runtime recovery switches
-to ``fallback_run_target``, which retains only Control Daemon and has a
-120-second transition timeout.  These timeouts bound lifecycle coordination;
-they are not domain-processing deadlines.
+The ``Running`` transition timeout is 180 seconds.  Readiness recovery allows
+one restart after 100 ms.  A runtime recovery switches to
+``fallback_run_target``, which has a 120-second transition timeout and keeps
+only Control Daemon active.  These values bound orchestration; they are not
+traffic-processing deadlines.
 
-Module functional configuration
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Component interactions
+~~~~~~~~~~~~~~~~~~~~~~
 
-Traffic Perception and Acquisition
-   The reviewed configuration selects ``yolov8_oiv7``, model
-   ``yolov8m-oiv7.onnx``, emergency class ``Van``, four 1920x1080 video inputs
-   and one polygonal ROI per North/South/East/West approach.  Capture timing,
-   pipeline timing and thread placement are listed above.  Model/video paths
-   are resolved into the staged deployment tree at startup.
+End-to-end sequence
+^^^^^^^^^^^^^^^^^^^
 
-Traffic Timing Decision
-   Demand score weights are queue length 0.2, normalized vehicle count 0.6
-   and occupancy 0.2.  The average vehicle count is multiplied by 6 and
-   capped at 100 before weighting.  Score thresholds are 30/60/90.  Green
-   duration changes toward the selected target in 5,000-ms steps and is
-   constrained to 10,000..60,000 ms.  The initial/moderate target is 30,000
-   ms, low 20,000 ms, high 40,000 ms and very-high 50,000 ms.  Yellow is 3,000
-   ms, all-red is 1,000 ms and maximum complete cycle length is 100,000 ms.
-   Input validation also requires an increasing, non-zero frame ID; at most
-   10,000 vehicles per direction; queue length 0..1,000; and occupancy 0..1.
+The system sequence diagram connects the component-specific behaviour above
+into one operating cycle.
 
-Traffic Signal Controller
-   A received plan must have a non-zero plan ID, exactly one or zero emergency
-   directions, green duration 1,000..500,000 ms, yellow 1,000..10,000 ms and
-   all-red 500..10,000 ms.  A non-zero declared cycle length must equal the
-   sum of all six phases.  The startup plan is 30 s NS green, 3 s yellow, 1 s
-   all-red, 30 s EW green, 3 s yellow and 1 s all-red.  Emergency changes are
-   accepted only when the matching green phase has strictly between 3,000 and
-   15,000 ms remaining and request a 20,000-ms remaining green duration.
+.. figure:: Sequence\ Diagrams/system-sequence.drawio.svg
+   :alt: End-to-end sequence between Adaptive Traffic Light components
+   :align: center
+   :width: 100%
 
-The Decision producer's green and cycle output ranges are a subset of the
-Controller input ranges.  Every structurally valid plan produced by Decision
-is therefore within the Controller's configured duration bounds.  Plan
-timestamps are currently used for latency diagnostics, not for rejection by
-age.
+   Perception publishes observations, Timing Decision publishes a proposed
+   plan, Controller applies legal signal states, and managed processes report
+   health independently.
 
-Implementation status
-~~~~~~~~~~~~~~~~~~~~~
+Information exchanged
+^^^^^^^^^^^^^^^^^^^^^
 
-Static review of ``origin/feat/integrate-full`` at ``06b3d77`` confirms:
+Three project-owned application messages cross component boundaries:
 
-* one Bazel deployment target stages Perception, Timing Decision, Signal
-  Controller, Control Daemon, Lifecycle Manager, configuration, models and
-  video inputs;
-* the three real managed processes exchange ``TrafficSnapshot`` and versioned
-  ``TimingPlanMessageV1`` messages end to end;
-* Signal Controller publishes versioned ``SignalStateMessageV1`` telemetry
-  back to the Perception viewer without using it in control decisions;
-* Startup, Running, ordered shutdown, health supervision and a control-only
-  fallback run target are configured; and
-* the end-to-end runner collects DLT logs and produces timestamped analytics
-  reports and plots.
+``TrafficSnapshot``
+   The latest traffic observation from Perception to Timing Decision.
 
-This review establishes implementation presence, not runtime acceptance on the
-reviewer's machine.  Reproducing the Bazel build and deployment remains part
-of the verification plan.
+``TimingPlanMessageV1``
+   A proposed timing plan from Timing Decision to Signal Controller.
 
-Interfaces and data flow
-~~~~~~~~~~~~~~~~~~~~~~~~
+``SignalStateMessageV1``
+   Applied signal state from Signal Controller to the Perception viewer.  This
+   message is telemetry and not a control input.
 
-.. list-table:: System interface contracts
+.. list-table:: Internal project message contracts
    :header-rows: 1
-   :widths: 18 16 16 20 30
+   :widths: 18 17 17 22 26
 
    * - Interface
      - Producer
      - Consumer
-     - Transport/timing
+     - Transport
      - Contract
    * - ``TrafficSnapshot``
      - Perception
      - Timing Decision
-     - POSIX queue ``/traffic_snapshot_v1``; depth 4; latest value;
-       non-blocking
-     - Timestamp plus per-approach vehicle count, queue length, occupancy and
-       emergency indication. A stale or absent value must be observable.
-   * - ``TimingPlan``
+     - ``/traffic_snapshot_v1``; POSIX queue depth 4; non-blocking
+       latest-value access
+     - Timestamp and per-approach vehicle count, queue length, occupancy and
+       emergency indication.  Missing or stale data remains observable.
+   * - ``TimingPlanMessageV1``
      - Timing Decision
      - Signal Controller
-     - POSIX queue ``/traffic_timing_plan_v1``; depth 8; bounded,
-       non-blocking publish
-     - ``TimingPlanMessageV1`` is a 72-byte envelope.  Its format signature
-       (``0x54504C31``, ASCII ``TPL1``), version, message size, publisher
-       instance and sequence are validated before decoding.  The signature
-       distinguishes a timing-plan message from incompatible queue data; it
-       is not a security or encryption mechanism.  The consumer drains the
-       currently available entries, selects the newest transport-valid
-       envelope and then submits that plan to Controller domain validation.
-   * - ``SignalState``
+     - ``/traffic_timing_plan_v1``; POSIX queue depth 8; non-blocking
+       publication; receiver wait at most 200 ms
+     - 72-byte envelope with ``TPL1`` format signature, version, message
+       size, publisher instance and sequence validation.
+   * - ``SignalStateMessageV1``
      - Signal Controller
      - Perception viewer
-     - POSIX queue ``/traffic_signal_state_v1``; depth 4; latest value;
-       non-blocking publish
-     - ``SignalStateMessageV1`` is a 40-byte, versioned visualization contract
-       containing phase, lamp states and remaining times.  The viewer retries
-       queue open after 1,000 ms and marks data stale after 3,000 ms.  It is
-       telemetry only.
-   * - Lifecycle command
-     - Lifecycle Manager
-     - Each managed process
-     - S-CORE lifecycle control channel; event driven
-     - Supports Startup, Running and Stop transitions with bounded activation
-       and shutdown handling.
-   * - Health and diagnostics
-     - Each managed process
-     - Lifecycle Manager / operator
-     - Heartbeat, deadline monitor, console and DLT records
-     - Identifies the process, cycle and observed failure; diagnostics must not
-       masquerade as successful domain output.
+     - ``/traffic_signal_state_v1``; POSIX queue depth 4; non-blocking
+       latest-value publication
+     - 40-byte versioned phase, lamp and remaining-time telemetry.  The viewer
+       retries open after 1,000 ms and marks data stale after 3,000 ms.
 
-Module interaction rules
-^^^^^^^^^^^^^^^^^^^^^^^^
+The ``TPL1`` value is a format signature that distinguishes TimingPlan data
+from an incompatible queue payload.  It is not a security or encryption
+mechanism.
 
-The end-to-end sequence below shows the domain data path together with the
-separate lifecycle and health-control path.
+These interfaces are configurable only by changing the implementation and
+rebuilding it; they are not loaded from a runtime JSON file.  Their source
+locations are:
 
-.. figure:: Sequence\ Diagrams/system-sequence.drawio.svg
-   :alt: End-to-end sequence between the Adaptive Traffic Light modules
-   :align: center
-   :width: 100%
+* ``TrafficSnapshot`` fields and queue names:
+  ``ipc/include/traffic_ipc/messages.h``.  Its queue depth and non-blocking
+  latest-value behaviour are defined in
+  ``ipc/include/traffic_ipc/latest_value_queue.h``.
+* ``TimingPlanMessageV1`` layout, queue name, depth, size, ``TPL1`` signature
+  and version: ``ipc/include/traffic_ipc/timing_plan_message_v1.h``.  The
+  receiver's 200-ms wait is defined in
+  ``traffic_signal_controller/include/common/config.h``.
+* ``SignalStateMessageV1`` layout, queue name, size, ``SIG1`` signature and
+  version: ``ipc/include/traffic_ipc/signal_state_message_v1.h``.  It uses the
+  shared latest-value queue depth from
+  ``ipc/include/traffic_ipc/latest_value_queue.h``.  The viewer's 1,000-ms
+  reopen interval and 3,000-ms stale-data limit are defined in
+  ``traffic_perception/src/viewer/opencv_lanes_viewer.cpp``.
 
-   End-to-end publication, decision, signal-control and supervision sequence.
+Changing a queue name, queue depth, message layout, size, encoding, signature
+or version changes the IPC contract.  The producer and consumer must therefore
+be updated and rebuilt together.  When developers make an incompatible change
+to a message layout, they must define a new message version and queue name,
+then update and rebuild both the producer and consumer.  The application
+validates the configured contract at runtime but does not create new interface
+versions automatically.
 
-.. list-table:: Interaction, synchronization and failure containment
+External platform interfaces
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Lifecycle control and health supervision are provided through Eclipse S-CORE.
+They are external framework interfaces used by the project, not project-owned
+traffic-message contracts.
+
+.. list-table:: S-CORE platform interfaces
    :header-rows: 1
-   :widths: 19 19 21 21 20
+   :widths: 20 20 20 20 20
+
+   * - Interface
+     - Provider
+     - User
+     - Mechanism
+     - Role in this system
+   * - Lifecycle command
+     - S-CORE Lifecycle Manager
+     - Managed application processes
+     - S-CORE lifecycle control channel
+     - Requests Startup, Running and Stop transitions and applies readiness or
+       shutdown timeouts.
+   * - Health supervision
+     - S-CORE Health Monitor and Lifecycle Manager
+     - Managed application processes and operator
+     - Heartbeat, deadline and Alive supervision; console/DLT diagnostics
+     - Makes process and timing failures observable without representing them
+       as valid traffic data.
+
+Interaction and failure-containment rules
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. list-table:: Interaction rules
+   :header-rows: 1
+   :widths: 23 25 27 25
 
    * - Boundary
-     - Synchronization
-     - Backpressure / ordering
-     - Consumer action
+     - Ordering and backpressure
+     - Consumer behaviour
      - Failure containment
    * - Capture -> Perception pipeline
-     - Atomic per-lane frame exchange
-     - New frame replaces old frame; no unbounded queue
-     - At its release, the pipeline takes the latest frame for each lane
-     - Slow inference drops intermediate observations instead of delaying all
-       later work.
+     - Each lane exposes one latest frame; new data replaces old data.
+     - Pipeline takes the latest available frame at its own release.
+     - Slow inference drops intermediate observations instead of growing a
+       backlog.
    * - Perception -> Timing Decision
-     - Named semaphore protects queue replace/drain operation
-     - Publisher drops oldest on a full four-slot queue; consumer drains to
-       newest
-     - Validate frame/timestamp/metrics, then compute one plan
-     - No value keeps the previous plan; 24 consecutive misses fail the
-       decision service.
+     - Full depth-four queue drops its oldest value; consumer drains to newest.
+     - Validate timestamp, frame ID and measurements before calculating a plan.
+     - Missing input keeps the previous plan; 24 consecutive misses fail the
+       Decision service.
    * - Timing Decision -> Signal Controller
-     - POSIX MQ; receiver waits at most 200 ms per receive pass
-     - Versioned 72-byte envelope; newest transport-valid publisher-instance/
-       sequence is selected
-     - Validate timing ranges, translate to six phases, then stage the plan
-     - An invalid domain plan or stale transport sequence is rejected without
-       changing the active FSM plan.  Plan age is not an acceptance gate.
+     - Publisher retains its newest pending value if the depth-eight queue is
+       temporarily full; receiver drains available messages.
+     - Select newest transport-valid message, then validate durations and
+       translate it to six FSM phases.
+     - Invalid plan or stale transport sequence leaves the active FSM plan
+       unchanged.  Plan age is not an acceptance gate.
    * - Plan receiver -> Signal FSM
-     - In-process synchronized latest pending plan
-     - A newer normal plan supersedes an older pending plan
-     - Apply a normal plan only after ``ALL_RED``; evaluate emergency plan
-       during green
-     - Yellow and all-red remain non-interruptible.
-   * - Signal FSM -> Output / Perception viewer
-     - In-process latest display plus versioned SignalState queue
-     - Output worker publishes each applied display; viewer consumes latest
-     - Render lamp state and remaining time only
-     - Loss of telemetry affects display/diagnostics, never the control
-       decision.
+     - A newer normal pending plan supersedes an older pending plan.
+     - Apply a normal plan only at an ``ALL_RED`` boundary; evaluate emergency
+       input during a matching green.
+     - Yellow and all-red are non-interruptible.
+   * - Signal FSM -> viewer
+     - Output uses an in-process latest display plus the SignalState queue.
+     - Viewer renders phase, lamps and remaining time only.
+     - Telemetry loss never becomes a control failure.
    * - Managed processes -> Lifecycle Manager
-     - Asynchronous Alive notifications derived from local health monitors
-     - Independent of domain queues
-     - Evaluate process readiness and configured recovery
-     - A health fault cannot be interpreted as a valid snapshot or plan.
-
-There is exactly one domain-control direction:
-``Perception -> Timing Decision -> Signal Controller -> signal output``.
-``Signal Controller -> Perception viewer`` is an observability return path,
-not a closed-loop decision input.  Lifecycle commands and health indications
-form a separate control plane and must not carry domain values.
+     - Alive reports are asynchronous and independent of domain queues.
+     - Lifecycle evaluates readiness and configured recovery.
+     - A queue value cannot be interpreted as proof that a process is healthy.
 
 .. sys_des:: Exchange domain data through bounded latest-value channels
    :id: sys_des__latest_value_data_flow
    :status: valid
-   :satisfies: sys_req__publish_traffic_snapshot, sys_req__produce_adaptive_timing_plan
+   :satisfies: sys_req__publish_traffic_snapshot
    :req_covered: yes
 
    Perception publishes ``TrafficSnapshot`` to ``/traffic_snapshot_v1`` and
@@ -573,6 +868,21 @@ form a separate control plane and must not carry domain values.
    uses a bounded 200-ms wait and then drains available entries.  Their
    producer/consumer logic favors the newest usable value so a slow consumer
    does not create an unbounded backlog of obsolete traffic decisions.
+
+.. sys_des:: Compute and publish an adaptive timing plan periodically
+   :id: sys_des__periodic_adaptive_timing_decision
+   :status: valid
+   :satisfies: sys_req__produce_adaptive_timing_plan
+   :req_covered: yes
+
+   Timing Decision runs once per 2.5-second decision cycle.  It consumes the
+   newest valid ``TrafficSnapshot``, calculates demand for the North/South and
+   East/West directions, constrains the resulting green and clearance
+   durations, and publishes them in ``TimingPlanMessageV1`` without blocking
+   the periodic decision thread.  When no new usable snapshot is available,
+   it preserves the most recently published plan, reports ``NO_NEW_DATA`` and
+   retries any pending publication.  After 24 consecutive missed cycles, it
+   reports an input timeout and fails the service cycle.
 
 .. sys_des:: Return applied signal state as visualization-only telemetry
    :id: sys_des__signal_state_telemetry
@@ -593,90 +903,152 @@ form a separate control plane and must not carry domain values.
 
    Each managed process exposes lifecycle state and health independently of
    the snapshot/plan data path.  Heartbeat and deadline observations are sent
-   to the Lifecycle Manager and diagnostics sinks; they do not modify domain
+   to Lifecycle Manager and diagnostic sinks; they do not modify domain
    messages.
+
+End-to-end timing
+^^^^^^^^^^^^^^^^^
+
+End-to-end latency is phase-dependent rather than one fixed value.  Perception
+currently publishes a new snapshot every 10 seconds.  That snapshot can wait
+up to one 2.5-second Timing Decision release.  After Controller accepts a
+normal plan, the plan can wait until the next safe ``ALL_RED`` application
+boundary.
+
+The worst case must therefore be measured across the complete path; it cannot
+be inferred by simply adding the component periods.
+
+System-wide runtime constraints
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Scheduling and resources
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. list-table:: Process and worker real-time configuration
+   :header-rows: 1
+   :widths: 25 19 16 16 24
+
+   * - Process / worker
+     - Policy
+     - Priority
+     - CPU
+     - Memory or timing behaviour
+   * - Perception process and stream/pipeline workers
+     - ``SCHED_RR``
+     - 70
+     - Streams 4; pipeline 2; main/viewer 5
+     - Fixed frame pool; latest-frame replacement.
+   * - Perception Health Monitor
+     - ``SCHED_RR``
+     - 70
+     - 5
+     - Evaluation 100 ms; supervisor API 2,000 ms.
+   * - Timing Decision periodic thread
+     - ``SCHED_FIFO``
+     - 80
+     - 1
+     - Mandatory memory lock; 64-KiB stack prefault.
+   * - Timing Decision Health Monitor
+     - ``SCHED_FIFO``
+     - 50
+     - 5
+     - Evaluation 500 ms; supervisor API 1,000 ms.
+   * - Controller FSM / receiver / output
+     - ``SCHED_FIFO``
+     - 80 / 70 / 60
+     - 3
+     - Controller memory lock is attempted; stacks are prefaulted.
+   * - Controller Health Monitor
+     - ``SCHED_FIFO``
+     - 60
+     - 5
+     - Evaluation 500 ms; supervisor API 1,000 ms.
+
+A larger Linux real-time priority wins within the same policy.  CPU numbers are
+logical CPU indices and are valid only on a target exposing those CPUs.
+Deployment must provide ``RLIMIT_RTPRIO``/``CAP_SYS_NICE`` and sufficient
+``RLIMIT_MEMLOCK`` or ``CAP_IPC_LOCK``.  Failure to create required Timing
+Decision or Controller real-time resources fails initialization.
+
+Configuration ownership
+^^^^^^^^^^^^^^^^^^^^^^^
+
+The table below identifies the file to edit for each configuration layer.
+JSON and environment values are deployment configuration.  Values stored in
+C++ headers or source files are compiled design parameters and require a
+rebuild.
+
+.. list-table:: Configuration layers
+   :header-rows: 1
+   :widths: 20 27 30 23
+
+   * - Layer
+     - Source
+     - Controls
+     - Change rule
+   * - Deployment
+     - ``config/traffic_light_lifecycle.json``
+     - Process policy, dependency order, health reporting, readiness, shutdown
+       and recovery
+     - Review as a system change.
+   * - Perception runtime
+     - ``config/traffic_perception_config.json``
+     - Inputs, ROIs, model, periods, phases, CPU placement and priorities
+     - Validate at startup.
+   * - Interface
+     - ``ipc/include/traffic_ipc/messages.h``,
+       ``ipc/include/traffic_ipc/latest_value_queue.h``,
+       ``ipc/include/traffic_ipc/timing_plan_message_v1.h`` and
+       ``ipc/include/traffic_ipc/signal_state_message_v1.h``
+     - Queue names and depths, payload sizes, signatures, versions and encoding
+     - Change producers and consumers together; introduce a new version when
+       compatibility changes.
+   * - Algorithm and safety
+     - ``traffic_timing_decision/include/decision_constants.h``,
+       ``traffic_timing_decision/src/decision_engine.cpp`` and
+       ``traffic_signal_controller/include/common/config.h``
+     - Demand thresholds and weights, duration bounds, emergency window and FSM
+       tick
+     - Treat as reviewed design parameters.
+   * - Runtime override
+     - ``config/traffic_light_lifecycle.json`` and
+       ``deployment/run_traffic_light_system.sh``
+     - Timing report directory, Controller FSM priority and analytics paths
+     - Edit Lifecycle JSON for managed-process values.  The deployment script
+       stages wrapper-level paths; invalid Controller priority uses the logged
+       default from ``traffic_signal_controller/include/common/config.h``.
 
 Runtime and failure behaviour
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Startup
-^^^^^^^
-
-#. Deployment removes or validates stale IPC resources and starts the
-   Lifecycle Manager and control service.
-#. After the Control Daemon endpoint becomes available, the deployment helper
-   requests ``Running``.  That transition starts and initializes the managed
-   Perception, Timing Decision and Signal Controller processes in dependency
-   order.
-#. Each component reports ready only after its required initialization
-   succeeds.  Producers open their queues before regular periodic publication
-   begins.
-
-.. figure:: Sequence\ Diagrams/Life\ Manager\ Seq.drawio.svg
-   :alt: Lifecycle Manager startup, state-transition and shutdown sequence
-   :align: center
-   :width: 100%
-
-   Lifecycle startup, ``Running`` transition, supervision and managed
-   shutdown sequence.
-
 Normal operation
 ^^^^^^^^^^^^^^^^
 
-#. Perception captures and analyzes configured input, then replaces the latest
-   traffic snapshot.
-#. At each 2.5-second release, Timing Decision consumes the newest available
-   snapshot, computes a plan and publishes it without blocking.  If the queue
-   is temporarily full, only its newest pending plan is retained for retry.
-#. Signal Controller validates an available plan and advances only through
-   legal state-machine transitions.
-#. Signal Controller publishes its applied state to the Perception viewer for
-   display; this does not close a control feedback loop.
-#. Each managed process reports heartbeat and deadline observations; timing
-   diagnostics are recorded separately from the domain messages.
+During normal operation, the three application processes run at independent
+rates and communicate only through bounded latest-useful-value interfaces.
+Each process also reports heartbeat and deadline observations through the
+separate Lifecycle/Health control plane.
 
-The Timing Decision processing flow and Signal Controller state machine are
-shown below.  The flowchart follows a snapshot through demand evaluation and
-plan constraints; the FSM shows the legal order of signal phases and safe
-transition points.
-
-.. figure:: Flowchart/Traffic\ Timing\ Decision\ Flowchart.drawio.svg
-   :alt: Traffic Timing Decision processing flow
-   :align: center
-   :width: 100%
-
-   Traffic snapshot validation, demand calculation and constrained timing-plan
-   generation.
-
-.. figure:: FSM/Traffic\ Signal\ Controller\ FSM.drawio.svg
-   :alt: Traffic Signal Controller finite-state machine
-   :align: center
-   :width: 100%
-
-   Legal green, yellow and all-red transitions applied by Signal Controller.
-
-Degraded and failure operation
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Degraded operation
+^^^^^^^^^^^^^^^^^^
 
 * Missing snapshot: Timing Decision keeps the previously published plan,
-  reports ``NO_NEW_DATA`` and retries a pending publication.  After 24
-  consecutive 2.5-second misses (60 seconds), the integrated service reports
-  input timeout and fails its cycle.
-* Invalid or missing plan: Signal Controller retains its current plan and must
-  not jump to an arbitrary signal state.  Invalid messages are reported;
-  ordinary receive timeouts are tolerated without an absence diagnostic.
-* Required producer queue open or contract-validation failure: Perception or
-  Timing Decision fails initialization.  Signal Controller retries a missing
-  TimingPlan queue every 100 ms; a non-recoverable open/contract error fails
-  its receiver worker and is reported as a runtime application failure.
-  Failure to open the visualization-only SignalState queue is logged but does
-  not stop signal control.
-* Deadline, heartbeat or application failure: Health Monitor reports the
-  failure to lifecycle supervision and diagnostics.  Readiness recovery makes
-  one restart attempt; configured runtime recovery switches to the fallback
-  run target that keeps only Control Daemon active.
-* Stop request: each process stops periodic work, releases domain resources and
-  acknowledges shutdown within the deployment timeout.
+  reports ``NO_NEW_DATA`` and retries pending publication.  After 24
+  consecutive misses, it reports an input timeout and fails its cycle.
+* Invalid or missing plan: Signal Controller keeps its current plan.  Invalid
+  messages are reported; ordinary receive timeouts do not produce an absence
+  diagnostic.
+* Required producer queue failure: Perception or Timing Decision fails
+  initialization when its output queue cannot be opened or validated.
+* TimingPlan queue unavailable: Controller retries a missing queue every
+  100 ms.  A non-recoverable open or contract error fails its receiver worker
+  and is reported as an application runtime failure.
+* SignalState queue unavailable: Controller logs the visualization failure and
+  continues signal control.
+* Process or health failure: Lifecycle applies the configured restart or
+  fallback action.
+* Stop request: each process stops periodic work, releases resources and
+  acknowledges shutdown within its configured timeout.
 
 .. sys_des:: Preserve safe signal state when an input plan is unusable
    :id: sys_des__safe_plan_fallback
@@ -685,95 +1057,91 @@ Degraded and failure operation
    :req_covered: yes
 
    Signal Controller validates a timing plan before use.  If the plan is
-   absent or rejected, the controller preserves its current safe plan and
-   advances only through the signal state machine.  The baseline implements
-   neither a maximum plan-hold time nor a forced fallback phase.
+   absent or rejected, Controller preserves its current plan and advances only
+   through the signal state machine.  The baseline implements neither a
+   maximum plan-hold time nor a forced fallback phase.
 
-Docs-as-code maintenance
-~~~~~~~~~~~~~~~~~~~~~~~~
+Implementation status and limitations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-This design is maintained with the implementation and follows the same review
-workflow:
+Implemented baseline
+^^^^^^^^^^^^^^^^^^^^
 
-#. Edit the ``.rst`` source and the authoritative ``.drawio`` source in the
-   same branch as the related design or implementation change.
-#. Re-export affected diagrams as SVG.  Do not hand-edit exported SVG XML.
-#. Update the implementation baseline, document date, configuration tables,
-   interface contracts and linked S-CORE needs when behaviour changes.
-#. Build Sphinx with warnings treated as errors and inspect image rendering,
-   cross-references and requirement links.
-#. Require code-owner/lead review for timing, safety, lifecycle, recovery or
-   wire-contract changes.  Record approval in the Merge Request.
+Static review of ``origin/dev`` confirms:
 
-Reviewers should compare values in this page with the shared IPC headers,
-Lifecycle JSON, Perception JSON and module constants.  A code change that
-alters a period, phase, deadline, priority, affinity, queue contract, safety
-bound or recovery action is incomplete until this design description and the
-corresponding diagram are updated.  This keeps prose, diagrams, requirements
-and executable configuration reviewable as one versioned change.
+* one deployment target stages Perception, Timing Decision, Signal Controller,
+  Control Daemon, Lifecycle Manager, configuration, models and video inputs;
+* the managed application processes exchange TrafficSnapshot and TimingPlan
+  messages through the complete data path;
+* Controller returns versioned SignalState telemetry to the Perception viewer;
+* Startup, Running, ordered shutdown, health supervision and the control-only
+  fallback target are configured; and
+* the end-to-end runner collects DLT logs and produces timestamped analytics
+  reports and plots.
+
+This static review establishes implementation presence, not runtime acceptance
+on the reviewer's machine.
+
+Current limitations
+^^^^^^^^^^^^^^^^^^^
+
+* Controller has no maximum hold time for its active plan.  Without a newly
+  accepted plan, the FSM continues cycling with the current plan.
+* Timing Decision rejects a snapshot older than 6 seconds or more than 100 ms
+  in the future, but Controller does not reject a TimingPlan by age.
+* Runtime fallback stops Signal Controller and retains only Control Daemon.
+  The baseline has no physical output adapter and therefore defines no physical
+  lamp command for fallback entry.
+* No production target hardware or resource budget is selected; runtime
+  acceptance is currently limited to the reviewed development environment.
+* POSIX queue payload compatibility still depends on controlled compiler and
+  architecture settings despite versioned envelopes and layout assertions.
+* The integrated Bazel tree contains only one focused IPC envelope test.
+  Runtime scripts and analytics do not replace repeatable component and
+  end-to-end tests.
 
 Verification plan
 ~~~~~~~~~~~~~~~~~
 
-* Unit-test message validation, latest-value replacement and signal-state
-  transitions, including rejected and missing inputs.
-* Integration-test the TrafficSnapshot, TimingPlan and SignalState POSIX queues
-  with producer/consumer processes and incompatible queue attributes.
-* Run the managed deployment through Startup, Running and Stop and confirm
-  health visibility for every process.
-* Measure wake-up latency, execution time and end-to-end perception-to-control
-  latency under representative load; verify the 2.5-second periodic release
-  and configured 10-second monitored processing window.
-* Inject stale data, queue failure, deadline overrun and process termination;
-  confirm the approved degraded-mode and recovery policy.
+* Unit-test message validation, latest-value replacement and FSM transitions,
+  including rejected and missing inputs.
+* Integration-test the TrafficSnapshot, TimingPlan and SignalState queues with
+  producer/consumer processes and incompatible queue attributes.
+* Exercise Startup, Running, recovery and Stop through Lifecycle Manager.
+* Measure capture, inference, decision, reception and signal-control timing
+  under representative target load.
+* Measure complete perception-to-control latency rather than inferring it from
+  individual periods.
+* Inject stale data, queue failure, deadline overrun and process termination,
+  then confirm the documented containment and recovery behaviour.
+* Build the RST documentation with warnings as errors and inspect all rendered
+  diagrams and requirement links.
 
-Known constraints and open items
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Docs-as-code maintenance
+~~~~~~~~~~~~~~~~~~~~~~~~
 
-Risks
-^^^^^
+This description is versioned and reviewed with the implementation:
 
-* The integrated code is on ``origin/feat/integrate-full`` rather than this
-  documentation branch; the design and implementation can diverge until both
-  are merged into ``dev``.
-* POSIX queue payloads are in-memory C++ structures; compiler, architecture and
-  version compatibility must remain controlled despite the versioned envelope
-  and compile-time size/layout assertions.
-* Real-time behaviour depends on scheduling privileges, memory-lock limits and
-  deployment load that local functional tests do not establish.
-* The integrated branch contains only one focused IPC envelope test in its
-  Bazel tree; runtime scripts and analytics provide evidence but do not replace
-  repeatable automated component and end-to-end tests.
-* Existing detailed draw.io diagrams can drift from interfaces in code unless
-  diagram review is included in relevant Merge Requests.
+#. Update the ``.rst`` source when a component boundary, interface, period,
+   deadline, priority, safety bound or recovery action changes.
+#. Update the authoritative ``.drawio`` source and re-export the affected SVG
+   when diagram behaviour changes.  Do not hand-edit exported SVG XML.
+#. Update the implementation baseline and document date.
+#. Build Sphinx with warnings treated as errors.
+#. Require lead/code-owner review for timing, safety, lifecycle, recovery and
+   wire-contract changes.
 
-Current baseline behaviour and limitations
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-* Signal Controller does not impose a maximum hold time on the active plan.
-  Without a newly accepted plan, the FSM continues cycling with its current
-  plan.
-* The build supports native ``x86_64-linux`` and cross-built ``arm64-linux``.
-  CPU allocation is defined by logical CPU indices, but no production target
-  hardware or resource budget is specified.
-* Timing Decision rejects a snapshot older than 6 seconds or more than 100 ms
-  in the future.  It keeps the previous plan while input is unavailable and
-  fails after 24 consecutive 2.5-second misses, equivalent to 60 seconds.
-* Lifecycle runtime recovery switches to ``fallback_run_target``, which keeps
-  only Control Daemon active.  Signal Controller is stopped; the baseline has
-  no physical signal-I/O adapter and therefore defines no lamp command on
-  fallback entry.
-* Signal Controller does not reject ``TimingPlan`` by age.  The generation and
-  perception timestamps are used for latency diagnostics only; envelope and
-  transport-sequence validation still apply.
+Detailed diagram sources and exported artifacts are cataloged in
+:doc:`diagram_catalog`.  System requirements are defined in
+:doc:`../02_requirement/system_requirements`.
 
 Decision and review scope
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-This draft requests lead approval of the component boundaries, IPC/data-flow
-contracts, current fallback behaviour and lifecycle/health separation.  Any
-baseline limitation that is not acceptable for the intended deployment must
-be converted into a requirement and tracked change before production
+This draft requests lead approval of the component boundaries, data-flow and
+IPC contracts, current fallback behaviour, and separation of traffic decisions
+from lifecycle and health supervision.  Any unacceptable baseline limitation
+must become a tracked requirement and implementation change before production
 approval.
 
 Design Explanation
