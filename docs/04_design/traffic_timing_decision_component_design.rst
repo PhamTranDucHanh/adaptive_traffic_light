@@ -143,16 +143,16 @@ thresholds divide that range into demand levels and select a target green time:
      - Target green time
    * - Less than 30
      - Low
-     - 20,000 ms
+     - 20s
    * - At least 30 but less than 60
      - Moderate
-     - 30,000 ms
+     - 30s
    * - At least 60 but less than 90
      - High
-     - 40,000 ms
+     - 40s
    * - At least 90
      - Very high
-     - 50,000 ms
+     - 50s
 
 For example, a queue percentage of 40, vehicle score of 60 and occupancy
 percentage of 50 produce ``0.2 * 40 + 0.6 * 60 + 0.2 * 50 = 54``.  The score
@@ -160,15 +160,15 @@ therefore selects the moderate target of 30,000 ms.
 
 The selected value is a target rather than an immediate output.  On each
 2.5-second decision cycle, the module moves the previous green duration toward
-the target by no more than 5,000 ms.  For example, a current value of 20,000 ms
+the target by no more than 5s.  For example, a current value of 20s
 and a high-demand target of 40,000 ms produce successive requested values of
-25,000, 30,000, 35,000 and 40,000 ms if the demand remains high.  This limits
+25s, 30s, 35s and 40s if the demand remains high.  This limits
 abrupt timing changes between consecutive plans.
 
 After both direction targets are updated, the constraint manager enforces the
-10,000..60,000-ms green bounds, adds the fixed yellow and all-red clearance
+10..60s green bounds, adds the fixed yellow and all-red clearance
 times, and proportionally reduces green durations if the complete cycle would
-exceed 100,000 ms.  Emergency input bypasses demand-based target selection: the
+exceed 100s.  Emergency input bypasses demand-based target selection: the
 module preserves the previous green durations and forwards the relevant
 emergency flags to Signal Controller.
 

@@ -10,7 +10,7 @@ import time
 import os
 import sys
 
-project = 'QAC 0.1'
+project = 'Adaptive Traffic Light'
 author = 'Ban Vien Corp'
 copyright = '{}, {}'.format(time.strftime('%Y'), author)
 

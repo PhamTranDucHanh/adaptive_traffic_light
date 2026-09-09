@@ -13,7 +13,7 @@ behaviour.  Detailed internal designs are documented separately for
 :doc:`Traffic Signal Controller <traffic_signal_controller_component_design>`.
 Lifecycle and health supervision are external S-CORE platform services and are
 summarized only at their system boundary.  The explanation records the
-cross-cutting rationale, patterns, trade-offs and alternatives behind the
+cross-cutting rationale, patterns, and trade-offs behind the
 system design.
 
 System view
@@ -32,7 +32,7 @@ a simulated signal output with a visual overlay.  It does not yet connect to a
 physical traffic-light controller and does not claim production readiness or
 functional-safety certification.
 
-The reviewed implementation baseline is ``origin/dev``.  It contains one
+The reviewed implementation contains one
 Bazel workspace, one managed Lifecycle deployment, and the complete
 three-process traffic-data path.  The source-code and configuration file
 paths in this document are relative to
@@ -67,11 +67,12 @@ At system level, operation is straightforward:
 
 The domain-control path is one-way:
 
-``Perception -> Timing Decision -> Signal Controller -> simulated signal output``.
+``Perception → Timing Decision → Signal Controller → Simulated signal output``.
 
-The return path from Signal Controller to the Perception viewer is
-observability only.  It never feeds signal state back into traffic detection or
-timing decisions.
+Signal Controller also sends the applied light-signal state, ``SignalState``,
+back to the Perception viewer so it can display the current lamps and remaining
+time.  This return path is for observability only; it never feeds data back into
+traffic detection or timing decisions.
 
 Real-time classification
 ^^^^^^^^^^^^^^^^^^^^^^^^
@@ -117,26 +118,28 @@ POSIX queues:
      - Purpose
      - Transport contract
    * - ``TrafficSnapshot``
-     - Perception -> Timing Decision
+     - Perception → Timing Decision
      - Latest timestamped vehicle count, queue length, occupancy and emergency
        indication for each approach
      - ``/traffic_snapshot_v1``; depth 4; non-blocking latest-value access
    * - ``TimingPlanMessageV1``
-     - Timing Decision -> Signal Controller
+     - Timing Decision → Signal Controller
      - Proposed green and clearance durations
      - ``/traffic_timing_plan_v1``; depth 8; non-blocking publish; receiver
        waits at most 200 ms; 72-byte versioned ``TPL1`` envelope
    * - ``SignalStateMessageV1``
-     - Signal Controller -> Perception viewer
+     - Signal Controller → Perception viewer
      - Applied phase, lamp states and remaining times for display only
      - ``/traffic_signal_state_v1``; depth 4; non-blocking latest-value
        publication; 40-byte versioned envelope
 
-Message fields and queue names are defined in
-``ipc/include/traffic_ipc/messages.h``,
-``ipc/include/traffic_ipc/timing_plan_message_v1.h`` and
-``ipc/include/traffic_ipc/signal_state_message_v1.h``.  Shared latest-value
-queue behaviour is defined in
+Message fields and queue names are defined in:
+
+* ``ipc/include/traffic_ipc/messages.h``
+* ``ipc/include/traffic_ipc/timing_plan_message_v1.h``
+* ``ipc/include/traffic_ipc/signal_state_message_v1.h``
+
+Shared latest-value queue behaviour is defined in
 ``ipc/include/traffic_ipc/latest_value_queue.h``.
 
 These contracts are compile-time interfaces, not runtime JSON settings.
@@ -160,16 +163,16 @@ project-owned traffic-data path:
      - Role
      - Failure meaning
    * - Lifecycle control
-     - Lifecycle Manager -> managed processes
+     - Lifecycle Manager → managed processes
      - Requests Startup, Running and Stop transitions with bounded readiness
        and shutdown handling
      - A transition failure invokes configured recovery; it is not traffic data
    * - Health supervision
-     - Managed processes -> Health Monitor and Lifecycle Manager
+     - Managed processes → Health Monitor and Lifecycle Manager
      - Reports heartbeat, deadline and Alive observations
      - A failed health contract is diagnostic evidence, not a domain message
    * - Logging and diagnostics
-     - Managed processes -> S-CORE logging backends and operator
+     - Managed processes → S-CORE logging backends and operator
      - Emits application, lifecycle, health and timing records; selected timing
        contexts are recorded as DLT data for offline analysis
      - Logging loss reduces diagnostics and timing evidence but does not become
@@ -253,7 +256,7 @@ System-wide runtime constraints
 Scheduling and resources
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. list-table:: Process and worker real-time configuration
+.. list-table:: Real-time process and worker configuration
    :header-rows: 1
    :widths: 25 19 16 16 24
 
@@ -265,33 +268,49 @@ Scheduling and resources
    * - Perception process and stream/pipeline workers
      - ``SCHED_RR``
      - 70
-     - Streams 4; pipeline 2; main/viewer 5
+     - Streams CPU4; pipeline CPU2; main/viewer CPU5
      - Fixed frame pool; latest-frame replacement.
    * - Perception Health Monitor
      - ``SCHED_RR``
      - 70
-     - 5
+     - CPU5
      - Evaluation 100 ms; supervisor API 2,000 ms.
    * - Timing Decision periodic thread
      - ``SCHED_FIFO``
      - 80
-     - 1
+     - CPU1
      - Mandatory memory lock; 64-KiB stack prefault.
    * - Timing Decision Health Monitor
      - ``SCHED_FIFO``
      - 50
-     - 5
+     - CPU5
      - Evaluation 500 ms; supervisor API 1,000 ms.
-   * - Controller FSM / receiver / output
+   * - Controller FSM / receiver
      - ``SCHED_FIFO``
-     - 80 / 70 / 60
-     - 3
+     - 80 / 70
+     - CPU3
      - Controller memory lock is attempted; stacks are prefaulted.
    * - Controller Health Monitor
      - ``SCHED_FIFO``
      - 60
-     - 5
+     - CPU5
      - Evaluation 500 ms; supervisor API 1,000 ms.
+
+.. list-table:: Non-real-time worker configuration
+   :header-rows: 1
+   :widths: 25 19 16 16 24
+
+   * - Worker
+     - Policy
+     - Priority
+     - CPU
+     - Behaviour
+   * - Controller output simulator
+     - ``SCHED_OTHER``
+     - 0
+     - CPU5
+     - Renders the latest simulated output outside the signal FSM's real-time
+       scheduling path.
 
 Workers use fixed-priority Linux real-time scheduling, logical CPU affinity
 and bounded memory; a higher priority wins within the same policy.  Deployment
@@ -365,9 +384,9 @@ Design Explanation
 
 This part explains why the structures and mechanisms in the system overview
 and three internal component descriptions were selected.  It records applied
-design patterns, the forces behind the decisions, their consequences and the
-alternatives considered.  Values and runtime contracts remain authoritative
-in those design descriptions; this part must not redefine them.
+design patterns, the forces behind the decisions, their consequences.  Values
+and runtime contracts remain authoritative in those design descriptions; this
+part must not redefine them.
 
 Applied design patterns
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -380,7 +399,7 @@ Applied design patterns
      - Realization
      - Design purpose
    * - Pipes and Filters
-     - Snapshot -> plan -> signal-state pipeline
+     - Snapshot → plan → signal-state pipeline
      - Separates sensing, policy and actuation into independently supervised
        timing domains.
    * - Latest-Value Mailbox
@@ -405,109 +424,45 @@ Applied design patterns
      - Lifecycle wrappers, message converters and ``OutputSimulator``
      - Keeps framework, transport and output concerns outside domain logic.
 
-The table names observable implementation structures; not every entry is a
-textbook GoF pattern.
-
 Design rationale and trade-offs
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Component boundaries and control direction
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Perception, Timing Decision and Signal Controller have different rates,
-resource profiles and failure consequences.  Separate managed processes keep
-inference load outside the Controller failure domain and let Lifecycle identify
-the failed service.  One-way domain flow also ensures that every plan crosses
-Controller validation and that viewer telemetry cannot influence control.
+Separate processes isolate failures and allow supervision per service.  One-way
+flow ensures that Controller validates every plan and ignores viewer telemetry.
 
 Time model and real-time mechanisms
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Periodic activities use ``CLOCK_MONOTONIC``/``steady_clock`` and absolute
-release times so wall-clock changes and execution duration do not accumulate
-as schedule drift.  Fixed priorities, CPU affinity, memory locking, prefaulted
-stacks, bounded pools and bounded queues improve predictability.  Wake-up
-latency and execution-time traces support analysis, but do not replace WCET,
-blocking-time and schedulability evidence for a production target.
-
-Functional deadlines determine whether one result was timely; wider health
-windows determine whether a process still makes progress.  Keeping them
-separate avoids treating one late cycle as immediate process failure.
+Monotonic absolute releases reduce schedule drift; fixed priorities and bounded
+resources improve predictability.  Deadlines measure timeliness, while wider
+health windows measure process progress.
 
 Freshness, backpressure and IPC contracts
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Bounded latest-value communication is chosen because traffic observations and
-plans lose value with age.  Replacing or draining old entries bounds memory,
-while non-blocking publication prevents a slow consumer from suspending an
-upstream periodic worker.  The trade-off is intentional loss of intermediate
-values and a requirement to distinguish missing, stale and invalid input.
-
-``TimingPlanMessageV1`` uses a fixed-size versioned envelope to reject an
-incompatible layout or transport sequence before domain validation.  The raw
-``TrafficSnapshot`` contract is less strongly versioned and therefore retains
-a compiler/layout compatibility risk.
+Bounded non-blocking queues favor recent data and may drop older values.
+``TimingPlanMessageV1`` is versioned; ``TrafficSnapshot`` still requires
+binary-compatible builds.
 
 Safety-oriented plan application
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The Controller uses two validation layers.  Transport validation establishes
-that bytes belong to the expected wire contract; domain validation checks that
-the decoded plan is meaningful.  Valid normal plans wait for an ``ALL_RED``
-boundary, so yellow and all-red clearance cannot be replaced mid-phase.  The
-constrained emergency path may interrupt only a matching green phase, and the
-FSM remains the sole owner of applied signal state.
-
-Keeping the previous valid plan on missing input avoids an arbitrary phase
-change.  Without a plan-hold timeout or physical fallback output, this is
-failure containment rather than a complete production safety concept.
+Controller validates plans and applies normal updates only at ``ALL_RED``;
+emergency updates affect only a matching green.  Missing or invalid plans keep
+the current plan, but no plan-hold timeout or physical fallback exists.
 
 Lifecycle, health and recovery separation
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Lifecycle commands and health indications use a control plane separate from
-domain queues.  A queued value therefore cannot prove process health, and an
-empty queue alone cannot prove process failure.  Ordered startup, bounded
-readiness/shutdown and configured recovery supervise processes without changing
-domain decisions.  The control-only fallback preserves diagnostic access but
-is not a physical traffic-signal fail-safe.
+External S-CORE supervision is separate from traffic queues, so queue state
+does not prove process health.  Its control-only fallback preserves diagnostic
+access but is not a physical fail-safe.
 
 Configuration and observability
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Configuration is layered according to ownership.  Lifecycle JSON controls
-deployment policy and recovery; Perception JSON controls inputs and workers;
-shared headers control wire compatibility; module constants control algorithms
-and safety bounds; environment variables provide explicit deployment
-overrides.  DLT records, wake-up samples, execution timing and timestamps stay
-outside domain values so diagnostics cannot alter control decisions.
-
-Alternatives considered
-~~~~~~~~~~~~~~~~~~~~~~~
-
-.. list-table:: Alternatives and reasons for rejection
-   :header-rows: 1
-   :widths: 34 66
-
-   * - Alternative
-     - Reason not selected
-   * - One process for the complete pipeline
-     - Perception load and failure would share the Controller failure domain,
-       and supervision could not attribute failure by component.
-   * - Deliver every value through FIFO queues
-     - A slow consumer would process obsolete traffic state and turn queue
-       capacity into additional control latency.
-   * - Synchronous request/response IPC
-     - Blocking and timeout propagation would couple otherwise independent
-       component schedules.
-   * - Relative periodic sleeps
-     - Execution time and jitter would accumulate as schedule drift.
-   * - Shared-memory domain transport
-     - Current messages are small, while shared memory adds ownership,
-       synchronization and crash-recovery complexity.
-   * - Apply each plan immediately
-     - It could replace a clearance phase or cause an unsafe phase jump;
-       normal plans therefore wait for ``ALL_RED``.
-   * - Unbounded allocation in periodic paths
-     - Allocator latency, fragmentation and failure would reduce timing
-       predictability.
+Lifecycle and Perception JSON files own runtime settings; headers and constants
+own interfaces and algorithms.  DLT and timing records are diagnostics only.

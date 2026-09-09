@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net">
   <diagram name="Page-1" id="aFK6_m3t6_Vl4S8R-mk8">
-    <mxGraphModel grid="1" page="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+    <mxGraphModel grid="0" page="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -62,38 +62,22 @@
         <mxCell id="pzIhZdxMN9bpVsPw4Yq1-40" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="ProcessInfo" vertex="1">
           <mxGeometry height="30" width="60" x="450" y="475" as="geometry" />
         </mxCell>
-        <mxCell id="_MHOIEow1BKMhmvtz2Vs-5" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="HealtReporting&amp;nbsp;&lt;div&gt;(Traffic Perception Module)&lt;/div&gt;" vertex="1">
+        <mxCell id="_MHOIEow1BKMhmvtz2Vs-5" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="PerceptionHealtReporting&amp;nbsp;&lt;div&gt;(Traffic Perception Module)&lt;/div&gt;" vertex="1">
           <mxGeometry height="30" width="150" x="429" y="640" as="geometry" />
         </mxCell>
-        <mxCell id="_MHOIEow1BKMhmvtz2Vs-6" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="HealtReporting&amp;nbsp;&lt;div&gt;(Traffic Decision Module)&lt;/div&gt;" vertex="1">
+        <mxCell id="_MHOIEow1BKMhmvtz2Vs-6" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="DecisionHealtReporting&amp;nbsp;&lt;div&gt;(Traffic Decision Module)&lt;/div&gt;" vertex="1">
           <mxGeometry height="30" width="150" x="680" y="640" as="geometry" />
-        </mxCell>
-        <mxCell id="pzIhZdxMN9bpVsPw4Yq1-41" edge="1" parent="1" source="pzIhZdxMN9bpVsPw4Yq1-3" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=halfCircle;endFill=0;endSize=6;strokeWidth=1;sketch=0;exitX=1;exitY=0.25;exitDx=0;exitDy=0;" target="pzIhZdxMN9bpVsPw4Yq1-43" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="830" y="505" as="sourcePoint" />
-          </mxGeometry>
         </mxCell>
         <mxCell id="pzIhZdxMN9bpVsPw4Yq1-45" edge="1" parent="1" source="pzIhZdxMN9bpVsPw4Yq1-3" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=halfCircle;endFill=0;endSize=6;strokeWidth=1;sketch=0;exitX=1;exitY=0.75;exitDx=0;exitDy=0;" target="pzIhZdxMN9bpVsPw4Yq1-47" value="">
           <mxGeometry relative="1" as="geometry">
             <mxPoint x="830" y="535" as="sourcePoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="pzIhZdxMN9bpVsPw4Yq1-42" edge="1" parent="1" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=oval;endFill=0;sketch=0;sourcePerimeterSpacing=0;targetPerimeterSpacing=0;endSize=10;" target="pzIhZdxMN9bpVsPw4Yq1-43" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="920" y="490" as="sourcePoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="pzIhZdxMN9bpVsPw4Yq1-43" parent="1" style="ellipse;whiteSpace=wrap;html=1;align=center;aspect=fixed;fillColor=none;strokeColor=none;resizable=0;perimeter=centerPerimeter;rotatable=0;allowArrows=0;points=[];outlineConnect=1;" value="" vertex="1">
-          <mxGeometry height="10" width="10" x="848" y="484" as="geometry" />
-        </mxCell>
         <mxCell id="pzIhZdxMN9bpVsPw4Yq1-47" parent="1" style="ellipse;whiteSpace=wrap;html=1;align=center;aspect=fixed;fillColor=none;strokeColor=none;resizable=0;perimeter=centerPerimeter;rotatable=0;allowArrows=0;points=[];outlineConnect=1;" value="" vertex="1">
           <mxGeometry height="10" width="10" x="847" y="525" as="geometry" />
         </mxCell>
-        <mxCell id="pzIhZdxMN9bpVsPw4Yq1-48" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="HealtReporting&amp;nbsp;&lt;div&gt;(Signal Controller Module)&lt;/div&gt;" vertex="1">
+        <mxCell id="pzIhZdxMN9bpVsPw4Yq1-48" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="ControllerHealtReporting&amp;nbsp;&lt;div&gt;(Signal Controller Module)&lt;/div&gt;" vertex="1">
           <mxGeometry height="30" width="150" x="780" y="540" as="geometry" />
-        </mxCell>
-        <mxCell id="_MHOIEow1BKMhmvtz2Vs-9" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="HealtReporting&amp;nbsp;&lt;div&gt;(Analytics Module)&lt;/div&gt;" vertex="1">
-          <mxGeometry height="30" width="150" x="780" y="440" as="geometry" />
         </mxCell>
         <mxCell id="pzIhZdxMN9bpVsPw4Yq1-46" edge="1" parent="1" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=oval;endFill=0;sketch=0;sourcePerimeterSpacing=0;targetPerimeterSpacing=0;endSize=10;" value="">
           <mxGeometry relative="1" as="geometry">
@@ -109,9 +93,6 @@
         </mxCell>
         <mxCell id="pzIhZdxMN9bpVsPw4Yq1-51" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="" vertex="1">
           <mxGeometry height="10" width="10" x="660" y="575" as="geometry" />
-        </mxCell>
-        <mxCell id="pzIhZdxMN9bpVsPw4Yq1-53" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="" vertex="1">
-          <mxGeometry height="10" width="10" x="770" y="484" as="geometry" />
         </mxCell>
         <mxCell id="pzIhZdxMN9bpVsPw4Yq1-52" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="" vertex="1">
           <mxGeometry height="10" width="10" x="770" y="525" as="geometry" />

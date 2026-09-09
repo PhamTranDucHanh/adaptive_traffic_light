@@ -61,9 +61,10 @@ Traffic Timing Decision
 Traffic Signal Controller
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The ``Component Diagrams/Traffic Signal Controller.drawio`` source does not yet
-have a matching SVG export.  Its class, sequence and FSM views are rendered
-below.
+.. image:: Component\ Diagrams/Traffic\ Signal\ Controller.drawio.svg
+   :alt: Traffic Signal Controller component view
+   :align: center
+   :width: 100%
 
 Class views
 -----------

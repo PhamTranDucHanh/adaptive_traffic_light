@@ -20,6 +20,14 @@ lamp output and publishes the applied state for visualization.
 It does not calculate traffic demand.  Receipt of a ``TimingPlan`` is a
 proposal, not permission to write arbitrary lamp values.
 
+.. figure:: Component\ Diagrams/Traffic\ Signal\ Controller.drawio.svg
+   :alt: Traffic Signal Controller component structure
+   :align: center
+   :width: 100%
+
+   Plan reception, signal-state control and simulated output have separate
+   responsibilities.
+
 Plan reception and application
 ------------------------------
 
@@ -60,7 +68,7 @@ The internal objects divide the receive-to-application path as follows:
 
 The internal flow is:
 
-``MqTimingPlanReceiverWorker -> PlanReceiver -> PlanSyncChannel -> SignalFSMEngine -> OutputSimulator``.
+``MqTimingPlanReceiverWorker → PlanReceiver → PlanSyncChannel → SignalFSMEngine → OutputSimulator``.
 
 If that newest message contains an invalid timing plan, the active FSM plan
 remains unchanged; the receiver does not fall back to an older message already
@@ -78,7 +86,7 @@ Signal state machine
 
 The normal signal sequence is:
 
-``NS_GREEN -> YELLOW -> ALL_RED -> EW_GREEN -> YELLOW -> ALL_RED``.
+``NS_GREEN → YELLOW → ALL_RED → EW_GREEN → YELLOW → ALL_RED``.
 
 A normal plan is staged and becomes active only at an ``ALL_RED`` boundary.
 It cannot interrupt a current green, yellow or all-red state.  Yellow and
