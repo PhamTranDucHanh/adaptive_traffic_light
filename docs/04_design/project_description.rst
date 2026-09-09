@@ -61,9 +61,9 @@ The end-to-end flow is:
 #. The Controller publishes the applied ``SignalState`` so the Perception
    viewer can display the current lamps and remaining time.  This return path
    is for visualization only and does not influence traffic decisions.
-#. **Lifecycle Manager** starts, stops and supervises the three application
-   processes.  Health reports and diagnostic logs remain separate from the
-   traffic-data flow.
+#. External **S-CORE Lifecycle and Health services** start, stop and supervise
+   the three application processes.  Their control and diagnostic data remain
+   separate from the traffic-data flow.
 
 Main components
 ---------------
@@ -85,10 +85,6 @@ Main components
    * - Traffic Signal Controller
      - Validates timing plans and owns all legal signal-state transitions.
      - Does not perform traffic detection or calculate traffic demand.
-   * - Lifecycle Manager
-     - Coordinates process startup, readiness, supervision, recovery and
-       shutdown.
-     - Does not carry traffic observations or timing-plan values.
 
 Important information exchanged
 --------------------------------
@@ -154,8 +150,8 @@ Further reading
 * The dedicated component pages describe
   :doc:`Traffic Perception <traffic_perception_component_design>`,
   :doc:`Traffic Timing Decision <traffic_timing_decision_component_design>`,
-  :doc:`Traffic Signal Controller <traffic_signal_controller_component_design>`
-  and :doc:`Lifecycle Manager <lifecycle_manager_component_design>` in detail.
+  and :doc:`Traffic Signal Controller <traffic_signal_controller_component_design>`
+  in detail.
 * :doc:`diagram_catalog` provides the complete catalog of exported design
   diagrams.
 * :doc:`../02_requirement/system_requirements` defines the system requirements

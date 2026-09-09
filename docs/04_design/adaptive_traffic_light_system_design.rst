@@ -10,10 +10,11 @@ responsibilities, cross-component interactions and externally visible runtime
 behaviour.  Detailed internal designs are documented separately for
 :doc:`Traffic Perception <traffic_perception_component_design>`,
 :doc:`Traffic Timing Decision <traffic_timing_decision_component_design>`,
-:doc:`Traffic Signal Controller <traffic_signal_controller_component_design>`
-and :doc:`Lifecycle Manager <lifecycle_manager_component_design>`.  The
-explanation records the cross-cutting rationale, patterns, trade-offs and
-alternatives behind the system design.
+:doc:`Traffic Signal Controller <traffic_signal_controller_component_design>`.
+Lifecycle and health supervision are external S-CORE platform services and are
+summarized only at their system boundary.  The explanation records the
+cross-cutting rationale, patterns, trade-offs and alternatives behind the
+system design.
 
 System view
 ~~~~~~~~~~~
@@ -147,7 +148,7 @@ automatically.
 External platform interfaces
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Eclipse S-CORE provides lifecycle and health services outside the
+Eclipse S-CORE provides lifecycle, health and logging services outside the
 project-owned traffic-data path:
 
 .. list-table:: External S-CORE interfaces
@@ -167,11 +168,17 @@ project-owned traffic-data path:
      - Managed processes -> Health Monitor and Lifecycle Manager
      - Reports heartbeat, deadline and Alive observations
      - A failed health contract is diagnostic evidence, not a domain message
+   * - Logging and diagnostics
+     - Managed processes -> S-CORE logging backends and operator
+     - Emits application, lifecycle, health and timing records; selected timing
+       contexts are recorded as DLT data for offline analysis
+     - Logging loss reduces diagnostics and timing evidence but does not become
+       traffic data or directly change control behaviour
 
 An Alive indication reports that supervised execution is making progress; it
-does not prove that traffic data is correct.  Detailed configuration and
-recovery behaviour are documented in :doc:`Lifecycle Manager Component Design
-<lifecycle_manager_component_design>`.
+does not prove that traffic data is correct.  Deployment-specific lifecycle,
+health and recovery values are defined in
+``config/traffic_light_lifecycle.json``.
 
 Traceable system design decisions
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -247,7 +254,7 @@ bounded memory and periodic workers.  Timing Decision and Signal Controller
 fail initialization when required real-time resources cannot be created;
 Perception contains overload by reusing a fixed frame pool and replacing old
 frames.  Exact worker policies, priorities, CPU assignments, periods and
-memory behaviour are documented on the four component pages.
+memory behaviour are documented on the three internal component pages.
 
 The main configuration sources are:
 
@@ -313,10 +320,10 @@ Design Explanation
 ------------------
 
 This part explains why the structures and mechanisms in the system overview
-and four component descriptions were selected.  It records applied design
-patterns, the forces behind the decisions, their consequences and the
-alternatives considered.  Values and runtime contracts remain authoritative in
-those design descriptions; this part must not redefine them.
+and three internal component descriptions were selected.  It records applied
+design patterns, the forces behind the decisions, their consequences and the
+alternatives considered.  Values and runtime contracts remain authoritative
+in those design descriptions; this part must not redefine them.
 
 Applied design patterns
 ~~~~~~~~~~~~~~~~~~~~~~~
