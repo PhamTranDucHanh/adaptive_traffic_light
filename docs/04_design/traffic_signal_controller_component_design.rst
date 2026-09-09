@@ -42,8 +42,8 @@ Plan reception and application
 The internal objects divide the receive-to-application path as follows:
 
 ``MqTimingPlanReceiverWorker``
-   Owns the POSIX queue connection.  It waits at most 200 ms for a message,
-   retries opening a missing queue every 100 ms, drains the available entries
+   Owns the POSIX queue connection.  It waits at most 0.2 s for a message,
+   retries opening a missing queue every 0.1 s, drains the available entries
    and selects the newest message with the expected format, size, version,
    publisher instance and sequence.
 
@@ -93,8 +93,8 @@ It cannot interrupt a current green, yellow or all-red state.  Yellow and
 all-red are always non-interruptible.
 
 An emergency plan is handled separately.  It may adjust the matching current
-green only when the remaining time is strictly between 3,000 and 15,000 ms.
-When accepted, the remaining green duration becomes 20,000 ms.  Emergency
+green only when the remaining time is strictly between 3 and 15 s.
+When accepted, the remaining green duration becomes 20 s.  Emergency
 handling does not bypass yellow or all-red clearance.
 
 Internal plan and display handoff
@@ -145,19 +145,19 @@ contracts are configured in
      - Non-zero plan ID; at most one emergency direction
      - Invalid identity or emergency encoding is rejected.
    * - Accepted durations
-     - Green 1,000..500,000 ms; yellow 1,000..10,000 ms; all-red
-       500..10,000 ms
+     - Green 1..500 s; yellow 1..10 s; all-red
+       0.5..10 s
      - A non-zero declared cycle length must equal the six-phase sum.
    * - Startup plan
      - 30-s NS green, 3-s yellow, 1-s all-red, 30-s EW green, 3-s yellow,
        1-s all-red
      - The FSM can operate before receiving its first external plan.
    * - FSM
-     - Absolute ``CLOCK_MONOTONIC`` tick every 1,000 ms
+     - Absolute ``CLOCK_MONOTONIC`` tick every 1 s
      - Wake-up latency is recorded; late releases advance to a future tick
        instead of running an unbounded catch-up burst.
    * - Plan receiver
-     - Receive timeout 200 ms; queue-open retry 100 ms
+     - Receive timeout 0.2 s; queue-open retry 0.1 s
      - Missing input does not stop the FSM.  Invalid input is reported and
        rejected.
    * - SignalState telemetry
@@ -165,9 +165,9 @@ contracts are configured in
        publication
      - Queue failure affects visualization and diagnostics, not signal control.
    * - Health
-     - Deadline 0..5,000 ms; heartbeat every two control cycles, nominally
-       2,000 ms; accepted interval 500..15,000 ms
-     - Local evaluation runs every 500 ms; supervisor API cycle is 1,000 ms.
+     - Deadline 0..5 s; heartbeat every two control cycles, nominally
+       2 s; accepted interval 0.5..15 s
+     - Local evaluation runs every 0.5 s; supervisor API cycle is 1 s.
    * - Scheduling
      - ``SCHED_FIFO`` on CPU 3: FSM priority 80, receiver 70, output 60;
        Health Monitor priority 60 on CPU 5

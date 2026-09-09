@@ -156,12 +156,12 @@ thresholds divide that range into demand levels and select a target green time:
 
 For example, a queue percentage of 40, vehicle score of 60 and occupancy
 percentage of 50 produce ``0.2 * 40 + 0.6 * 60 + 0.2 * 50 = 54``.  The score
-therefore selects the moderate target of 30,000 ms.
+therefore selects the moderate target of 30 s.
 
 The selected value is a target rather than an immediate output.  On each
 2.5-second decision cycle, the module moves the previous green duration toward
 the target by no more than 5s.  For example, a current value of 20s
-and a high-demand target of 40,000 ms produce successive requested values of
+and a high-demand target of 40 s produce successive requested values of
 25s, 30s, 35s and 40s if the demand remains high.  This limits
 abrupt timing changes between consecutive plans.
 
@@ -202,11 +202,11 @@ contract is configured in
      - Configured value
      - Result
    * - Release
-     - Period and functional deadline 2,500 ms
+     - Period and functional deadline 2.5 s
      - Wake-up latency, execution time and response time are measured against
        the same release.
    * - Snapshot freshness
-     - Maximum age 6,000 ms; future tolerance 100 ms
+     - Maximum age 6 s; future tolerance 0.1 s
      - A snapshot outside this window is rejected.
    * - Snapshot content
      - Increasing non-zero frame ID; vehicle count at most 10,000 per
@@ -220,16 +220,15 @@ contract is configured in
      - 30 / 60 / 90
      - Select low, moderate, high or very-high target timing.
    * - Green timing
-     - Low 20,000 ms; initial/moderate 30,000 ms; high 40,000 ms; very-high
-       50,000 ms
-     - Each plan changes toward its target in 5,000-ms steps and remains within
-       10,000..60,000 ms.
+     - Low 20 s; initial/moderate 30 s; high 40 s; very-high 50 s
+     - Each plan changes toward its target in steps of 5 s and remains within
+       10..60 s.
    * - Clearance timing
-     - Yellow 3,000 ms; all-red 1,000 ms; maximum cycle 100,000 ms
+     - Yellow 3 s; all-red 1 s; maximum cycle 100 s
      - Clearance values are added consistently for both directions.
    * - Health
-     - Deadline 0..10,000 ms; heartbeat 500..15,000 ms
-     - Local evaluation runs every 500 ms; supervisor API cycle is 1,000 ms.
+     - Deadline 0..10 s; heartbeat 0.5..15 s
+     - Local evaluation runs every 0.5 s; supervisor API cycle is 1 s.
    * - Scheduling
      - ``SCHED_FIFO`` priority 80 on CPU 1; Health Monitor priority 50 on
        CPU 5

@@ -91,7 +91,7 @@ The main sequence diagram shows one Perception processing cycle.
    Periodic capture updates the latest lane frames; the inference pipeline
    analyzes the newest available set and publishes a traffic snapshot.
 
-The four capture workers share a 500-ms period but are staggered across the
+The four capture workers share a 0.5 s period but are staggered across the
 period.  The inference pipeline runs independently every 10 seconds.  It
 therefore works from the latest available observation rather than waiting for
 a synchronized history of every captured frame.
@@ -134,20 +134,20 @@ change plus rebuild:
        ``Van``
      - Backend selection is configuration-driven and resolved at startup.
    * - Capture
-     - Period 500 ms; base phase 0 ms; lane offsets 0/125/250/375 ms
+     - Period 0.5 s; base phase 0 s; lane offsets 0/0.125/0.25/0.375 s
      - A new frame replaces the previous unconsumed frame.
    * - Inference and snapshot
-     - Period 10,000 ms; phase 50 ms
+     - Period 10 s; phase 0.05 s
      - The latest usable observation is published when processing completes.
    * - Viewer
-     - Content period 10,000 ms; phase 260 ms; overlay refresh 250 ms
+     - Content period 10 s; phase 0.26 s; overlay refresh 0.25 s
      - Missed display releases are skipped and cannot delay control.
    * - SignalState display
-     - Queue-open retry 1,000 ms; data stale after 3,000 ms
+     - Queue-open retry 1 s; data stale after 3 s
      - Missing or stale telemetry is visible to the viewer only.
    * - Health
-     - Deadline 0..30,000 ms; heartbeat 100..10,000 ms
-     - Local evaluation runs every 100 ms; supervisor API cycle is 2,000 ms.
+     - Deadline 0..30 s; heartbeat 0.1..10 s
+     - Local evaluation runs every 0.1 s; supervisor API cycle is 2 s.
    * - Scheduling
      - ``SCHED_RR`` priority 70; stream workers CPU 4; pipeline CPU 2;
        main/viewer and Health Monitor CPU 5

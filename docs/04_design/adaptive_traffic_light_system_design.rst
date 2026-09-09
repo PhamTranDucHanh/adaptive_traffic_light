@@ -126,7 +126,7 @@ POSIX queues:
      - Timing Decision → Signal Controller
      - Proposed green and clearance durations
      - ``/traffic_timing_plan_v1``; depth 8; non-blocking publish; receiver
-       waits at most 200 ms; 72-byte versioned ``TPL1`` envelope
+       waits at most 0.2 s; 72-byte versioned ``TPL1`` envelope
    * - ``SignalStateMessageV1``
      - Signal Controller → Perception viewer
      - Applied phase, lamp states and remaining times for display only
@@ -196,7 +196,7 @@ Traceable system design decisions
    Timing Decision publishes ``TimingPlanMessageV1`` to
    ``/traffic_timing_plan_v1``.  Both publishers are non-blocking and both
    queues are bounded.  Snapshot reads are non-blocking; TimingPlan reception
-   uses a bounded 200-ms wait and then drains available entries.  Their
+   uses a bounded wait of 0.2 s and then drains available entries.  Their
    producer/consumer logic favors the newest usable value so a slow consumer
    does not create an unbounded backlog of obsolete traffic decisions.
 
@@ -274,7 +274,7 @@ Scheduling and resources
      - ``SCHED_RR``
      - 70
      - CPU5
-     - Evaluation 100 ms; supervisor API 2,000 ms.
+     - Evaluation 0.1 s; supervisor API 2 s.
    * - Timing Decision periodic thread
      - ``SCHED_FIFO``
      - 80
@@ -284,7 +284,7 @@ Scheduling and resources
      - ``SCHED_FIFO``
      - 50
      - CPU5
-     - Evaluation 500 ms; supervisor API 1,000 ms.
+     - Evaluation 0.5 s; supervisor API 1 s.
    * - Controller FSM / receiver
      - ``SCHED_FIFO``
      - 80 / 70
@@ -294,7 +294,7 @@ Scheduling and resources
      - ``SCHED_FIFO``
      - 60
      - CPU5
-     - Evaluation 500 ms; supervisor API 1,000 ms.
+     - Evaluation 0.5 s; supervisor API 1 s.
 
 .. list-table:: Non-real-time worker configuration
    :header-rows: 1
@@ -431,35 +431,40 @@ Component boundaries and control direction
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Separate processes isolate failures and allow supervision per service.  One-way
-flow ensures that Controller validates every plan and ignores viewer telemetry.
+flow ensures that Controller validates every timing plan before application.
 
 Time model and real-time mechanisms
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Monotonic absolute releases reduce schedule drift; fixed priorities and bounded
-resources improve predictability.  Deadlines measure timeliness, while wider
-health windows measure process progress.
+resources improve predictability.  Each component's S-CORE Health Monitor
+checks whether a processing cycle finishes within its configured deadline.
+S-CORE Alive supervision checks over longer reporting cycles whether the
+managed process continues to report progress.
 
 Freshness, backpressure and IPC contracts
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Bounded non-blocking queues favor recent data and may drop older values.
-``TimingPlanMessageV1`` is versioned; ``TrafficSnapshot`` still requires
-binary-compatible builds.
+``TimingPlanMessageV1`` is versioned; ``TrafficSnapshot`` is transferred as a
+raw C++ structure, so its producer and consumer must use a compatible data
+layout.
 
 Safety-oriented plan application
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Controller validates plans and applies normal updates only at ``ALL_RED``;
-emergency updates affect only a matching green.  Missing or invalid plans keep
-the current plan, but no plan-hold timeout or physical fallback exists.
+emergency updates affect only a matching green.  If a plan is missing or
+invalid, Controller continues using the last valid plan.  The current design
+does not limit how long that plan may remain active or command a physical
+fallback state.
 
 Lifecycle, health and recovery separation
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-External S-CORE supervision is separate from traffic queues, so queue state
-does not prove process health.  Its control-only fallback preserves diagnostic
-access but is not a physical fail-safe.
+External S-CORE services manage startup, health, recovery and shutdown
+independently of traffic processing.  The fallback preserves diagnostic access
+but does not command a physical fail-safe signal state.
 
 Configuration and observability
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
