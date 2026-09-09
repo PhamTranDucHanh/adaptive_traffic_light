@@ -148,9 +148,14 @@ physical fail-safe policy are outside the current implementation baseline.
 Further reading
 ---------------
 
-* :doc:`adaptive_traffic_light_system_design` contains the detailed Design
-  Description and Design Explanation, including timing, configuration,
-  interfaces, failure behaviour and architectural rationale.
+* :doc:`adaptive_traffic_light_system_design` contains the system-level Design
+  Description and Design Explanation, including interactions, interfaces,
+  system-wide behaviour and architectural rationale.
+* The dedicated component pages describe
+  :doc:`Traffic Perception <traffic_perception_component_design>`,
+  :doc:`Traffic Timing Decision <traffic_timing_decision_component_design>`,
+  :doc:`Traffic Signal Controller <traffic_signal_controller_component_design>`
+  and :doc:`Lifecycle Manager <lifecycle_manager_component_design>` in detail.
 * :doc:`diagram_catalog` provides the complete catalog of exported design
   diagrams.
 * :doc:`../02_requirement/system_requirements` defines the system requirements
