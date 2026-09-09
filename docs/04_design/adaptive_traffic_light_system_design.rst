@@ -183,12 +183,12 @@ The remaining values in the table are compiled settings and require a source
 change plus rebuild:
 
 * SignalState retry/staleness:
-  ``traffic_perception/src/viewer/opencv_lanes_viewer.cpp``;
-* analytics thresholds:
-  ``traffic_perception/src/io/timeline_analyzer.cpp``;
+  ``traffic_perception/src/viewer/opencv_lanes_viewer.cpp``.
+* Analytics thresholds:
+  ``traffic_perception/src/io/timeline_analyzer.cpp``.
 * Health Monitor timing:
-  ``traffic_perception/src/lifecycle_health_reporter.cpp``; and
-* frame-pool size:
+  ``traffic_perception/src/lifecycle_health_reporter.cpp``.
+* Frame-pool size:
   ``traffic_perception/src/perception_module.cpp``.
 
 .. list-table:: Traffic Perception configuration in the reviewed baseline
@@ -393,14 +393,14 @@ Decision configuration
 Timing Decision currently has no module runtime JSON.  Its functional values
 are compiled and require a source change plus rebuild:
 
-* decision period and consecutive-miss limit:
-  ``traffic_timing_decision/include/periodic_service.h``;
-* green-time bounds, steps and demand thresholds:
-  ``traffic_timing_decision/include/decision_constants.h``;
-* demand-score calculation and weights:
-  ``traffic_timing_decision/src/decision_engine.cpp``;
-* snapshot freshness and content validation:
-  ``traffic_timing_decision/src/traffic_data_receiver.cpp``; and
+* Decision period and consecutive-miss limit:
+  ``traffic_timing_decision/include/periodic_service.h``.
+* Green-time bounds, steps and demand thresholds:
+  ``traffic_timing_decision/include/decision_constants.h``.
+* Demand-score calculation and weights:
+  ``traffic_timing_decision/src/decision_engine.cpp``.
+* Snapshot freshness and content validation:
+  ``traffic_timing_decision/src/traffic_data_receiver.cpp``.
 * Health Monitor timing:
   ``traffic_timing_decision/src/health_reporter.cpp``.
 
@@ -1069,14 +1069,14 @@ Implemented baseline
 
 Static review of ``origin/dev`` confirms:
 
-* one deployment target stages Perception, Timing Decision, Signal Controller,
-  Control Daemon, Lifecycle Manager, configuration, models and video inputs;
-* the managed application processes exchange TrafficSnapshot and TimingPlan
-  messages through the complete data path;
-* Controller returns versioned SignalState telemetry to the Perception viewer;
+* One deployment target stages Perception, Timing Decision, Signal Controller,
+  Control Daemon, Lifecycle Manager, configuration, models and video inputs.
+* The managed application processes exchange TrafficSnapshot and TimingPlan
+  messages through the complete data path.
+* Controller returns versioned SignalState telemetry to the Perception viewer.
 * Startup, Running, ordered shutdown, health supervision and the control-only
-  fallback target are configured; and
-* the end-to-end runner collects DLT logs and produces timestamped analytics
+  fallback target are configured.
+* The end-to-end runner collects DLT logs and produces timestamped analytics
   reports and plots.
 
 This static review establishes implementation presence, not runtime acceptance
