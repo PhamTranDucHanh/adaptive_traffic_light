@@ -1,10 +1,7 @@
 :layout: landing
 
-QAC 0.1
-=======
-
-QAC 0.1 documentation built on a docs-as-code approach, observed `QMS 2.0 <https://banviencorp.sharepoint.com/sites/BVQMS/SitePages/Supporting.aspx>`_
-and referenced from the `Eclipse S-CORE Process Description <https://eclipse-score.github.io/process_description/main/index.html>`_.
+Adaptive Traffic Light
+======================
 
 .. container:: buttons
 
