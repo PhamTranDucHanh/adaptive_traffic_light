@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net">
   <diagram name="Page-1" id="KB1fczs4nXecM9sBSEo9">
-    <mxGraphModel grid="1" page="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+    <mxGraphModel grid="0" page="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -194,9 +194,6 @@
         <mxCell id="H0oAvJNaTE1FwQ9-G3SS-55" parent="H0oAvJNaTE1FwQ9-G3SS-54" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;" value="" vertex="1">
           <mxGeometry height="15" width="15" x="20" y="30" as="geometry" />
         </mxCell>
-        <mxCell id="H0oAvJNaTE1FwQ9-G3SS-56" parent="H0oAvJNaTE1FwQ9-G3SS-54" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="AliveNotification" vertex="1">
-          <mxGeometry height="30" width="60" as="geometry" />
-        </mxCell>
         <mxCell id="H0oAvJNaTE1FwQ9-G3SS-57" edge="1" parent="1" source="H0oAvJNaTE1FwQ9-G3SS-55" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;endArrow=none;endFill=0;" target="H0oAvJNaTE1FwQ9-G3SS-1">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
@@ -268,8 +265,11 @@
         <mxCell id="H0oAvJNaTE1FwQ9-G3SS-77" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;" value="" vertex="1">
           <mxGeometry height="15" width="15" x="2340" y="755" as="geometry" />
         </mxCell>
-        <mxCell id="H0oAvJNaTE1FwQ9-G3SS-78" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="BenchmarkResult" vertex="1">
-          <mxGeometry height="30" width="60" x="2310" y="770" as="geometry" />
+        <mxCell id="H0oAvJNaTE1FwQ9-G3SS-78" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="Controller&lt;br&gt;BenchmarkData" vertex="1">
+          <mxGeometry height="30" width="60" x="2317.5" y="779" as="geometry" />
+        </mxCell>
+        <mxCell id="H0oAvJNaTE1FwQ9-G3SS-56" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="Controller&lt;div&gt;AliveNotification&lt;/div&gt;" vertex="1">
+          <mxGeometry height="30" width="125" x="2265" y="555" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
