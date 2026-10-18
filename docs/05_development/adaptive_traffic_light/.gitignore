@@ -29,6 +29,7 @@ etc/
 
 # Project Output
 **/output/
+**/output-*/
 .aider*
 
 # Bazel
@@ -43,8 +44,18 @@ MODULE.bazel.lock
 *.dat
 *.data 
 
+# Bazel vendor
+vendor/
+
 # Ignore stray .txt but keep CMake's build scripts
 *.txt
 !CMakeLists.txt
 !**/CMakeLists.txt
 !requirements.txt
+
+bazel-*
+
+# Generated/downloaded runtime dependencies. BUILD metadata remains tracked.
+data/*.mp4
+data/*.onnx
+traffic_perception/lib/onnxruntime/

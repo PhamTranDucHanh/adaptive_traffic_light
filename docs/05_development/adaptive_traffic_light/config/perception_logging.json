@@ -1,0 +1,31 @@
+{
+    "ecuId": "TLGT",
+    "appId": "PERC",
+    "appDesc": "Traffic Perception",
+    "logMode": "kFile",
+    "logFilePath": "/tmp/linux_rt_application/logs",
+    "logLevel": "kDebug",
+    "logLevelThresholdConsole": "kDebug",
+    "contextConfigs": [
+        {
+            "name": "PERC",
+            "logLevel": "kDebug"
+        },
+        {
+            "name": "STRM",
+            "logLevel": "kInfo"
+        },
+        {
+            "name": "PIPE",
+            "logLevel": "kInfo"
+        },
+        {
+            "name": "PLTM",
+            "logLevel": "kInfo"
+        },
+        {
+            "name": "VIEW",
+            "logLevel": "kInfo"
+        }
+    ]
+}

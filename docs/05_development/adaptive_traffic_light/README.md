@@ -1,104 +1,215 @@
-# adaptive_traffic_light
+# Adaptive Traffic Light - End-to-End Execution
 
-How to build:
+The deployment runs three actual processes under Eclipse S-CORE Lifecycle:
+
+```text
+traffic_perception
+    -> /traffic_snapshot_v1 (Message Queue)
+traffic_timing_decision
+    -> /traffic_timing_plan_v1 (Message Queue)
+traffic_signal_controller
+    -> /traffic_signal_state_v1 (Message Queue)
+traffic_perception
+```
+
+## 1. Setup
+
+From the repository root, enter the Bazel workspace:
 
 ```bash
-cmake -B build
-
-cmake --build build -j
+cd docs/05_development/adaptive_traffic_light
 ```
-Run empty target
+
+The recommended end-to-end runner calls the dependency setup script
+automatically. To prepare dependencies without starting the system, run:
 
 ```bash
-./build/adaptive_traffic_light 
+bash traffic_perception/scripts/setup_deps.sh
+```
+
+The setup is idempotent and performs the following tasks:
+
+- Downloads ONNX Runtime `1.27.1` for either `x86_64` or `aarch64` into
+  `traffic_perception/lib/onnxruntime` if it is not already available.
+- Downloads any missing files from [Google Drive](https://drive.google.com/drive/folders/1nXzpFTzbHLYzKeyYwoBCRkDmDqH5TnIM)
+  into the `data` directory: `traffic.mp4` through `traffic4.mp4`,
+  `yolov8m-oiv7.onnx`, `yolov8n-oiv7.onnx`, `yolov8m.onnx`,
+  `yolov8n.onnx`, and `rt-detrv2-s.onnx`.
+
+The host must provide `bazel`, `sudo`, `dlt-convert`, `gnuplot`, `python3`,
+`python3-pip`, and either `curl` or `wget`. If `gdown` is unavailable, setup
+temporarily installs `gdown 5.2.0` without modifying system Python packages.
+
+The Google Drive folder must allow files to be downloaded by anyone with the
+link.
+
+(Optional) Verify the setup with:
+
+```bash
+test -e traffic_perception/lib/onnxruntime/lib/libonnxruntime.so.1
+ls -lh data/*.mp4 data/*.onnx
 ```
 
 
-## Getting started
+## 2. Build
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+Build the complete Lifecycle deployment:
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://gitlab-scm.banvien.com.vn/khoa.duong-anh/adaptive_traffic_light.git
-git branch -M main
-git push -uf origin main
+```bash
+bazel build --config=x86_64-linux //deployment:traffic_light_system
 ```
 
-## Integrate with your tools
+The deployment target builds the wrapper and all runtime dependencies,
+including Traffic Perception, Traffic Timing Decision, Traffic Signal
+Controller, Control Daemon, `lmcontrol`, IPC reset, and Launch Manager.
 
-- [ ] [Set up project integrations](https://gitlab-scm.banvien.com.vn/khoa.duong-anh/adaptive_traffic_light/-/settings/integrations)
+The main build outputs are available through the Bazel output tree:
 
-## Collaborate with your team
+```text
+bazel-bin/deployment/traffic_light_system
+bazel-bin/traffic_perception/traffic_perception
+bazel-bin/traffic_timing_decision/traffic_timing_decision
+bazel-bin/traffic_signal_controller/traffic_signal_controller
+bazel-bin/control_daemon/control_daemon
+bazel-bin/control_daemon/lmcontrol
+```
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Automatically merge when pipeline succeeds](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+`bazel-bin` is a Bazel-managed symlink into the local output cache. It is not a
+self-contained deployment package and should not be copied directly between
+machines. When the deployment is started, its script collects the target
+runfiles and stages the executable runtime under
+`/tmp/linux_rt_application/bin`, with configuration and data in the sibling
+runtime directories.
 
-## Test and Deploy
+### Bazel vendor mode
 
-Use the built-in continuous integration in GitLab.
+Normal Bazel execution resolves external modules from the configured
+registries. Vendor mode instead reads those external repositories from a
+prepared local directory. It is useful when the PC used for the final build
+has restricted or unavailable network access.
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing(SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+On a network-connected PC, such as the lab PC, create or refresh the vendor
+directory:
 
-***
+```bash
+traffic_perception/scripts/setup_deps.sh
 
-# Editing this README
+bazel vendor --vendor_dir="$PWD/vendor" --config=x86_64-linux //deployment:traffic_light_system
+```
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thank you to [makeareadme.com](https://www.makeareadme.com/) for this template.
+Copy the repository at the same commit, its `MODULE.bazel.lock`, and the
+generated `vendor` directory to the destination PC. Build there with:
 
-## Suggestions for a good README
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+```bash
+bazel build --config=x86_64-linux \
+  --vendor_dir="$PWD/vendor" \
+  //deployment:traffic_light_system
+```
 
-## Name
-Choose a self-explaining name for your project.
+The vendor directory contains external Bazel repositories, not compiled
+application binaries. The destination PC still performs the build and must
+provide compatible host libraries and tools. ONNX Runtime, models, and videos
+are also handled separately by `setup_deps.sh`.
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+The existing end-to-end runner accepts
+`--vendor_dir=<path>`, or `--vendor_dir <path>`. Relative paths are resolved
+from the workspace root, and the `vendor/` directory must contain `VENDOR.bazel`.
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+## 3. Run
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+Environmental setup commands:
+```bash
+sudo prlimit --pid $$ --rtprio=99:99 --memlock=unlimited:unlimited
+sudo sysctl -w kernel.sched_rt_runtime_us=-1
+bazel shutdown
+```
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+For deployment without analytics generation:
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+```bash
+bazel run --config=x86_64-linux //deployment:traffic_light_system
+```
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+Or, to use vendored Bazel dependencies, add the vendor option:
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+```bash
+bazel run --config=x86_64-linux \
+  --vendor_dir="$PWD/vendor" \
+  //deployment:traffic_light_system
+```
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+`bazel run` first builds any missing or outdated targets and then executes the
+deployment wrapper. Direct runtime execution does not extract DLT logs or
+generate the timestamped analytics output described above.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+### Runtime behavior and logs
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+The deployment stages binaries, configuration, ONNX Runtime, models, and video
+files below `/tmp/linux_rt_application`.
 
-## License
-For open source projects, say how it is licensed.
+Valid output should include traffic light phases similar to:
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+```text
+Phase: NS_GREEN, Remaining: 29 s
+...
+Phase: YELLOW, Remaining: 1 s
+Phase: ALL_RED, Remaining: 1 s
+Phase: EW_GREEN, Remaining: ...
+```
+
+The main log files are:
+
+```text
+/tmp/linux_rt_application/logs/traffic_perception.dlt
+/tmp/linux_rt_application/logs/timing_decision.dlt
+/tmp/linux_rt_application/logs/signal_control.dlt
+/tmp/linux_rt_application/logs/CTRL.dlt.txt
+```
+
+Stop the system by pressing `Ctrl-C`. The Lifecycle Manager will stop the
+processes according to their dependency order. The current `shutdown_timeout`
+is 10 seconds.
+
+## 4. Deploy
+
+### End-to-end run and analytics
+
+Recommended command:
+
+```bash
+./deployment/run_end_to_end_analytics.sh [duration] [--vendor-dir <path>]
+```
+
+`duration` argument and `vendor-dir` flag are optional. No value means run until `Ctrl-C`; a bare number or `s`
+means seconds, `m` means minutes, and `h` means hours.
+
+Common examples:
+
+```bash
+./deployment/run_end_to_end_analytics.sh       # until Ctrl-C
+./deployment/run_end_to_end_analytics.sh 120s   # 120 seconds
+./deployment/run_end_to_end_analytics.sh 5m    # five minutes
+./deployment/run_end_to_end_analytics.sh 4h    # four hours
+```
+
+The scripts prepares dependencies, configures RT limits, restarts Bazel, builds
+any target that is not already up to date, runs the Lifecycle deployment, and
+generates all analytics. It sets the system-wide
+`kernel.sched_rt_runtime_us=-1` value and does not restore its previous value.
+
+To run with the vendor directory prepared in the build section:
+
+```bash
+./deployment/run_end_to_end_analytics.sh 5m --vendor-dir vendor
+```
+
+Vendor mode affects Bazel dependencies only, not model/video setup.
+
+### Generated output
+
+Each run writes reports, logs, and plots below:
+
+```text
+output/<YYYYMMDD_HHMMSS>/<MODULE_NAMES>
+```

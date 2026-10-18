@@ -1,7 +1,0 @@
-{
-    "ecuId": "TSIG",
-    "appId": "HM",
-    "logMode": "kConsole",
-    "logLevel": "kDebug",
-    "logLevelThresholdConsole": "kDebug"
-}

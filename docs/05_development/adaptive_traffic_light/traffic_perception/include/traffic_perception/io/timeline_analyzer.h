@@ -10,22 +10,9 @@
 
 namespace traffic_perception {
 
-struct TaskTimeline {
-  uint32_t sequence = 0;
-
-  int64_t expectedWakeup = -1;
-  int64_t begin = -1;
-  int64_t end = -1;
-};
-
-struct StreamTimeline {
-  uint32_t frameId = 0;
-  int32_t laneId = -1;
-
-  int64_t expectedWakeup = -1;
-  int64_t begin = -1;
-  int64_t end = -1;
-};
+// ─────────────────────────────────────────────────────────────────────────────
+// Statistics
+// ─────────────────────────────────────────────────────────────────────────────
 
 struct Statistics {
   int64_t min = 0;
@@ -39,51 +26,84 @@ struct Statistics {
   size_t sampleCount = 0;
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Internal data model (used by TimelineAnalyzer)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum class TimelineType { Unknown, Stream, Pipeline, Viewer };
+
+struct Timeline {
+  TimelineType type = TimelineType::Unknown;
+
+  // Stream fields
+  int laneId = -1;
+  uint32_t frameId = 0;
+
+  // Pipeline / Viewer fields
+  uint32_t cycleId = 0;
+
+  // Common timing fields (nanoseconds, CLOCK_MONOTONIC)
+  int64_t expectedWakeup = 0;
+  int64_t wakeup = 0;
+  int64_t begin = 0;
+  int64_t end = 0;
+};
+
+struct AnalysisData {
+  std::vector<int64_t> schedulerLatency;
+  std::vector<int64_t> dispatchLatency;
+  std::vector<int64_t> responseTime;
+  std::vector<int64_t> executionTime;
+  std::vector<int64_t> period;
+  std::vector<int64_t> deadlineMiss;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TimelineAnalyzer
+// ─────────────────────────────────────────────────────────────────────────────
+
 class TimelineAnalyzer {
  public:
-  bool load(const std::string& logPath);
+  explicit TimelineAnalyzer(std::string logPath);
+
+  /// Parse the log file. Returns false if the file cannot be opened or is
+  /// empty.
+  bool load();
+
+  /// Compute per-lane and aggregate statistics from the parsed timelines.
+  /// Must be called after a successful load(). Returns false if there is no
+  /// data to analyze.
   bool analyze();
+
+  /// Print a formatted report to @p out and also write it to
+  /// <logFile>_statistics.txt.
   void printReport(std::ostream& out = std::cout) const;
 
- private:
-  Statistics computeStats(const std::vector<int64_t>& samples) const;
-  void analyzeStreamLane(const std::vector<StreamTimeline>& timelines);
-  void analyzeTask(const std::vector<TaskTimeline>& timelines);
+  /// Print per-lane statistics for @p laneId to stdout.
+  void analyzeLane(int laneId) const;
+
+  static Statistics computeStats(const std::vector<int64_t>& samples);
+
+  static double computeStdDev(const std::vector<int64_t>& samples,
+                               double mean);
 
  private:
-  std::string logPath_;
+  static bool parseLine(const std::string& line, Timeline& outTimeline);
 
-  //----------------------------------------------------------------------
-  // Parsed timelines
-  //----------------------------------------------------------------------
+ private:
+  std::string logFile_;
 
-  std::array<std::vector<StreamTimeline>, NUM_LANES> streamTimelines_;
-  std::vector<TaskTimeline> pipelineTimelines_;
-  std::vector<TaskTimeline> viewerTimelines_;
+  // ── Parsed timelines ─────────────────────────────────────────────────────
+  std::vector<Timeline> timelines_;
 
-  //----------------------------------------------------------------------
-  // Stream statistics (per lane)
-  //----------------------------------------------------------------------
+  // ── Per-lane stream analysis results ────────────────────────────────────
+  std::array<AnalysisData, NUM_LANES> streamData_;
 
-  std::array<std::vector<int64_t>, NUM_LANES> streamWakeupLatency_;
-  std::array<std::vector<int64_t>, NUM_LANES> streamExecutionTime_;
-  std::array<std::vector<int64_t>, NUM_LANES> streamPeriod_;
+  // ── Pipeline analysis results ────────────────────────────────────────────
+  AnalysisData pipelineData_;
 
-  //----------------------------------------------------------------------
-  // Pipeline statistics
-  //----------------------------------------------------------------------
-
-  std::vector<int64_t> pipelineWakeupLatency_;
-  std::vector<int64_t> pipelineExecutionTime_;
-  std::vector<int64_t> pipelinePeriod_;
-
-  //----------------------------------------------------------------------
-  // Viewer statistics
-  //----------------------------------------------------------------------
-
-  std::vector<int64_t> viewerWakeupLatency_;
-  std::vector<int64_t> viewerExecutionTime_;
-  std::vector<int64_t> viewerPeriod_;
+  // ── Viewer analysis results ──────────────────────────────────────────────
+  AnalysisData viewerData_;
 };
 
 }  // namespace traffic_perception
