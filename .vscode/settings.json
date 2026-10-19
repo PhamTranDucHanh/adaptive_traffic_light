@@ -1,0 +1,11 @@
+{
+  // Esbonio 1.x (Preview)
+  "esbonio.sphinx.pythonCommand": [".venv/bin/python"],
+  "esbonio.sphinx.buildCommand": [
+    "sphinx-build",
+    "-M", "html",
+    "docs",
+    "build",
+    "-c", "."
+  ]
+}

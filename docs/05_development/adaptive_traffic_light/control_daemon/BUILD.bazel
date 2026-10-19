@@ -1,0 +1,40 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_binary(
+    name = "control_daemon",
+    srcs = [
+        "control.h",
+        "control_daemon.cpp",
+    ],
+    linkopts = select({
+        "@platforms//os:linux": [
+            "-lpthread",
+            "-lrt",
+        ],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "@score_baselibs//score/mw/log",
+        "@score_lifecycle//externals/ipc_dropin",
+        "@score_lifecycle//score/launch_manager:control_cc",
+        "@score_lifecycle//score/launch_manager:lifecycle_cc",
+    ],
+)
+
+cc_binary(
+    name = "lmcontrol",
+    srcs = [
+        "control.h",
+        "lmcontrol.cpp",
+    ],
+    linkopts = select({
+        "@platforms//os:linux": [
+            "-lpthread",
+            "-lrt",
+        ],
+        "//conditions:default": [],
+    }),
+    deps = ["@score_lifecycle//externals/ipc_dropin"],
+)

@@ -1,0 +1,66 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "traffic_signal_control_lib",
+    srcs = glob(
+        ["src/**/*.cpp"],
+        exclude = [
+            "src/signal_control_app.cpp",
+        ],
+    ),
+    hdrs = glob(
+        ["include/**/*.h"],
+        exclude = [
+            "include/traffic_signal_controller/signal_control_app.h",
+        ],
+    ),
+    copts = [
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+    ],
+    includes = ["include"],
+    deps = [
+        "@traffic_ipc//:traffic_ipc",
+        "@score_lifecycle//score/health_monitor:health_monitoring_cc",
+        "@score_baselibs//score/mw/log:frontend",
+        "@score_baselibs//src/log/stdout_logger_cpp_init",
+        "@score_logging//score/mw/log/backend:file",
+        "@score_baselibs//score/mw/log:console",
+    ],
+)
+
+cc_binary(
+    name = "traffic_signal_controller",
+    srcs = [
+        "include/traffic_signal_controller/signal_control_app.h",
+        "src/signal_control_app.cpp",
+    ],
+    data = [
+        "//config:logging.json",
+    ],
+    copts = [
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+    ],
+    includes = ["include"],
+    linkopts = select({
+        "@platforms//os:linux": [
+            "-lpthread",
+            "-lrt",
+        ],
+        "//conditions:default": [],
+    }),
+    deps = [
+        ":traffic_signal_control_lib",
+        "@score_baselibs//score/concurrency:interruptible_wait",
+        "@score_baselibs//src/log/stdout_logger_cpp_init",
+        "@score_lifecycle//score/launch_manager:lifecycle_cc",
+        "@score_baselibs//score/mw/log:frontend",
+        "@score_logging//score/mw/log/backend:file",
+        "@score_baselibs//score/mw/log:console",
+    ],
+)

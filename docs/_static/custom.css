@@ -1,0 +1,67 @@
+/* Version selector custom styles */
+
+.version-latest-badge {
+  display: inline-block;
+  margin-left: 0.35em;
+  padding: 0.05em 0.45em;
+  font-size: 0.78em;
+  font-weight: 600;
+  line-height: 1.4;
+  background: rgba(34, 197, 94, 0.14);
+  color: rgb(21, 128, 61);
+  vertical-align: baseline;
+}
+
+/* Dark mode colors. */
+[data-theme="dark"] .version-latest-badge,
+.dark .version-latest-badge {
+  background: rgba(34, 197, 94, 0.22);
+  color: rgb(134, 239, 172);
+}
+
+.sy-head-brand strong {
+    display: inline !important;
+    visibility: visible !important;
+}
+
+#lside .globaltoc a,
+#lside .toctree-l1 > a,
+#lside .toctree-l2 > a,
+#lside .toctree-l3 > a {
+    overflow-wrap: anywhere;
+}
+
+/* ######################### */
+/* NEED TYPE specific config */
+/* ######################### */
+
+td.head_left,
+td.footer_left {
+    vertical-align: middle;
+    width: 70%;
+}
+
+td.head_center,
+td.footer {
+    width: 25%;
+    line-height: 100%;
+    vertical-align: middle;
+}
+
+td.head_right,
+td.footer_right {
+    width: 5%;
+    line-height: 100%;
+    vertical-align: middle;
+}
+
+/* Underline internal links for meta left block */
+.needs_meta_left a.reference.internal {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-color: var(--yue-c-link-border);
+}
+
+.needs_meta_left a.reference.internal:hover {
+    text-decoration-thickness: 2px;
+}

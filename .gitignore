@@ -1,0 +1,13 @@
+package-lock.json
+node_modules
+_
+build
+.venv/
+
+_external_*
+
+# Windows download metadata; never part of documentation artifacts.
+*:Zone.Identifier
+
+# Python
+__pycache*

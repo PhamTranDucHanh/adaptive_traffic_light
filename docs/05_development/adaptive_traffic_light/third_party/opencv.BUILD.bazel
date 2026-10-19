@@ -1,0 +1,53 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "headers",
+    hdrs = glob([
+        "include/opencv4/**/*.h",
+        "include/opencv4/**/*.hpp",
+    ]),
+    includes = ["include/opencv4"],
+)
+
+cc_import(
+    name = "core",
+    shared_library = "lib/x86_64-linux-gnu/libopencv_core.so",
+)
+
+cc_import(
+    name = "imgproc",
+    shared_library = "lib/x86_64-linux-gnu/libopencv_imgproc.so",
+)
+
+cc_import(
+    name = "imgcodecs",
+    shared_library = "lib/x86_64-linux-gnu/libopencv_imgcodecs.so",
+)
+
+cc_import(
+    name = "videoio",
+    shared_library = "lib/x86_64-linux-gnu/libopencv_videoio.so",
+)
+
+cc_import(
+    name = "highgui",
+    shared_library = "lib/x86_64-linux-gnu/libopencv_highgui.so",
+)
+
+cc_import(
+    name = "dnn",
+    shared_library = "lib/x86_64-linux-gnu/libopencv_dnn.so",
+)
+
+cc_library(
+    name = "opencv",
+    deps = [
+        ":core",
+        ":dnn",
+        ":headers",
+        ":highgui",
+        ":imgcodecs",
+        ":imgproc",
+        ":videoio",
+    ],
+)

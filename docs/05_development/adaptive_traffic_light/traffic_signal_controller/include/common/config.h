@@ -1,0 +1,305 @@
+#ifndef TRAFFIC_SIGNAL_CONTROLLER_COMMON_CONFIG_H_
+#define TRAFFIC_SIGNAL_CONTROLLER_COMMON_CONFIG_H_
+
+#include <array>
+#include <charconv>
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <system_error>
+
+#include <pthread.h>
+#include <sched.h>
+
+constexpr std::uint8_t MAX_PHASES{6U};
+constexpr std::uint32_t TIMER_INTERVAL_MS{1'000U};
+
+constexpr std::uint32_t kMillisecondsPerSecond{1'000U};
+constexpr std::uint64_t kNanosecondsPerMicrosecond{1'000ULL};
+constexpr std::uint64_t kNanosecondsPerMillisecond{1'000'000ULL};
+constexpr std::uint64_t kNanosecondsPerSecond{1'000'000'000ULL};
+
+constexpr std::uint32_t kMinGreenDurationMs{1'000U};
+constexpr std::uint32_t kMaxGreenDurationMs{500'000U};
+constexpr std::uint32_t kMinYellowDurationMs{1'000U};
+constexpr std::uint32_t kMaxYellowDurationMs{10'000U};
+constexpr std::uint32_t kMinAllRedDurationMs{500U};
+constexpr std::uint32_t kMaxAllRedDurationMs{10'000U};
+
+constexpr std::uint32_t kEmergencyLowerThresholdMs{3'000U};
+constexpr std::uint32_t kEmergencyUpperThresholdMs{15'000U};
+constexpr std::uint32_t kEmergencyGreenDurationMs{20'000U};
+
+constexpr long kTimingPlanOpenRetryNanoseconds{100'000'000L};
+constexpr long kTimingPlanReceiveTimeoutNanoseconds{200'000'000L};
+
+constexpr const char* kDefaultAnalyticsLogFile{"/tmp/CTRL.dlt"};
+constexpr const char* kDefaultAnalyticsReportFile{
+    "/tmp/traffic_signal_controller/logs/analytics_report.txt"};
+constexpr const char* kRuntimeDirectory{"/tmp/traffic_signal_controller"};
+constexpr const char* kRuntimeLogDirectory{
+    "/tmp/traffic_signal_controller/logs"};
+constexpr const char* kRuntimeAnalyticsOutputDirectory{
+    "/tmp/traffic_signal_controller/logs/output"};
+constexpr unsigned int kRuntimeDirectoryPermissions{0755U};
+
+constexpr std::int32_t kDefaultFsmPriority{80};
+constexpr std::int32_t kDefaultPlanReceiverPriority{70};
+constexpr std::int32_t kOutputSimulatorPriority{60};
+// Keep the health monitor worker below the MQ receiver and FSM, but above the
+// lifecycle/application thread. Without an explicit RT policy it can be starved
+// by the real perception workload.
+constexpr std::int32_t kHealthMonitorPriority{60};
+constexpr std::int32_t kTrafficSignalControllerCpu{3};
+constexpr std::int32_t kDecimalBase{10};
+
+constexpr std::size_t kBytesPerKibibyte{1024U};
+constexpr std::size_t kPrefaultStackSizeKibibytes{64U};
+constexpr std::size_t kPrefaultStackBytes{kPrefaultStackSizeKibibytes *
+                                          kBytesPerKibibyte};
+constexpr std::size_t kPageSizeBytes{4096U};
+
+// Deadline supervision covers every 1-second control cycle. Heartbeat
+// supervision intentionally samples every second cycle: WSL2 can suspend the
+// VM long enough for S-CORE v0.3.0 to observe two 1-second heartbeats in one
+// evaluator pass and reject them as MultipleHeartbeats.
+constexpr std::uint64_t kHeartbeatControlCycleInterval{2U};
+constexpr auto kControlDeadlineMin = std::chrono::milliseconds{0U};
+constexpr auto kControlDeadlineMax = std::chrono::milliseconds{5'000U};
+constexpr auto kHeartbeatMin = std::chrono::milliseconds{500U};
+constexpr auto kHeartbeatMax = std::chrono::milliseconds{15'000U};
+constexpr auto kInternalProcessingCycle = std::chrono::milliseconds{500U};
+constexpr auto kSupervisorApiCycle = std::chrono::milliseconds{1'000U};
+
+constexpr std::uint64_t kControlPeriodMilliseconds{1'000U};
+
+struct TimingPlan {
+  std::uint64_t planId{0U};
+  std::uint64_t generationTimestampNs{0U};
+  std::uint64_t perceptionPublishTimestampUs{0U};
+
+  std::uint32_t greenNorthSouthMs{0U};
+  std::uint32_t greenEastWestMs{0U};
+  std::uint32_t yellowMs{3000U};
+  std::uint32_t allRedMs{1000U};
+  std::uint32_t cycleLengthMs{0U};
+
+  bool emergencyNorthSouth{false};
+  bool emergencyEastWest{false};
+};
+
+enum class PhaseId : std::uint8_t {
+  NS_GREEN,
+  YELLOW,
+  ALL_RED,
+  EW_GREEN,
+};
+
+enum class SignalGroup : std::uint8_t {
+  NORTH_SOUTH,
+  EAST_WEST,
+};
+
+struct Phase {
+  PhaseId phaseId{PhaseId::ALL_RED};
+  std::uint32_t durationMs{0U};
+};
+
+struct PlanData {
+  std::uint64_t sourcePlanId{0U};
+  std::uint64_t controllerReceiveTimestampNs{0U};
+  std::array<Phase, MAX_PHASES> phases{};
+  std::uint8_t phaseCount{0U};
+  bool isEmergencyNS{false};
+  bool isEmergencyEW{false};
+};
+
+inline PlanData MakeDefaultPlan() {
+  PlanData plan{};
+
+  plan.sourcePlanId = 0U;
+
+  plan.phases[0] = Phase{PhaseId::NS_GREEN, 30'000U};
+
+  plan.phases[1] = Phase{PhaseId::YELLOW, 3'000U};
+
+  plan.phases[2] = Phase{PhaseId::ALL_RED, 1'000U};
+
+  plan.phases[3] = Phase{PhaseId::EW_GREEN, 30'000U};
+
+  plan.phases[4] = Phase{PhaseId::YELLOW, 3'000U};
+
+  plan.phases[5] = Phase{PhaseId::ALL_RED, 1'000U};
+
+  plan.phaseCount = 6U;
+
+  plan.isEmergencyNS = false;
+  plan.isEmergencyEW = false;
+
+  return plan;
+}
+
+struct SignalDisplay {
+  PhaseId phaseId{PhaseId::ALL_RED};
+  std::uint32_t remainingTimeMs{0U};
+  SignalGroup activeGroup{SignalGroup::NORTH_SOUTH};
+  std::uint32_t northSouthRemainingTimeMs{0U};
+  std::uint32_t eastWestRemainingTimeMs{0U};
+};
+
+inline const char* GetEnvOrDefault(const char* const name,
+                                   const char* const defaultValue) {
+  const char* const value = std::getenv(name);
+  return value != nullptr && value[0] != '\0' ? value : defaultValue;
+}
+
+template <typename Logger>
+std::int32_t GetIntegerFromEnvOrDefault(const char* const name,
+                                        const std::int32_t defaultValue,
+                                        Logger& logger) {
+  const char* const value = std::getenv(name);
+
+  if (value == nullptr || value[0] == '\0') {
+    return defaultValue;
+  }
+
+  std::int32_t parsedValue{};
+  const char* const valueEnd = value + std::strlen(value);
+  const auto parseResult =
+      std::from_chars(value, valueEnd, parsedValue, kDecimalBase);
+
+  if (parseResult.ec != std::errc{} || parseResult.ptr != valueEnd) {
+    logger.LogWarn() << "event=INTEGER_ENV_INVALID"
+                     << ", variable=" << name << ", value=" << value
+                     << ", fallback=" << defaultValue;
+    return defaultValue;
+  }
+
+  return parsedValue;
+}
+
+template <typename Logger>
+std::int32_t GetPriorityFromEnvOrDefault(const char* const name,
+                                         const std::int32_t defaultPriority,
+                                         Logger& logger) {
+  const std::int32_t parsedPriority =
+      GetIntegerFromEnvOrDefault(name, defaultPriority, logger);
+
+  const std::int32_t minimumPriority =
+      static_cast<std::int32_t>(sched_get_priority_min(SCHED_FIFO));
+  const std::int32_t maximumPriority =
+      static_cast<std::int32_t>(sched_get_priority_max(SCHED_FIFO));
+
+  if (parsedPriority < minimumPriority || parsedPriority > maximumPriority) {
+    logger.LogWarn() << "event=THREAD_PRIORITY_ENV_INVALID"
+                     << ", variable=" << name
+                     << ", value=" << parsedPriority
+                     << ", min_priority=" << minimumPriority
+                     << ", max_priority=" << maximumPriority
+                     << ", fallback_priority=" << defaultPriority;
+    return defaultPriority;
+  }
+
+  return parsedPriority;
+}
+
+template <typename Logger>
+bool PinCurrentThreadToCpu(const std::int32_t cpu,
+                           const char* const threadName,
+                           Logger& logger) noexcept {
+  cpu_set_t cpuSet{};
+  CPU_ZERO(&cpuSet);
+  CPU_SET(cpu, &cpuSet);
+
+  const std::int32_t result = static_cast<std::int32_t>(
+      pthread_setaffinity_np(pthread_self(), sizeof(cpuSet), &cpuSet));
+
+  if (result != EXIT_SUCCESS) {
+    logger.LogWarn() << "event=THREAD_AFFINITY_FAILED"
+                     << ", thread=" << threadName << ", cpu=" << cpu
+                     << ", error=" << result
+                     << ", reason=" << std::strerror(result);
+    return false;
+  }
+
+  logger.LogInfo() << "event=THREAD_AFFINITY_CONFIGURED"
+                   << ", thread=" << threadName << ", cpu=" << cpu;
+  return true;
+}
+
+template <typename Logger>
+bool ConfigureRealtimeThreadAttributes(pthread_attr_t& attributes,
+                                       const std::int32_t priority,
+                                       const std::int32_t cpu,
+                                       const char* const threadName,
+                                       Logger& logger) noexcept {
+  std::int32_t result =
+      pthread_attr_setinheritsched(&attributes, PTHREAD_EXPLICIT_SCHED);
+  if (result != EXIT_SUCCESS) {
+    logger.LogWarn() << "event=THREAD_ATTRIBUTE_FAILED"
+                     << ", thread=" << threadName
+                     << ", operation=pthread_attr_setinheritsched"
+                     << ", error=" << result
+                     << ", reason=" << std::strerror(result);
+    return false;
+  }
+
+  result = pthread_attr_setschedpolicy(&attributes, SCHED_FIFO);
+  if (result != EXIT_SUCCESS) {
+    logger.LogWarn() << "event=THREAD_ATTRIBUTE_FAILED"
+                     << ", thread=" << threadName
+                     << ", operation=pthread_attr_setschedpolicy"
+                     << ", error=" << result
+                     << ", reason=" << std::strerror(result);
+    return false;
+  }
+
+  sched_param schedulingParameters{};
+  schedulingParameters.sched_priority = static_cast<int>(priority);
+
+  result = pthread_attr_setschedparam(&attributes, &schedulingParameters);
+  if (result != EXIT_SUCCESS) {
+    logger.LogWarn() << "event=THREAD_ATTRIBUTE_FAILED"
+                     << ", thread=" << threadName
+                     << ", operation=pthread_attr_setschedparam"
+                     << ", error=" << result
+                     << ", reason=" << std::strerror(result);
+    return false;
+  }
+
+  cpu_set_t cpuSet{};
+  CPU_ZERO(&cpuSet);
+  CPU_SET(cpu, &cpuSet);
+
+  result = pthread_attr_setaffinity_np(&attributes, sizeof(cpuSet), &cpuSet);
+  if (result != EXIT_SUCCESS) {
+    logger.LogWarn() << "event=THREAD_ATTRIBUTE_FAILED"
+                     << ", thread=" << threadName
+                     << ", operation=pthread_attr_setaffinity_np"
+                     << ", cpu=" << cpu << ", error=" << result
+                     << ", reason=" << std::strerror(result);
+    return false;
+  }
+
+  return true;
+}
+
+template <typename Logger>
+void PrefaultCurrentThreadStack(const char* const threadName,
+                                Logger& logger) noexcept {
+  std::array<std::uint8_t, kPrefaultStackBytes> stackPages{};
+  volatile std::uint8_t* const writablePages = stackPages.data();
+
+  for (std::size_t offset{0U}; offset < stackPages.size();
+       offset += kPageSizeBytes) {
+    writablePages[offset] = std::uint8_t{0U};
+  }
+
+  logger.LogInfo() << "event=THREAD_STACK_PREFAULTED"
+                   << ", thread=" << threadName
+                   << ", bytes=" << stackPages.size();
+}
+
+#endif  // TRAFFIC_SIGNAL_CONTROLLER_COMMON_CONFIG_H_
